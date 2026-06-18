@@ -335,9 +335,17 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
   const [note, setNote] = useState('');
   const [envoi, setEnvoi] = useState(false);
   const [done, setDone] = useState(null);
+  const [filtreCat, setFiltreCat] = useState('Tous');
 
   const dispo = produits.filter((p) => p.disponible);
   const cats = CATEGORIES.filter((c) => dispo.some((p) => p.categorie === c));
+
+  useEffect(() => {
+    if (filtreCat !== 'Tous' && !cats.includes(filtreCat)) setFiltreCat('Tous');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cats.join(',')]);
+
+  const catsAffichees = filtreCat === 'Tous' ? cats : cats.filter((c) => c === filtreCat);
 
   const setQty = (p, q) => {
     const min = 0;
@@ -415,7 +423,20 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
       ) : dispo.length === 0 ? (
         <div className="vp-empty">Aucun produit pour l'instant.</div>
       ) : (
-        cats.map((cat) => (
+        <>
+          {cats.length > 1 && (
+            <div className="vp-tabs">
+              <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>
+                Tous
+              </button>
+              {cats.map((cat) => (
+                <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+          {catsAffichees.map((cat) => (
           <div key={cat}>
             <div className="vp-cat">{cat}</div>
             {dispo.filter((p) => p.categorie === cat).map((p) => {
@@ -450,7 +471,8 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
               );
             })}
           </div>
-        ))
+          ))}
+        </>
       )}
 
       {ouvert && lignes.length > 0 && (
