@@ -111,6 +111,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
   padding:14px;display:flex;gap:13px;align-items:center;margin-bottom:10px;box-shadow:var(--shadow)}
 .vp-emoji{font-size:30px;line-height:1;width:46px;height:46px;display:grid;place-items:center;
   background:var(--paper);border-radius:12px;flex:0 0 auto}
+.vp-photo{width:46px;height:46px;border-radius:12px;object-fit:cover;flex:0 0 auto;border:1px solid var(--line)}
 .vp-pinfo{flex:1;min-width:0}
 .vp-pname{font-weight:700;font-size:16px}
 .vp-pmeta{color:var(--muted);font-size:13px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
@@ -412,7 +413,9 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
               const q = cart[p.id] || 0;
               return (
                 <div className="vp-prod" key={p.id}>
-                  <div className="vp-emoji">{p.emoji}</div>
+                  {p.photo_url
+                    ? <img src={p.photo_url} alt={p.nom} className="vp-photo" />
+                    : <div className="vp-emoji">{p.emoji}</div>}
                   <div className="vp-pinfo">
                     <div className="vp-pname">{p.nom}</div>
                     <div className="vp-pmeta">
@@ -633,11 +636,29 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_fixe', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', disponible: true, ordre: produits.length + 1 };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_fixe', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1 };
   const [form, setForm] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const ouvrirNouveau = () => setForm({ ...vide, ordre: produits.length + 1 });
-  const ouvrirEdit = (p) => setForm({ ...p, prix_patrice: String(p.prix_patrice ?? ''), prix_william: String(p.prix_william ?? ''), poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '' });
+  const ouvrirEdit = (p) => setForm({ ...p, prix_patrice: String(p.prix_patrice ?? ''), prix_william: String(p.prix_william ?? ''), poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '', photo_url: p.photo_url || '' });
+
+  const choisirPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from('viande-photos').upload(path, file, { upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from('viande-photos').getPublicUrl(path);
+      setForm((f) => ({ ...f, photo_url: data.publicUrl }));
+      showToast('Photo ajoutée');
+    } catch (err) {
+      showToast("Échec de l'envoi de la photo");
+    } finally { setUploading(false); }
+  };
 
   const appliquerMarge = () => {
     const base = parseFloat(form.prix_patrice);
@@ -652,7 +673,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       nom: form.nom.trim(), categorie: form.categorie, mode_vente: form.mode_vente,
       prix_patrice: parseFloat(form.prix_patrice) || 0, prix_william: parseFloat(form.prix_william) || 0,
       poids_moyen: form.mode_vente === 'piece_pesee' ? (parseFloat(form.poids_moyen) || null) : null,
-      emoji: form.emoji, disponible: form.disponible, ordre: Number(form.ordre) || 0,
+      emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
     };
     if (form.id) await supabase.from('viande_produits').update(payload).eq('id', form.id);
     else await supabase.from('viande_produits').insert(payload);
@@ -731,7 +752,25 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         )}
 
         <div style={{ marginTop: 12 }}>
-          <label className="vp-label">Emoji</label>
+          <label className="vp-label">Photo (facultatif — sinon l'emoji est utilisé)</label>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            {form.photo_url
+              ? <img src={form.photo_url} alt="" style={{ width: 64, height: 64, borderRadius: 12, objectFit: 'cover', border: '1px solid var(--line)' }} />
+              : <div style={{ width: 64, height: 64, borderRadius: 12, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', fontSize: 28 }}>{form.emoji}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label className="vp-btn ghost sm" style={{ display: 'inline-block', cursor: 'pointer', textAlign: 'center' }}>
+                {uploading ? 'Envoi…' : (form.photo_url ? 'Changer la photo' : 'Ajouter une photo')}
+                <input type="file" accept="image/*" onChange={choisirPhoto} disabled={uploading} style={{ display: 'none' }} />
+              </label>
+              {form.photo_url && (
+                <button className="vp-trash" onClick={() => setForm({ ...form, photo_url: '' })}>Retirer la photo</button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <label className="vp-label">Emoji {form.photo_url && <span style={{ fontWeight: 400 }}>(utilisé seulement si pas de photo)</span>}</label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {EMOJIS.map((e) => (
               <button key={e} onClick={() => setForm({ ...form, emoji: e })}
@@ -739,6 +778,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
             ))}
           </div>
         </div>
+
 
         <div className="vp-srow" style={{ marginTop: 14 }}>
           <span className="vp-label" style={{ margin: 0 }}>Disponible</span>
@@ -768,7 +808,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div className="vp-cmd" key={p.id}>
             <div className="vp-srow">
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
-                <span style={{ fontSize: 24 }}>{p.emoji}</span>
+                {p.photo_url
+                  ? <img src={p.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
+                  : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700 }}>{p.nom}</div>
                   <div className="vp-sub">
