@@ -98,7 +98,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .vp-closed{background:var(--red-s);color:var(--wine)}
 .vp-dot{width:8px;height:8px;border-radius:50%;background:currentColor}
 .vp-note{margin-top:14px;background:#FFF8EC;border:1px solid #F1DFBC;color:#7A5A20;
-  padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;text-align:left;width:100%}
+  padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;text-align:center;width:100%}
 
 /* catégorie + produit */
 .vp-cat{font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
@@ -171,7 +171,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 
 /* ===== ADMIN ===== */
 .vp-tabs{display:flex;gap:6px;overflow-x:auto;padding:14px 0 10px;position:sticky;top:0;
-  background:var(--paper);z-index:5;-webkit-overflow-scrolling:touch}
+  background:var(--paper);z-index:5;-webkit-overflow-scrolling:touch;justify-content:center}
 .vp-tabs::-webkit-scrollbar{display:none}
 .vp-tab{white-space:nowrap;padding:9px 14px;border-radius:999px;font-weight:600;font-size:14px;
   background:#fff;border:1px solid var(--line);color:var(--muted)}
