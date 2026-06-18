@@ -86,7 +86,11 @@ html,body{overflow-x:hidden;max-width:100%}
 body{margin:0;background:var(--paper);color:var(--ink);
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;}
-.vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;}
+.vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;position:relative}
+.vp-admin-icon{position:absolute;top:18px;right:14px;width:38px;height:38px;border-radius:11px;
+  background:#fff;border:1px solid var(--line);color:var(--muted);display:grid;place-items:center;
+  box-shadow:var(--shadow);z-index:10}
+.vp-admin-icon:active{transform:scale(.94);color:var(--wine)}
 .vp-admin{max-width:760px;}
 h1,h2,h3{font-family:'Bricolage Grotesque','Inter',sans-serif;margin:0;letter-spacing:-.01em;}
 button{font-family:inherit;cursor:pointer;border:none}
@@ -266,12 +270,19 @@ export default function App() {
   }, []);
 
   // état d'ouverture
+  const ouvertureAt = useMemo(() => {
+    if (!settings) return null;
+    try { return new Date(`${settings.date_vente}T${settings.heure_ouverture || '09:00'}:00`).getTime(); }
+    catch { return null; }
+  }, [settings]);
   const fermetureAt = useMemo(() => {
     if (!settings) return null;
     try { return new Date(`${settings.date_vente}T${settings.heure_fermeture}:00`).getTime(); }
     catch { return null; }
   }, [settings]);
-  const ouvert = settings?.vente_active && (!fermetureAt || now < fermetureAt);
+  const ouvert = !!settings?.vente_active
+    && (!ouvertureAt || now >= ouvertureAt)
+    && (!fermetureAt || now < fermetureAt);
 
   if (!supabase) return <SetupScreen />;
   if (!settings) return <div className="vp-app"><div className="vp-empty">Chargement…</div></div>;
@@ -283,13 +294,13 @@ export default function App() {
       {view === 'admin' ? (
         <Admin
           settings={settings} produits={produits} now={now}
-          fermetureAt={fermetureAt} ouvert={ouvert}
+          fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           reload={loadBase} showToast={showToast}
         />
       ) : (
         <Client
           settings={settings} produits={produits} now={now}
-          fermetureAt={fermetureAt} ouvert={ouvert} showToast={showToast}
+          fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert} showToast={showToast}
         />
       )}
     </>
@@ -315,10 +326,17 @@ function SetupScreen() {
 /* ============================================================
    COUNTDOWN
 ============================================================ */
-function Countdown({ fermetureAt, now, ouvert }) {
-  if (!fermetureAt) return null;
-  const reste = fermetureAt - now;
+function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive }) {
+  if (!fermetureAt && !ouvertureAt) return null;
+  if (!venteActive) {
+    return <span className="vp-status vp-closed"><span className="vp-dot" />Commandes fermées</span>;
+  }
+  if (ouvertureAt && now < ouvertureAt) {
+    const h = new Date(ouvertureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return <span className="vp-status vp-closed"><span className="vp-dot" />Ouverture à {h}</span>;
+  }
   if (!ouvert) return <span className="vp-status vp-closed"><span className="vp-dot" />Commandes fermées</span>;
+  const reste = fermetureAt - now;
   const h = Math.floor(reste / 3600000);
   const m = Math.floor((reste % 3600000) / 60000);
   const txt = h > 0 ? `Fermeture dans ${h}h${String(m).padStart(2, '0')}` : `Fermeture dans ${m} min`;
@@ -328,7 +346,7 @@ function Countdown({ fermetureAt, now, ouvert }) {
 /* ============================================================
    CLIENT — interface de commande
 ============================================================ */
-function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
+function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, showToast }) {
   const [cart, setCart] = useState({}); // id -> quantite
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
@@ -410,11 +428,17 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
 
   return (
     <div className="vp-app">
+      <button className="vp-admin-icon" onClick={() => { window.location.hash = 'admin'; }} aria-label="Espace organisateur" title="Espace organisateur">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </button>
       <div className="vp-head">
         <div className="vp-kicker">Promo du voisin</div>
         <h1 className="vp-title">{settings.titre}</h1>
         <div className="vp-date">{fmtDate(settings.date_vente)}</div>
-        <Countdown fermetureAt={fermetureAt} now={now} ouvert={ouvert} />
+        <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
       </div>
 
@@ -517,10 +541,6 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
           </div>
         </>
       )}
-
-      <div className="vp-foot">
-        <button onClick={() => { window.location.hash = 'admin'; }}>Espace organisateur</button>
-      </div>
     </div>
   );
 }
@@ -674,6 +694,10 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_fixe', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1 };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [filtreCat, setFiltreCat] = useState('Tous');
+
+  const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => p.categorie === c));
+  const produitsAffiches = filtreCat === 'Tous' ? produits : produits.filter((p) => p.categorie === filtreCat);
 
   const ouvrirNouveau = () => setForm({ ...vide, ordre: produits.length + 1 });
   const ouvrirEdit = (p) => setForm({ ...p, prix_patrice: String(p.prix_patrice ?? ''), prix_william: String(p.prix_william ?? ''), poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '', photo_url: p.photo_url || '' });
@@ -834,9 +858,21 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         <div><div className="vp-h2">Produits</div><div className="vp-sub">{produits.length} au catalogue</div></div>
         <button className="vp-btn" onClick={ouvrirNouveau}>+ Ajouter</button>
       </div>
-      {produits.length === 0 ? (
+      {catsPresentes.length > 1 && (
+        <div className="vp-tabs" style={{ paddingTop: 0 }}>
+          <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>
+            Tous ({produits.length})
+          </button>
+          {catsPresentes.map((cat) => (
+            <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
+              {cat} ({produits.filter((p) => p.categorie === cat).length})
+            </button>
+          ))}
+        </div>
+      )}
+      {produitsAffiches.length === 0 ? (
         <div className="vp-empty">Aucun produit. Ajoute les promos de Patrice.</div>
-      ) : produits.map((p) => {
+      ) : produitsAffiches.map((p) => {
         const m = MODES[p.mode_vente];
         const mg = p.prix_patrice > 0 ? Math.round((p.prix_william / p.prix_patrice - 1) * 100) : 0;
         return (
@@ -1057,14 +1093,24 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
 /* ---------- Admin : Réglages ---------- */
 function AdminReglages({ settings, commandes, reload, showToast }) {
   const [f, setF] = useState({
-    titre: settings.titre, date_vente: settings.date_vente, heure_fermeture: settings.heure_fermeture,
+    titre: settings.titre, date_vente: settings.date_vente,
+    heure_ouverture: settings.heure_ouverture || '09:00', heure_fermeture: settings.heure_fermeture,
     vente_active: settings.vente_active, message_accueil: settings.message_accueil || '',
     pin_admin: settings.pin_admin, marge_defaut: String(settings.marge_defaut),
   });
 
+  const toggleVente = async () => {
+    const nouveau = !f.vente_active;
+    setF((x) => ({ ...x, vente_active: nouveau }));
+    await supabase.from('viande_settings').update({ vente_active: nouveau, updated_at: new Date().toISOString() }).eq('id', 1);
+    reload();
+    showToast(nouveau ? 'Vente activée' : 'Vente désactivée — boutique fermée');
+  };
+
   const sauver = async () => {
     await supabase.from('viande_settings').update({
-      titre: f.titre.trim() || 'Promo viande', date_vente: f.date_vente, heure_fermeture: f.heure_fermeture,
+      titre: f.titre.trim() || 'Promo viande', date_vente: f.date_vente,
+      heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
       vente_active: f.vente_active, message_accueil: f.message_accueil.trim() || null,
       pin_admin: f.pin_admin.trim() || '0000', marge_defaut: parseFloat(f.marge_defaut) || 0,
       updated_at: new Date().toISOString(),
@@ -1087,8 +1133,15 @@ function AdminReglages({ settings, commandes, reload, showToast }) {
     <>
       <div className="vp-section">
         <div className="vp-srow">
-          <div><div className="vp-h2">Vente en cours</div><div className="vp-sub">Ouvre ou ferme les commandes manuellement.</div></div>
-          <div className={`vp-toggle ${f.vente_active ? 'on' : ''}`} onClick={() => setF({ ...f, vente_active: !f.vente_active })} />
+          <div>
+            <div className="vp-h2">{f.vente_active ? 'Boutique ouverte' : 'Boutique fermée'}</div>
+            <div className="vp-sub">
+              {f.vente_active
+                ? `Ouvre auto. à ${f.heure_ouverture}, ferme à ${f.heure_fermeture} — ou coupe ici à tout moment`
+                : 'Coupée manuellement, même pendant les horaires habituels'}
+            </div>
+          </div>
+          <div className={`vp-toggle ${f.vente_active ? 'on' : ''}`} onClick={toggleVente} />
         </div>
       </div>
 
@@ -1102,9 +1155,13 @@ function AdminReglages({ settings, commandes, reload, showToast }) {
             <input className="vp-input" type="date" value={f.date_vente} onChange={(e) => setF({ ...f, date_vente: e.target.value })} />
           </div>
           <div>
-            <label className="vp-label">Heure de fermeture</label>
-            <input className="vp-input" type="time" value={f.heure_fermeture} onChange={(e) => setF({ ...f, heure_fermeture: e.target.value })} />
+            <label className="vp-label">Heure d'ouverture</label>
+            <input className="vp-input" type="time" value={f.heure_ouverture} onChange={(e) => setF({ ...f, heure_ouverture: e.target.value })} />
           </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label className="vp-label">Heure de fermeture</label>
+          <input className="vp-input" type="time" value={f.heure_fermeture} onChange={(e) => setF({ ...f, heure_fermeture: e.target.value })} />
         </div>
 
         <div className="vp-field">
