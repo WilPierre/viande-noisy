@@ -130,12 +130,12 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
 /* stepper */
 .vp-step{display:flex;align-items:center;gap:0;flex:0 0 auto}
-.vp-step button{width:34px;height:34px;border-radius:9px;background:var(--paper);
+.vp-step button:not(.vp-add){width:34px;height:34px;border-radius:9px;background:var(--paper);
   border:1px solid var(--line);font-size:19px;font-weight:700;color:var(--wine);
   display:grid;place-items:center}
-.vp-step button:active{transform:scale(.94)}
+.vp-step button:not(.vp-add):active{transform:scale(.94)}
 .vp-qty{min-width:46px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
-.vp-add{background:var(--wine);color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;font-size:14px}
+.vp-add{background:var(--wine);color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;font-size:14px;white-space:nowrap}
 .vp-add:active{background:var(--wine-d)}
 .vp-unavail{color:var(--muted);font-size:13px;font-style:italic}
 
