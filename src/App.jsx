@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 /* ============================================================
@@ -513,6 +513,7 @@ function Admin({ settings, produits, now, fermetureAt, ouvert, reload, showToast
       .subscribe();
     const poll = setInterval(loadCommandes, 8000);
     return () => { supabase.removeChannel(ch); clearInterval(poll); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unlocked, settings.date_vente]);
 
   const check = () => {
@@ -862,6 +863,7 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
       if (l.poids_reel != null) init[l.id] = String(l.poids_reel);
     }));
     setPoids((p) => ({ ...init, ...p }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commandes.length]);
 
   const enregistrer = async () => {
@@ -1055,4 +1057,3 @@ function AdminReglages({ settings, commandes, reload, showToast }) {
     </>
   );
 }
-
