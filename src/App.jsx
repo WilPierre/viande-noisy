@@ -20,7 +20,7 @@ const MODES = {
   kg:          { label: 'Au kilo',            court: 'kg',    prixUnite: '€/kg',    pese: true,  decimal: true  },
   piece_pesee: { label: 'À la pièce (pesé)',  court: 'pièce', prixUnite: '€/kg',    pese: true,  decimal: false },
 };
-const CATEGORIES = ['Viande', 'Charcuterie', 'Fromage', 'Autre'];
+const CATEGORIES = ['Viande', 'Charcuterie', 'Crèmerie', 'Autre'];
 const EMOJIS = ['🥩', '🍖', '🍗', '🥓', '🌭', '🧀', '🍳', '🐔', '🐖', '🐄', '🧺', '🛒'];
 
 /* ============================================================
@@ -349,7 +349,7 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
 
   const setQty = (p, q) => {
     const min = 0;
-    const step = MODES[p.mode_vente].decimal ? 0.25 : 1;
+    const step = 1;
     let v = Math.max(min, Math.round(q / step) * step);
     v = Math.round(v * 100) / 100;
     setCart((c) => { const n = { ...c }; if (v <= 0) delete n[p.id]; else n[p.id] = v; return n; });
@@ -462,10 +462,10 @@ function Client({ settings, produits, now, fermetureAt, ouvert, showToast }) {
                     </div>
                   </div>
                   <div className="vp-step">
-                    {q > 0 && <button onClick={() => setQty(p, q - (m.decimal ? 0.25 : 1))}>−</button>}
-                    {q > 0 && <span className="vp-qty">{num(q)}{m.decimal ? '' : ''}</span>}
-                    {q > 0 && <button onClick={() => setQty(p, q + (m.decimal ? 0.25 : 1))}>+</button>}
-                    {q <= 0 && <button className="vp-add" onClick={() => setQty(p, m.decimal ? 0.5 : 1)}>Ajouter</button>}
+                    {q > 0 && <button onClick={() => setQty(p, q - 1)}>−</button>}
+                    {q > 0 && <span className="vp-qty">{num(q)}</span>}
+                    {q > 0 && <button onClick={() => setQty(p, q + 1)}>+</button>}
+                    {q <= 0 && <button className="vp-add" onClick={() => setQty(p, 1)}>Ajouter</button>}
                   </div>
                 </div>
               );
