@@ -44,14 +44,6 @@ function sousTotalFinal(l) {
   const poids = l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
   return poids * (Number(l.prix_william) || 0);
 }
-function fmtDate(d) {
-  if (!d) return '';
-  try {
-    return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', {
-      weekday: 'long', day: 'numeric', month: 'long',
-    });
-  } catch { return d; }
-}
 function fmtDateCourt(d) {
   if (!d) return '';
   try { return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); }
@@ -97,17 +89,16 @@ button{font-family:inherit;cursor:pointer;border:none}
 input,select,textarea{font-family:inherit;font-size:16px}
 
 /* header */
-.vp-head{padding:22px 4px 14px;}
-.vp-kicker{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.vp-head{padding:22px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
+.vp-logo{width:84px;height:auto;margin-bottom:10px}
 .vp-title{font-size:30px;font-weight:800;line-height:1.05;margin-top:4px}
-.vp-date{color:var(--muted);font-size:14px;margin-top:6px;text-transform:capitalize}
 .vp-status{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:8px 14px;
   border-radius:999px;font-size:13px;font-weight:600}
 .vp-open{background:var(--green-s);color:var(--green)}
 .vp-closed{background:var(--red-s);color:var(--wine)}
 .vp-dot{width:8px;height:8px;border-radius:50%;background:currentColor}
 .vp-note{margin-top:14px;background:#FFF8EC;border:1px solid #F1DFBC;color:#7A5A20;
-  padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5}
+  padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;text-align:left;width:100%}
 
 /* catégorie + produit */
 .vp-cat{font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
@@ -435,9 +426,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
         </svg>
       </button>
       <div className="vp-head">
-        <div className="vp-kicker">Promo du voisin</div>
+        <img src="/logo-mouton.png" alt="" className="vp-logo" />
         <h1 className="vp-title">{settings.titre}</h1>
-        <div className="vp-date">{fmtDate(settings.date_vente)}</div>
         <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
       </div>
