@@ -113,12 +113,12 @@ input,select,textarea{font-family:inherit;font-size:16px}
   background:var(--paper);border-radius:14px;flex:0 0 auto}
 .vp-photo-wrap{position:relative;flex:0 0 auto}
 .vp-photo{width:60px;height:60px;border-radius:14px;object-fit:cover;display:block;border:1px solid var(--line)}
+.vp-photo-zoom{position:absolute;left:0;top:68px;width:230px;height:230px;border-radius:16px;
+  object-fit:cover;border:3px solid #fff;box-shadow:0 14px 34px rgba(36,30,27,.28);
+  opacity:0;transform:translateY(-6px);pointer-events:none;
+  transition:opacity .15s ease,transform .15s ease;z-index:30}
 @media (hover:hover) and (pointer:fine){
   .vp-photo-wrap:hover .vp-photo{transform:scale(1.05);transition:transform .15s ease}
-  .vp-photo-zoom{position:absolute;left:0;top:68px;width:230px;height:230px;border-radius:16px;
-    object-fit:cover;border:3px solid #fff;box-shadow:0 14px 34px rgba(36,30,27,.28);
-    opacity:0;transform:translateY(-6px);pointer-events:none;
-    transition:opacity .15s ease,transform .15s ease;z-index:30}
   .vp-photo-wrap:hover .vp-photo-zoom{opacity:1;transform:translateY(0)}
 }
 .vp-pinfo{flex:1;min-width:0}
