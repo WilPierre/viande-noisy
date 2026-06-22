@@ -918,50 +918,198 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
 /* ---------- Admin : Export Patrice ---------- */
 function AdminExport({ commandes, produits, settings, showToast }) {
-  // agrégation par produit
-  const agg = {};
-  commandes.forEach((c) => (c.lignes || []).forEach((l) => {
-    if (!agg[l.produit_nom]) agg[l.produit_nom] = { nom: l.produit_nom, emoji: l.emoji, mode: l.mode_vente, qte: 0, cout: 0 };
-    agg[l.produit_nom].qte += Number(l.quantite || 0);
-    agg[l.produit_nom].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
-  }));
-  const lignes = Object.values(agg);
-  const coutTotal = lignes.reduce((s, x) => s + x.cout, 0);
+  // Les lignes ne stockent pas la catégorie -> on la retrouve via le produit
+  const catParId = useMemo(() => {
+    const m = {};
+    (produits || []).forEach((p) => { m[p.id] = p.categorie || 'Autre'; });
+    return m;
+  }, [produits]);
 
-  const uniteTxt = (mode, qte) =>
-    mode === 'kg' ? `${num(qte)} kg` : `${num(qte)} pièce(s)`;
+  const { groupes, coutTotal, poidsTotal, nbClients } = useMemo(() => {
+    // Agrégation par produit (chaque produit a un seul mode_vente)
+    const agg = {};
+    commandes.forEach((c) => (c.lignes || []).forEach((l) => {
+      const key = l.produit_id ?? l.produit_nom;
+      if (!agg[key]) {
+        agg[key] = {
+          nom: l.produit_nom,
+          emoji: l.emoji,
+          mode: l.mode_vente,
+          categorie: catParId[l.produit_id] || 'Autre',
+          qte: 0,      // pièces (piece_fixe/piece_pesee) ou kg (mode kg)
+          poidsKg: 0,  // poids estimé en kg (0 pour piece_fixe)
+          cout: 0,     // au prix Patrice
+        };
+      }
+      agg[key].qte += Number(l.quantite || 0);
+      agg[key].poidsKg += poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
+      agg[key].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
+    }));
 
+    const lignes = Object.values(agg);
+
+    // Tri par ordre de CATEGORIES puis nom
+    const rangCat = (cat) => {
+      const i = CATEGORIES.indexOf(cat);
+      return i === -1 ? 99 : i;
+    };
+    lignes.sort((a, b) =>
+      rangCat(a.categorie) - rangCat(b.categorie) || a.nom.localeCompare(b.nom, 'fr'));
+
+    // Regroupement par catégorie + sous-totaux
+    const groupes = [];
+    lignes.forEach((l) => {
+      let g = groupes.find((x) => x.categorie === l.categorie);
+      if (!g) {
+        g = { categorie: l.categorie, lignes: [], sousCout: 0, sousPoids: 0 };
+        groupes.push(g);
+      }
+      g.lignes.push(l);
+      g.sousCout += l.cout;
+      g.sousPoids += l.poidsKg;
+    });
+
+    const clients = new Set(commandes.map((c) => c.nom_client).filter(Boolean));
+    return {
+      groupes,
+      coutTotal: lignes.reduce((s, x) => s + x.cout, 0),
+      poidsTotal: lignes.reduce((s, x) => s + x.poidsKg, 0),
+      nbClients: clients.size,
+    };
+  }, [commandes, catParId]);
+
+  const aDesLignes = groupes.some((g) => g.lignes.length > 0);
+
+  // Quantité lisible pour Patrice selon le mode
+  const qteTxt = (x) => {
+    if (x.mode === 'kg') return `${num(x.qte)} kg`;
+    if (x.mode === 'piece_pesee') return `${num(x.qte)} pièce(s) ≈ ${num(x.poidsKg)} kg`;
+    return `${num(x.qte)} pièce(s)`;
+  };
+
+  // ── 1) Message WhatsApp ────────────────────────────────────────────
   const texte = () => {
-    let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n\n`;
-    lignes.forEach((x) => { t += `• ${x.nom} : ${uniteTxt(x.mode, x.qte)}\n`; });
-    t += `\nCoût total estimé (prix Patrice) : ${eur(coutTotal)}`;
+    let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n`;
+    if (settings.titre) t += `${settings.titre}\n`;
+    t += '\n';
+    groupes.forEach((g) => {
+      t += `— ${g.categorie.toUpperCase()} —\n`;
+      g.lignes.forEach((x) => { t += `• ${x.nom} : ${qteTxt(x)}\n`; });
+      t += '\n';
+    });
+    if (poidsTotal > 0) t += `Poids estimé total : ${num(poidsTotal)} kg\n`;
+    t += `Coût total estimé (prix Patrice) : ${eur(coutTotal)}`;
     return t;
   };
 
+  // ── 2) CSV ─────────────────────────────────────────────────────────
   const csv = () => {
-    let c = 'Produit;Mode;Quantite;Unite;Prix Patrice;Cout estime\n';
-    lignes.forEach((x) => {
-      const unite = x.mode === 'kg' ? 'kg' : 'piece';
-      c += `${x.nom};${MODES[x.mode].label};${num(x.qte)};${unite};;${(Math.round(x.cout * 100) / 100).toString().replace('.', ',')}\n`;
-    });
+    const dec = (n) => (Math.round(n * 100) / 100).toString().replace('.', ',');
+    let c = 'Categorie;Produit;Mode;Quantite;Poids estime (kg);Cout Patrice\n';
+    groupes.forEach((g) => g.lignes.forEach((x) => {
+      c += `${g.categorie};${x.nom};${MODES[x.mode].label};${num(x.qte)};${x.poidsKg ? dec(x.poidsKg) : ''};${dec(x.cout)}\n`;
+    }));
     const blob = new Blob(['\ufeff' + c], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `commande-patrice-${settings.date_vente}.csv`; a.click();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `commande-patrice-${settings.date_vente}.csv`;
+    a.click();
+  };
+
+  // ── 3) PDF brandé ──────────────────────────────────────────────────
+  const pdf = () => {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    const M = 40;
+
+    // Bandeau
+    doc.setFillColor(12, 47, 35); doc.rect(0, 0, W, 92, 'F');
+    doc.setFillColor(200, 162, 74); doc.rect(0, 92, W, 4, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
+    doc.text('COMMANDE POUR PATRICE', M, 42);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(200, 162, 74);
+    doc.text(`Viande Noisy${settings.titre ? ' — ' + settings.titre : ''}`, M, 62);
+    doc.setTextColor(220, 226, 222); doc.setFontSize(9);
+    doc.text(`Vente du ${fmtDateCourt(settings.date_vente)}`, W - M, 42, { align: 'right' });
+    doc.text(`${commandes.length} commande(s) · ${nbClients} client(s)`, W - M, 58, { align: 'right' });
+
+    // Un tableau par catégorie
+    let y = 116;
+    groupes.forEach((g) => {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: M, right: M },
+        head: [[g.categorie, 'Quantité', 'Poids est.', 'Coût Patrice']],
+        body: g.lignes.map((x) => [
+          x.nom,
+          x.mode === 'kg' ? `${num(x.qte)} kg` : `${num(x.qte)} pc`,
+          x.poidsKg ? `${num(x.poidsKg)} kg` : '—',
+          eur(x.cout),
+        ]),
+        foot: [[
+          { content: `Sous-total — ${g.categorie}`, colSpan: 2, styles: { halign: 'right' } },
+          g.sousPoids ? `${num(g.sousPoids)} kg` : '—',
+          eur(g.sousCout),
+        ]],
+        theme: 'grid',
+        styles: { font: 'helvetica', fontSize: 9, cellPadding: 5, lineColor: [228, 226, 219] },
+        headStyles: { fillColor: [20, 83, 45], textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [241, 244, 242], textColor: [22, 20, 19], fontStyle: 'bold' },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      });
+      y = doc.lastAutoTable.finalY + 14;
+    });
+
+    // Total général
+    autoTable(doc, {
+      startY: y,
+      margin: { left: M, right: M },
+      theme: 'plain',
+      body: [[
+        { content: 'TOTAL', styles: { fontStyle: 'bold' } },
+        { content: poidsTotal ? `${num(poidsTotal)} kg` : '—', styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: eur(coutTotal), styles: { halign: 'right', fontStyle: 'bold', textColor: [20, 83, 45] } },
+      ]],
+      styles: { font: 'helvetica', fontSize: 12, cellPadding: 8 },
+      columnStyles: { 0: { cellWidth: W - 2 * M - 220 } },
+    });
+
+    // Pagination
+    const pages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8); doc.setTextColor(120, 120, 120);
+      doc.text(`Noisy en Fête · Viande Noisy — page ${i}/${pages}`,
+        W / 2, doc.internal.pageSize.getHeight() - 20, { align: 'center' });
+    }
+
+    doc.save(`commande-patrice-${settings.date_vente}.pdf`);
   };
 
   return (
     <>
       <div className="vp-section">
         <div className="vp-h2">Récap pour Patrice</div>
-        <div className="vp-sub">Quantités cumulées de toutes les commandes. À envoyer après la fermeture.</div>
-        {lignes.length === 0 ? (
+        <div className="vp-sub">
+          Quantités cumulées de toutes les commandes, par catégorie. À envoyer après la fermeture.
+        </div>
+
+        {!aDesLignes ? (
           <div className="vp-empty">Pas encore de commande à cumuler.</div>
         ) : (
           <>
             <div className="vp-pre" style={{ marginTop: 12 }}>{texte()}</div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
-              <button className="vp-btn green" onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}>Copier le message</button>
-              <button className="vp-btn ghost" onClick={csv}>Télécharger CSV</button>
+              <button
+                className="vp-btn green"
+                onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}
+              >
+                Copier le message
+              </button>
+              <button className="vp-btn ghost" onClick={pdf}>Télécharger le PDF</button>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <button className="vp-btn ghost sm" onClick={csv}>Télécharger le CSV</button>
             </div>
           </>
         )}
@@ -969,6 +1117,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     </>
   );
 }
+
 
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, settings, reload, showToast }) {
