@@ -1004,42 +1004,62 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     return t;
   };
 
-  // ── 2) CSV / feuille de réconciliation ────────────────────────────
+  // ── 2) CSV / feuille de réconciliation (UNE COMMANDE PAR BLOC) ─────
+  // Chaque commande client = ses lignes + une ligne "Total", suivie
+  // d'une ligne vide pour bien séparer les clients.
   // Colonnes : A Quantité · B Produit · C Poids (rempli à la main)
   //            D Prix Patrice · E Total Patrice · F Prix Nous · G Total Nous
-  // Les colonnes Total sont de VRAIES formules Excel : elles se
-  // recalculent dès qu'un poids est saisi en colonne C.
+  // Les colonnes Total sont de vraies formules Excel (recalcul auto
+  // dès qu'un poids est saisi en colonne C).
   const csv = () => {
     const prix = (n) => (Math.round((Number(n) || 0) * 100) / 100).toString().replace('.', ',');
     const qteFr = (n) => String(Number(n) || 0).replace('.', ',');
 
-    const plates = groupes.flatMap((g) => g.lignes); // à plat, ordre des catégories
-    const lignesCsv = ['Quantité;Produit;Poids;Prix Patrice;Total Patrice;Prix Nous;Total Nous'];
+    const out = [];
+    let row = 0;
+    const push = (cells) => { out.push(cells.join(';')); row += 1; };
 
-    plates.forEach((x, i) => {
-      const r = i + 2; // n° de ligne Excel (1 = en-tête)
-      // Produit pesé (kg / piece_pesee) -> total = Poids (C) × prix
-      // Produit à la pièce non pesé      -> total = Quantité (A) × prix
-      const base = x.mode === 'piece_fixe' ? `A${r}` : `C${r}`;
-      lignesCsv.push([
-        qteFr(x.qte),        // A
-        x.nom,               // B
-        '',                  // C (Poids — vide, à remplir)
-        prix(x.prixPatrice), // D
-        `=${base}*D${r}`,    // E (formule)
-        prix(x.prixWilliam), // F
-        `=${base}*F${r}`,    // G (formule)
-      ].join(';'));
+    // En-tête (ligne 1)
+    push(['Quantité', 'Produit', 'Poids', 'Prix Patrice', 'Total Patrice', 'Prix Nous', 'Total Nous']);
+
+    commandes.forEach((c) => {
+      const lignes = c.lignes || [];
+      if (lignes.length === 0) return;
+
+      // Libellé de la commande
+      push([`COMMANDE — ${c.nom_client || 'client'}`, '', '', '', '', '', '']);
+
+      const first = row + 1; // 1re ligne produit de ce bloc
+      lignes.forEach((l) => {
+        const r = row + 1; // n° de ligne Excel de ce produit
+        // Produit pesé (kg / piece_pesee) -> total = Poids (C) × prix
+        // Produit à la pièce non pesé      -> total = Quantité (A) × prix
+        const base = l.mode_vente === 'piece_fixe' ? `A${r}` : `C${r}`;
+        push([
+          qteFr(l.quantite),                                  // A
+          l.produit_nom,                                      // B
+          l.poids_reel != null ? qteFr(l.poids_reel) : '',    // C (pré-rempli si déjà pesé)
+          prix(l.prix_patrice),                               // D
+          `=${base}*D${r}`,                                   // E (formule)
+          prix(l.prix_william),                               // F
+          `=${base}*F${r}`,                                   // G (formule)
+        ]);
+      });
+      const last = row; // dernière ligne produit de ce bloc
+
+      // Total de la commande
+      push([
+        `Total ${c.nom_client || ''}`.trim(), '',
+        `=SOMME(C${first}:C${last})`, '',
+        `=SOMME(E${first}:E${last})`, '',
+        `=SOMME(G${first}:G${last})`,
+      ]);
+
+      // Ligne vide de séparation entre deux clients
+      push(['', '', '', '', '', '', '']);
     });
 
-    if (plates.length > 0) {
-      const last = plates.length + 1; // dernière ligne de données
-      lignesCsv.push(
-        ['TOTAL', '', `=SOMME(C2:C${last})`, '', `=SOMME(E2:E${last})`, '', `=SOMME(G2:G${last})`].join(';')
-      );
-    }
-
-    const blob = new Blob(['\ufeff' + lignesCsv.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob(['\ufeff' + out.join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `commande-patrice-${settings.date_vente}.csv`;
