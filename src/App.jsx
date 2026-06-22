@@ -514,7 +514,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
 
       {ouvert && lignes.length > 0 && (
         <>
-          <div className="vp-ticket">
+          <div className="vp-ticket" id="zone-commande">
             <div className="vp-th">Ton panier</div>
             {lignes.map(({ p, q }) => {
               const m = MODES[p.mode_vente];
@@ -553,6 +553,24 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
             </button>
           </div>
         </>
+      )}
+
+      {/* Bouton flottant "Commander" : visible dès qu'il y a des articles,
+          il reste collé en bas à droite et défile jusqu'au panier. */}
+      {ouvert && lignes.length > 0 && (
+        <button
+          onClick={() => document.getElementById('zone-commande')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          aria-label="Aller à la commande"
+          style={{
+            position: 'fixed', right: 16, bottom: 88, zIndex: 40,
+            background: 'var(--wine)', color: '#fff', border: 'none',
+            borderRadius: 999, padding: '13px 20px', fontWeight: 800,
+            fontSize: 15, boxShadow: '0 8px 24px rgba(36,30,27,.28)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}
+        >
+          Commander · {eur(total)}
+        </button>
       )}
     </div>
   );
@@ -1167,7 +1185,6 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     </>
   );
 }
-
 
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, settings, reload, showToast }) {
