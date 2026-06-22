@@ -936,9 +936,11 @@ function AdminExport({ commandes, produits, settings, showToast }) {
           emoji: l.emoji,
           mode: l.mode_vente,
           categorie: catParId[l.produit_id] || 'Autre',
-          qte: 0,      // pièces (piece_fixe/piece_pesee) ou kg (mode kg)
-          poidsKg: 0,  // poids estimé en kg (0 pour piece_fixe)
-          cout: 0,     // au prix Patrice
+          prixPatrice: Number(l.prix_patrice) || 0, // prix unitaire d'achat
+          prixWilliam: Number(l.prix_william) || 0, // notre prix unitaire
+          qte: 0,
+          poidsKg: 0,
+          cout: 0,
         };
       }
       agg[key].qte += Number(l.quantite || 0);
@@ -948,7 +950,6 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 
     const lignes = Object.values(agg);
 
-    // Tri par ordre de CATEGORIES puis nom
     const rangCat = (cat) => {
       const i = CATEGORIES.indexOf(cat);
       return i === -1 ? 99 : i;
@@ -956,7 +957,6 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     lignes.sort((a, b) =>
       rangCat(a.categorie) - rangCat(b.categorie) || a.nom.localeCompare(b.nom, 'fr'));
 
-    // Regroupement par catégorie + sous-totaux
     const groupes = [];
     lignes.forEach((l) => {
       let g = groupes.find((x) => x.categorie === l.categorie);
@@ -980,7 +980,6 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 
   const aDesLignes = groupes.some((g) => g.lignes.length > 0);
 
-  // Quantité lisible pour Patrice selon le mode
   const qteTxt = (x) => {
     if (x.mode === 'kg') return `${num(x.qte)} kg`;
     if (x.mode === 'piece_pesee') return `${num(x.qte)} pièce(s) ≈ ${num(x.poidsKg)} kg`;
@@ -1002,88 +1001,46 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     return t;
   };
 
-  // ── 2) CSV ─────────────────────────────────────────────────────────
+  // ── 2) CSV / feuille de réconciliation ────────────────────────────
+  // Colonnes : A Quantité · B Produit · C Poids (rempli à la main)
+  //            D Prix Patrice · E Total Patrice · F Prix Nous · G Total Nous
+  // Les colonnes Total sont de VRAIES formules Excel : elles se
+  // recalculent dès qu'un poids est saisi en colonne C.
   const csv = () => {
-    const dec = (n) => (Math.round(n * 100) / 100).toString().replace('.', ',');
-    let c = 'Categorie;Produit;Mode;Quantite;Poids estime (kg);Cout Patrice\n';
-    groupes.forEach((g) => g.lignes.forEach((x) => {
-      c += `${g.categorie};${x.nom};${MODES[x.mode].label};${num(x.qte)};${x.poidsKg ? dec(x.poidsKg) : ''};${dec(x.cout)}\n`;
-    }));
-    const blob = new Blob(['\ufeff' + c], { type: 'text/csv;charset=utf-8' });
+    const prix = (n) => (Math.round((Number(n) || 0) * 100) / 100).toString().replace('.', ',');
+    const qteFr = (n) => String(Number(n) || 0).replace('.', ',');
+
+    const plates = groupes.flatMap((g) => g.lignes); // à plat, ordre des catégories
+    const lignesCsv = ['Quantité;Produit;Poids;Prix Patrice;Total Patrice;Prix Nous;Total Nous'];
+
+    plates.forEach((x, i) => {
+      const r = i + 2; // n° de ligne Excel (1 = en-tête)
+      // Produit pesé (kg / piece_pesee) -> total = Poids (C) × prix
+      // Produit à la pièce non pesé      -> total = Quantité (A) × prix
+      const base = x.mode === 'piece_fixe' ? `A${r}` : `C${r}`;
+      lignesCsv.push([
+        qteFr(x.qte),        // A
+        x.nom,               // B
+        '',                  // C (Poids — vide, à remplir)
+        prix(x.prixPatrice), // D
+        `=${base}*D${r}`,    // E (formule)
+        prix(x.prixWilliam), // F
+        `=${base}*F${r}`,    // G (formule)
+      ].join(';'));
+    });
+
+    if (plates.length > 0) {
+      const last = plates.length + 1; // dernière ligne de données
+      lignesCsv.push(
+        ['TOTAL', '', `=SOMME(C2:C${last})`, '', `=SOMME(E2:E${last})`, '', `=SOMME(G2:G${last})`].join(';')
+      );
+    }
+
+    const blob = new Blob(['\ufeff' + lignesCsv.join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `commande-patrice-${settings.date_vente}.csv`;
     a.click();
-  };
-
-  // ── 3) PDF brandé ──────────────────────────────────────────────────
-  const pdf = () => {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const W = doc.internal.pageSize.getWidth();
-    const M = 40;
-
-    // Bandeau
-    doc.setFillColor(12, 47, 35); doc.rect(0, 0, W, 92, 'F');
-    doc.setFillColor(200, 162, 74); doc.rect(0, 92, W, 4, 'F');
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-    doc.text('COMMANDE POUR PATRICE', M, 42);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(200, 162, 74);
-    doc.text(`Viande Noisy${settings.titre ? ' — ' + settings.titre : ''}`, M, 62);
-    doc.setTextColor(220, 226, 222); doc.setFontSize(9);
-    doc.text(`Vente du ${fmtDateCourt(settings.date_vente)}`, W - M, 42, { align: 'right' });
-    doc.text(`${commandes.length} commande(s) · ${nbClients} client(s)`, W - M, 58, { align: 'right' });
-
-    // Un tableau par catégorie
-    let y = 116;
-    groupes.forEach((g) => {
-      autoTable(doc, {
-        startY: y,
-        margin: { left: M, right: M },
-        head: [[g.categorie, 'Quantité', 'Poids est.', 'Coût Patrice']],
-        body: g.lignes.map((x) => [
-          x.nom,
-          x.mode === 'kg' ? `${num(x.qte)} kg` : `${num(x.qte)} pc`,
-          x.poidsKg ? `${num(x.poidsKg)} kg` : '—',
-          eur(x.cout),
-        ]),
-        foot: [[
-          { content: `Sous-total — ${g.categorie}`, colSpan: 2, styles: { halign: 'right' } },
-          g.sousPoids ? `${num(g.sousPoids)} kg` : '—',
-          eur(g.sousCout),
-        ]],
-        theme: 'grid',
-        styles: { font: 'helvetica', fontSize: 9, cellPadding: 5, lineColor: [228, 226, 219] },
-        headStyles: { fillColor: [20, 83, 45], textColor: 255, fontStyle: 'bold' },
-        footStyles: { fillColor: [241, 244, 242], textColor: [22, 20, 19], fontStyle: 'bold' },
-        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-      });
-      y = doc.lastAutoTable.finalY + 14;
-    });
-
-    // Total général
-    autoTable(doc, {
-      startY: y,
-      margin: { left: M, right: M },
-      theme: 'plain',
-      body: [[
-        { content: 'TOTAL', styles: { fontStyle: 'bold' } },
-        { content: poidsTotal ? `${num(poidsTotal)} kg` : '—', styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: eur(coutTotal), styles: { halign: 'right', fontStyle: 'bold', textColor: [20, 83, 45] } },
-      ]],
-      styles: { font: 'helvetica', fontSize: 12, cellPadding: 8 },
-      columnStyles: { 0: { cellWidth: W - 2 * M - 220 } },
-    });
-
-    // Pagination
-    const pages = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-      doc.text(`Noisy en Fête · Viande Noisy — page ${i}/${pages}`,
-        W / 2, doc.internal.pageSize.getHeight() - 20, { align: 'center' });
-    }
-
-    doc.save(`commande-patrice-${settings.date_vente}.pdf`);
   };
 
   return (
@@ -1106,10 +1063,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
               >
                 Copier le message
               </button>
-              <button className="vp-btn ghost" onClick={pdf}>Télécharger le PDF</button>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <button className="vp-btn ghost sm" onClick={csv}>Télécharger le CSV</button>
+              <button className="vp-btn ghost" onClick={csv}>Télécharger le CSV</button>
             </div>
           </>
         )}
@@ -1117,7 +1071,6 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     </>
   );
 }
-
 
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, settings, reload, showToast }) {
