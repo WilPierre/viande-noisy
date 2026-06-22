@@ -170,9 +170,20 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-foot button{background:none;color:var(--muted);font-size:12px;text-decoration:underline}
 
 /* ===== ADMIN ===== */
-.vp-tabs{display:flex;gap:6px;overflow-x:auto;padding:14px 0 10px;position:sticky;top:0;
-  background:var(--paper);z-index:5;-webkit-overflow-scrolling:touch;justify-content:center}
-.vp-tabs::-webkit-scrollbar{display:none}
+/* navigation catégorie — desktop : pills, mobile : select */
+.vp-cat-nav{position:sticky;top:0;background:var(--paper);z-index:5;padding:10px 0}
+.vp-cat-select{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
+  background:#fff;color:var(--ink);font-size:15px;font-weight:600;font-family:inherit;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238A7E76' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 14px center}
+.vp-cat-select:focus{outline:none;border-color:var(--wine)}
+.vp-tabs{display:none}
+@media (min-width:520px){
+  .vp-cat-select{display:none}
+  .vp-tabs{display:flex;gap:6px;overflow-x:auto;padding:14px 0 10px;justify-content:flex-start}
+  .vp-tabs::-webkit-scrollbar{display:none}
+}
 .vp-tab{white-space:nowrap;padding:9px 14px;border-radius:999px;font-weight:600;font-size:14px;
   background:#fff;border:1px solid var(--line);color:var(--muted)}
 .vp-tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -439,15 +450,25 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
       ) : (
         <>
           {cats.length > 1 && (
-            <div className="vp-tabs">
-              <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>
-                Tous
-              </button>
-              {cats.map((cat) => (
-                <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
-                  {cat}
-                </button>
-              ))}
+            <div className="vp-cat-nav">
+              {/* Mobile : menu déroulant natif */}
+              <select
+                className="vp-cat-select"
+                value={filtreCat}
+                onChange={(e) => setFiltreCat(e.target.value)}
+              >
+                <option value="Tous">Tous les produits</option>
+                {cats.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              {/* Desktop : pills défilantes */}
+              <div className="vp-tabs">
+                <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tous</button>
+                {cats.map((cat) => (
+                  <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>{cat}</button>
+                ))}
+              </div>
             </div>
           )}
           {catsAffichees.map((cat) => (
