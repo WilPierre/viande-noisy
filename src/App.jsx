@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 
 /* ============================================================
    CONFIG SUPABASE
