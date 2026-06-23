@@ -943,7 +943,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     return m;
   }, [produits]);
 
-  const { groupes, coutTotal, poidsTotal, nbClients } = useMemo(() => {
+  const { groupes, coutTotal, poidsTotal } = useMemo(() => {
     // Agrégation par produit (chaque produit a un seul mode_vente)
     const agg = {};
     commandes.forEach((c) => (c.lignes || []).forEach((l) => {
@@ -989,12 +989,10 @@ function AdminExport({ commandes, produits, settings, showToast }) {
       g.sousPoids += l.poidsKg;
     });
 
-    const clients = new Set(commandes.map((c) => c.nom_client).filter(Boolean));
     return {
       groupes,
       coutTotal: lignes.reduce((s, x) => s + x.cout, 0),
       poidsTotal: lignes.reduce((s, x) => s + x.poidsKg, 0),
-      nbClients: clients.size,
     };
   }, [commandes, catParId]);
 
@@ -1293,7 +1291,6 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
 
   const imprimer = () => {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const W = doc.internal.pageSize.getWidth();
     const H = doc.internal.pageSize.getHeight();
     const M = 40;
 
