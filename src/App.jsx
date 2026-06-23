@@ -1084,74 +1084,101 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     a.click();
   };
 
-  // ── 3) PDF brandé ──────────────────────────────────────────────────
+  // ── 3) PDF (UNE COMMANDE PAR CLIENT) ──────────────────────────────
   const pdf = () => {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
     const W = doc.internal.pageSize.getWidth();
-    const M = 40;
+    const H = doc.internal.pageSize.getHeight();
+    const M = 36;
 
-    // Bandeau
-    doc.setFillColor(12, 47, 35); doc.rect(0, 0, W, 92, 'F');
-    doc.setFillColor(200, 162, 74); doc.rect(0, 92, W, 4, 'F');
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
-    doc.text('COMMANDE POUR PATRICE', M, 42);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(200, 162, 74);
-    doc.text(`Viande Noisy${settings.titre ? ' — ' + settings.titre : ''}`, M, 62);
+    const poidsLigne = (l) =>
+      l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
+    const totPatrice = (l) =>
+      l.mode_vente === 'piece_fixe'
+        ? (Number(l.quantite) || 0) * (Number(l.prix_patrice) || 0)
+        : poidsLigne(l) * (Number(l.prix_patrice) || 0);
+    const totNous = (l) => sousTotalFinal(l);
+
+    doc.setFillColor(12, 47, 35); doc.rect(0, 0, W, 70, 'F');
+    doc.setFillColor(200, 162, 74); doc.rect(0, 70, W, 4, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
+    doc.text('COMMANDES PAR CLIENT', M, 34);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(200, 162, 74);
+    doc.text(`Viande Noisy${settings.titre ? ' — ' + settings.titre : ''}`, M, 52);
     doc.setTextColor(220, 226, 222); doc.setFontSize(9);
-    doc.text(`Vente du ${fmtDateCourt(settings.date_vente)}`, W - M, 42, { align: 'right' });
-    doc.text(`${commandes.length} commande(s) · ${nbClients} client(s)`, W - M, 58, { align: 'right' });
+    doc.text(`Vente du ${fmtDateCourt(settings.date_vente)} · ${commandes.length} commande(s)`, W - M, 34, { align: 'right' });
 
-    // Un tableau par catégorie
-    let y = 116;
-    groupes.forEach((g) => {
+    let y = 92;
+    let gPatrice = 0, gNous = 0;
+
+    commandes.forEach((c) => {
+      const lignes = c.lignes || [];
+      if (lignes.length === 0) return;
+      if (y > H - 90) { doc.addPage(); y = M; }
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(138, 46, 46);
+      const tel = c.telephone ? ` · ${c.telephone}` : '';
+      doc.text(`${c.nom_client || 'Client'}${tel}`, M, y);
+      y += 6;
+
+      let sP = 0, sN = 0;
+      const body = lignes.map((l) => {
+        const tp = totPatrice(l); const tn = totNous(l);
+        sP += tp; sN += tn;
+        const pr = poidsLigne(l);
+        return [
+          num(l.quantite),
+          l.produit_nom,
+          l.mode_vente === 'piece_fixe' ? '—' : (l.poids_reel != null ? `${num(pr)} kg` : `≈ ${num(pr)} kg`),
+          eur(l.prix_patrice),
+          eur(tp),
+          eur(l.prix_william),
+          eur(tn),
+        ];
+      });
+      gPatrice += sP; gNous += sN;
+
       autoTable(doc, {
         startY: y,
         margin: { left: M, right: M },
-        head: [[g.categorie, 'Quantité', 'Poids est.', 'Coût Patrice']],
-        body: g.lignes.map((x) => [
-          x.nom,
-          x.mode === 'kg' ? `${num(x.qte)} kg` : `${num(x.qte)} pc`,
-          x.poidsKg ? `${num(x.poidsKg)} kg` : '—',
-          eur(x.cout),
-        ]),
+        head: [['Qté', 'Produit', 'Poids', 'Prix Patrice', 'Total Patrice', 'Prix Nous', 'Total Nous']],
+        body,
         foot: [[
-          { content: `Sous-total — ${g.categorie}`, colSpan: 2, styles: { halign: 'right' } },
-          g.sousPoids ? `${num(g.sousPoids)} kg` : '—',
-          eur(g.sousCout),
+          { content: `Total ${c.nom_client || ''}`.trim(), colSpan: 4, styles: { halign: 'right' } },
+          eur(sP), '', eur(sN),
         ]],
         theme: 'grid',
-        styles: { font: 'helvetica', fontSize: 9, cellPadding: 5, lineColor: [228, 226, 219] },
+        styles: { font: 'helvetica', fontSize: 9, cellPadding: 4, lineColor: [228, 226, 219] },
         headStyles: { fillColor: [20, 83, 45], textColor: 255, fontStyle: 'bold' },
         footStyles: { fillColor: [241, 244, 242], textColor: [22, 20, 19], fontStyle: 'bold' },
-        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+        columnStyles: {
+          0: { halign: 'right', cellWidth: 38 }, 2: { halign: 'right' },
+          3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
+        },
       });
-      y = doc.lastAutoTable.finalY + 14;
+      y = doc.lastAutoTable.finalY + 20;
     });
 
-    // Total général
+    if (y > H - 70) { doc.addPage(); y = M; }
     autoTable(doc, {
-      startY: y,
-      margin: { left: M, right: M },
-      theme: 'plain',
+      startY: y, margin: { left: M, right: M }, theme: 'plain',
       body: [[
-        { content: 'TOTAL', styles: { fontStyle: 'bold' } },
-        { content: poidsTotal ? `${num(poidsTotal)} kg` : '—', styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: eur(coutTotal), styles: { halign: 'right', fontStyle: 'bold', textColor: [20, 83, 45] } },
+        { content: 'TOTAL GÉNÉRAL', styles: { fontStyle: 'bold' } },
+        { content: `Achat (Patrice) : ${eur(gPatrice)}`, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: `Vente (Nous) : ${eur(gNous)}`, styles: { halign: 'right', fontStyle: 'bold', textColor: [20, 83, 45] } },
+        { content: `Marge : ${eur(gNous - gPatrice)}`, styles: { halign: 'right', fontStyle: 'bold', textColor: [200, 162, 74] } },
       ]],
-      styles: { font: 'helvetica', fontSize: 12, cellPadding: 8 },
-      columnStyles: { 0: { cellWidth: W - 2 * M - 220 } },
+      styles: { font: 'helvetica', fontSize: 11, cellPadding: 6 },
     });
 
-    // Pagination
     const pages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pages; i++) {
       doc.setPage(i);
       doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-      doc.text(`Noisy en Fête · Viande Noisy — page ${i}/${pages}`,
-        W / 2, doc.internal.pageSize.getHeight() - 20, { align: 'center' });
+      doc.text(`Noisy en Fête · Viande Noisy — page ${i}/${pages}`, W / 2, H - 16, { align: 'center' });
     }
 
-    doc.save(`commande-patrice-${settings.date_vente}.pdf`);
+    doc.save(`commandes-clients-${settings.date_vente}.pdf`);
   };
 
   return (
@@ -1188,14 +1215,10 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, settings, reload, showToast }) {
-  // produits pesés (kg / piece_pesee), regroupés par produit
-  const groupes = {};
-  commandes.forEach((c) => (c.lignes || []).forEach((l) => {
-    if (l.mode_vente === 'piece_fixe') return;
-    if (!groupes[l.produit_nom]) groupes[l.produit_nom] = { nom: l.produit_nom, emoji: l.emoji, lignes: [] };
-    groupes[l.produit_nom].lignes.push({ l, client: c.nom_client });
-  }));
-  const liste = Object.values(groupes);
+  // produits pesés (kg / piece_pesee), regroupés PAR CLIENT
+  const pesablesParClient = commandes
+    .map((c) => ({ c, lignes: (c.lignes || []).filter((l) => l.mode_vente !== 'piece_fixe') }))
+    .filter((x) => x.lignes.length > 0);
 
   // état local des poids saisis : ligneId -> valeur
   const [poids, setPoids] = useState({});
@@ -1268,6 +1291,68 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
     return t;
   };
 
+  const imprimer = () => {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const M = 40;
+
+    const poidsLigne = (l) =>
+      l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
+    const tPatrice = (l) =>
+      l.mode_vente === 'piece_fixe'
+        ? (Number(l.quantite) || 0) * (Number(l.prix_patrice) || 0)
+        : poidsLigne(l) * (Number(l.prix_patrice) || 0);
+    const tNous = (l) => sousTotalFinal(l);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(0, 0, 0);
+    doc.text(`Pesées — ${settings.titre || 'Viande Noisy'}`, M, 46);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text(`${fmtDateCourt(settings.date_vente)} · ${commandes.length} commande(s)`, M, 62);
+
+    let y = 80;
+    let gP = 0, gN = 0;
+    commandes.forEach((c) => {
+      const lignes = c.lignes || [];
+      if (lignes.length === 0) return;
+      if (y > H - 80) { doc.addPage(); y = M; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
+      doc.text(c.nom_client || 'Client', M, y); y += 4;
+
+      let sP = 0, sN = 0;
+      const body = lignes.map((l) => {
+        const tp = tPatrice(l), tn = tNous(l); sP += tp; sN += tn;
+        const pr = poidsLigne(l);
+        return [
+          num(l.quantite),
+          l.produit_nom,
+          l.mode_vente === 'piece_fixe' ? '—' : (l.poids_reel != null ? `${num(pr)} kg` : `≈ ${num(pr)} kg`),
+          eur(l.prix_patrice), eur(tp), eur(l.prix_william), eur(tn),
+        ];
+      });
+      gP += sP; gN += sN;
+
+      autoTable(doc, {
+        startY: y, margin: { left: M, right: M },
+        head: [['Qté', 'Produit', 'Poids', 'Px Patrice', 'Tot. Patrice', 'Px Nous', 'Tot. Nous']],
+        body,
+        foot: [[ { content: `Total ${c.nom_client || ''}`.trim(), colSpan: 4, styles: { halign: 'right' } }, eur(sP), '', eur(sN) ]],
+        theme: 'grid',
+        styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, textColor: [0, 0, 0], lineColor: [200, 200, 200] },
+        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [120, 120, 120] },
+        footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
+        columnStyles: { 0: { halign: 'right', cellWidth: 30 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      });
+      y = doc.lastAutoTable.finalY + 16;
+    });
+
+    if (y > H - 50) { doc.addPage(); y = M; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
+    doc.text(`TOTAL — Achat : ${eur(gP)}   Vente : ${eur(gN)}   Marge : ${eur(gN - gP)}`, M, y + 4);
+
+    doc.save(`pesees-${settings.date_vente}.pdf`);
+  };
+
   return (
     <>
       <div className="vp-section">
@@ -1275,17 +1360,17 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
         <div className="vp-sub">Saisis le poids réel (kg) de chaque produit pesé d'après la facture de Patrice. Les notes se recalculent automatiquement.</div>
       </div>
 
-      {liste.length === 0 ? (
+      {pesablesParClient.length === 0 ? (
         <div className="vp-empty">Aucun produit pesé dans les commandes. Tout est à prix fixe.</div>
       ) : (
         <>
-          {liste.map((g) => (
-            <div className="vp-section" key={g.nom}>
-              <div className="vp-h2" style={{ fontSize: 16 }}>{g.emoji} {g.nom}</div>
-              {g.lignes.map(({ l, client }) => (
+          {pesablesParClient.map(({ c, lignes }) => (
+            <div className="vp-section" key={c.id}>
+              <div className="vp-h2" style={{ fontSize: 16 }}>{c.nom_client}</div>
+              {lignes.map((l) => (
                 <div className="vp-wline" key={l.id}>
                   <div className="nm">
-                    {client}
+                    {l.emoji} {l.produit_nom}
                     <small>{l.mode_vente === 'kg' ? `${num(l.quantite)} kg souhaités` : `${num(l.quantite)} pièce(s)`} · {eur(l.prix_william)}/kg</small>
                   </div>
                   <input className="vp-winput" inputMode="decimal" placeholder="kg"
@@ -1304,6 +1389,9 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
           <button className="vp-btn green sm" style={{ marginTop: 10 }}
             onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>
             Copier le récap global
+          </button>
+          <button className="vp-btn ghost sm" style={{ marginTop: 10, marginLeft: 8 }} onClick={imprimer}>
+            Imprimer (PDF)
           </button>
           <div style={{ marginTop: 12 }}>
             {commandes.map((c) => (
