@@ -149,6 +149,7 @@ body{margin:0;background:var(--paper);color:var(--ink);
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;}
 .vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;position:relative}
+.vp-app.vp-avec-panier{padding-bottom:140px}
 .vp-admin-icon{position:absolute;top:18px;right:14px;width:38px;height:38px;border-radius:11px;
   background:#fff;border:1px solid var(--line);color:var(--muted);display:grid;place-items:center;
   box-shadow:var(--shadow);z-index:10}
@@ -312,6 +313,60 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-col-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 10px;
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
+
+/* ===== PANIER FLOTTANT (client) ===== */
+.vp-backdrop{position:fixed;inset:0;background:rgba(36,30,27,.38);z-index:39;
+  animation:vpfade .18s ease}
+@keyframes vpfade{from{opacity:0}to{opacity:1}}
+
+.vp-dock{position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:40;
+  width:100%;max-width:600px;padding:0 14px;
+  padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none}
+.vp-dock > *{pointer-events:auto}
+
+.vp-bar{width:100%;background:var(--wine);color:#fff;border-radius:15px;
+  padding:13px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  box-shadow:0 10px 30px rgba(36,30,27,.3)}
+.vp-bar:active{background:var(--wine-d)}
+.vp-bar-l{display:flex;align-items:center;gap:11px;min-width:0}
+.vp-bar-ico{position:relative;font-size:23px;line-height:1;flex:0 0 auto}
+.vp-bar-badge{position:absolute;top:-6px;right:-9px;min-width:19px;height:19px;padding:0 5px;
+  border-radius:999px;background:#fff;color:var(--wine);font-size:11.5px;font-weight:800;
+  display:grid;place-items:center;font-family:'Inter',sans-serif}
+.vp-bar-txt{display:flex;flex-direction:column;line-height:1.25;text-align:left;min-width:0}
+.vp-bar-txt b{font-size:15px;font-weight:800}
+.vp-bar-txt small{font-size:12px;opacity:.82}
+.vp-bar-r{display:flex;align-items:center;gap:7px;font-size:17px;font-weight:800;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.vp-bar-chev{transition:transform .2s ease;transform:rotate(180deg)}
+.vp-bar-chev.on{transform:rotate(0deg)}
+
+.vp-sheet{background:var(--card);border:1px solid var(--line);border-radius:17px;
+  padding:16px;margin-bottom:10px;max-height:72vh;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;box-shadow:0 -4px 40px rgba(36,30,27,.22);
+  animation:vpup .22s cubic-bezier(.22,1,.36,1)}
+@keyframes vpup{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+.vp-sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.vp-sheet-x{width:32px;height:32px;border-radius:10px;background:var(--paper);
+  border:1px solid var(--line);color:var(--muted);font-size:19px;line-height:1;
+  display:grid;place-items:center;flex:0 0 auto}
+.vp-sheet-x:active{background:var(--line)}
+.vp-sline{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+  padding:9px 0;border-bottom:1px dotted var(--line);font-size:14.5px}
+.vp-sline .l{min-width:0}
+.vp-sline .l small{color:var(--muted);display:block;font-size:12px}
+.vp-sline .r{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:64px;text-align:right}
+.vp-sline .vp-step button{width:30px;height:30px;font-size:17px}
+.vp-sline .vp-qty{min-width:34px;font-size:14px}
+@media (max-width:380px){
+  .vp-sline{grid-template-columns:1fr auto;row-gap:6px}
+  .vp-sline .r{grid-column:2;text-align:right}
+  .vp-sline .vp-step{grid-column:1/-1;justify-content:flex-start}
+}
+@media (prefers-reduced-motion:reduce){
+  .vp-sheet,.vp-backdrop{animation:none}
+  .vp-bar-chev{transition:none}
+}
 
 /* pastille DLC */
 .vp-dlc{display:inline-flex;align-items:center;gap:4px;background:#FFF8EC;border:1px solid #F1DFBC;
@@ -637,7 +692,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }
 
   return (
-    <div className="vp-app">
+    <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''}`}>
       <button className="vp-admin-icon" onClick={() => { window.location.hash = 'admin'; }} aria-label="Espace organisateur" title="Espace organisateur">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
