@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14f · virgule décimale';
+const VERSION = '2026-09-14g · onglets admin sur 2 lignes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -330,6 +330,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* navigation principale de l'admin : toujours à portée de pouce */
 .vp-nav{position:sticky;top:0;z-index:6;background:var(--paper);
   padding-top:12px;margin-bottom:4px;box-shadow:0 6px 10px -8px rgba(36,30,27,.25)}
+
+/* Sur écran étroit, les onglets passent à la ligne au lieu de défiler :
+   un onglet hors écran sans barre de défilement visible est introuvable. */
+@media (max-width:620px){
+  .vp-tabs{flex-wrap:wrap;overflow-x:visible;row-gap:6px}
+  .vp-tabs .vp-tab{flex:1 1 auto;text-align:center;padding:9px 11px;font-size:13.5px}
+  .vp-nav{padding-bottom:10px}
+}
 .vp-tab{white-space:nowrap;padding:9px 14px;border-radius:999px;font-weight:600;font-size:14px;
   background:#fff;border:1px solid var(--line);color:var(--muted)}
 .vp-tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -1092,8 +1100,8 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
   const TABS = [
     ['commandes', `Commandes (${commandes.length})`],
     ['produits', 'Produits'],
-    ['export', 'Export Patrice'],
-    ['pesees', 'Pesées & notes'],
+    ['export', 'Export'],
+    ['pesees', 'Pesées'],
     ['reglages', 'Réglages'],
   ];
 
