@@ -88,6 +88,29 @@ function fmtDateCourt(d) {
   try { return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); }
   catch { return d; }
 }
+
+/* ---- DLC ---- */
+function aujourdhuiStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// nombre de jours entre aujourd'hui et la DLC (0 = aujourd'hui, négatif = dépassée)
+function joursAvantDlc(dlc) {
+  if (!dlc) return null;
+  const a = new Date(aujourdhuiStr() + 'T00:00:00').getTime();
+  const b = new Date(dlc + 'T00:00:00').getTime();
+  if (isNaN(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+// { classe, texte } pour la pastille DLC, ou null
+function infoDlc(dlc) {
+  const j = joursAvantDlc(dlc);
+  if (j === null) return null;
+  if (j < 0) return { classe: 'passe', texte: `DLC dépassée (${fmtDateCourt(dlc)})` };
+  if (j === 0) return { classe: 'urgent', texte: `DLC aujourd'hui` };
+  if (j === 1) return { classe: 'urgent', texte: `DLC demain (${fmtDateCourt(dlc)})` };
+  return { classe: '', texte: `DLC ${fmtDateCourt(dlc)}` };
+}
 // minuscules sans accents — pour que « boeuf » trouve « bœuf » et « saute » trouve « sauté »
 function normaliser(s) {
   return String(s || '')
@@ -289,6 +312,20 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-col-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 10px;
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
+
+/* pastille DLC */
+.vp-dlc{display:inline-flex;align-items:center;gap:4px;background:#FFF8EC;border:1px solid #F1DFBC;
+  color:#7A5A20;border-radius:6px;padding:1px 7px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.vp-dlc.urgent{background:var(--red-s);border-color:#F0CFCF;color:var(--wine)}
+.vp-dlc.passe{background:var(--paper);border-color:var(--line);color:var(--muted);text-decoration:line-through}
+.vp-dlc-edit{display:flex;align-items:center;gap:8px;margin-top:9px;
+  padding-top:9px;border-top:1px dotted var(--line)}
+.vp-dlc-edit label{font-size:12px;font-weight:700;color:var(--muted);flex:0 0 auto}
+.vp-dlc-input{flex:1;min-width:0;padding:7px 9px;border:1px solid var(--line);border-radius:9px;
+  background:#fff;color:var(--ink);font-family:inherit;font-size:14px}
+.vp-dlc-input:focus{outline:none;border-color:var(--wine)}
+.vp-dlc-x{width:28px;height:28px;flex:0 0 auto;border-radius:8px;background:var(--paper);
+  border:1px solid var(--line);color:var(--muted);font-size:14px;display:grid;place-items:center}
 
 /* sélecteur d'icône */
 .vp-emoji-bar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
@@ -664,6 +701,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       <span className="vp-tag">{m.label}</span>
                       {p.mode_vente === 'piece_pesee' && pm
                         ? <span>≈ {num(pm)} kg/pièce</span> : null}
+                      {infoDlc(p.dlc) && (
+                        <span className={`vp-dlc ${infoDlc(p.dlc).classe}`}>{infoDlc(p.dlc).texte}</span>
+                      )}
                     </div>
                     {vs.length > 0 && (
                       <select
@@ -894,7 +934,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1, variante_label: '', variantes: [] };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -947,6 +987,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       prix_william: String(p.prix_william ?? ''),
       poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '',
       photo_url: p.photo_url || '',
+      dlc: p.dlc || '',
       variante_label: p.variante_label || '',
       variantes: variantesDe(p).map((v) => ({
         id: v.id, nom: v.nom || '',
@@ -1024,6 +1065,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       prix_patrice: parseFloat(form.prix_patrice) || 0, prix_william: parseFloat(form.prix_william) || 0,
       poids_moyen: form.mode_vente === 'piece_pesee' ? (parseFloat(form.poids_moyen) || null) : null,
       emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
+      dlc: form.dlc || null,
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
@@ -1035,6 +1077,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     if (!window.confirm(`Supprimer « ${p.nom} » ?`)) return;
     await supabase.from('viande_produits').delete().eq('id', p.id);
     setRetour(null); setForm(null); reload(); showToast('Produit supprimé');
+  };
+  // modification express de la DLC depuis la liste, sans ouvrir le produit
+  const majDlc = async (p, val) => {
+    await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
+    reload();
   };
   const toggleDispo = async (p) => {
     await supabase.from('viande_produits').update({ disponible: !p.disponible }).eq('id', p.id);
@@ -1103,6 +1150,22 @@ function AdminProduits({ produits, settings, reload, showToast }) {
               onChange={(e) => setForm({ ...form, poids_moyen: e.target.value })} placeholder="Ex : 1.4" />
           </div>
         )}
+
+        <div style={{ marginTop: 12 }}>
+          <label className="vp-label">DLC (facultatif)</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="vp-input" type="date" value={form.dlc || ''}
+              onChange={(e) => setForm({ ...form, dlc: e.target.value })} />
+            {form.dlc && (
+              <button className="vp-btn ghost sm" onClick={() => setForm({ ...form, dlc: '' })}>Effacer</button>
+            )}
+          </div>
+          {form.dlc && infoDlc(form.dlc) && (
+            <div style={{ marginTop: 6 }}>
+              <span className={`vp-dlc ${infoDlc(form.dlc).classe}`}>{infoDlc(form.dlc).texte}</span>
+            </div>
+          )}
+        </div>
 
         <div style={{ marginTop: 12 }}>
           <label className="vp-label">Photo (facultatif — sinon l'emoji est utilisé)</label>
@@ -1240,6 +1303,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     const m = MODES[p.mode_vente];
     const mg = p.prix_patrice > 0 ? Math.round((p.prix_william / p.prix_patrice - 1) * 100) : 0;
     const nbVars = variantesDe(p).length;
+    const dlc = infoDlc(p.dlc);
     return (
       <div className="vp-cmd" id={`prod-${p.id}`} key={p.id}>
         <div className="vp-srow">
@@ -1258,9 +1322,16 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)} {m.prixUnite}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
+              {dlc && <div style={{ marginTop: 5 }}><span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span></div>}
             </div>
           </div>
           <div className={`vp-toggle ${p.disponible ? 'on' : ''}`} onClick={() => toggleDispo(p)} />
+        </div>
+        <div className="vp-dlc-edit">
+          <label htmlFor={`dlc-${p.id}`}>DLC</label>
+          <input id={`dlc-${p.id}`} className="vp-dlc-input" type="date"
+            value={p.dlc || ''} onChange={(e) => majDlc(p, e.target.value)} />
+          {p.dlc && <button className="vp-dlc-x" onClick={() => majDlc(p, '')} aria-label="Effacer la DLC">×</button>}
         </div>
         <div className="vp-grid2" style={{ marginTop: 10 }}>
           <button className="vp-btn ghost sm" onClick={() => ouvrirEdit(p)}>Modifier</button>
