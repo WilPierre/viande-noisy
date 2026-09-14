@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14b · impression, rupture, doublons';
+const VERSION = '2026-09-14c · origine française';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -427,6 +427,19 @@ textarea.vp-input{resize:vertical;min-height:64px}
   border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.55}
 .vp-avert b{display:inline}
 .vp-avert b:first-child{display:block;margin-bottom:4px;font-size:13.5px}
+
+/* origine française */
+.vp-flag{margin-right:4px;font-size:1em;line-height:1}
+.vp-fr-btn{flex:0 0 auto;width:34px;height:30px;border-radius:8px;background:var(--paper);
+  border:1px solid var(--line);font-size:15px;line-height:1;display:grid;place-items:center;
+  filter:grayscale(1);opacity:.5}
+.vp-fr-btn.on{filter:none;opacity:1;background:#fff;border-color:var(--wine)}
+.vp-fr-btn:active{transform:scale(.94)}
+.vp-fr-case{display:flex;gap:11px;align-items:flex-start;margin-top:12px;padding:12px;
+  border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}
+.vp-fr-case.on{background:#F4F7FC;border-color:#CBD8EC}
+.vp-fr-case input{width:20px;height:20px;flex:0 0 auto;margin:1px 0 0;accent-color:var(--wine)}
+.vp-fr-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 
 /* rupture */
 .vp-rupt-pill{background:#FBEDED;border:1px solid #F0CFCF;color:#B3261E;border-radius:6px;
@@ -849,7 +862,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       </div>
                     : <div className="vp-emoji">{p.emoji}</div>}
                   <div className="vp-pinfo">
-                    <div className="vp-pname">{p.nom}</div>
+                    <div className="vp-pname">
+                      {p.origine_fr && <span className="vp-flag" title="Produit français">🇫🇷</span>}
+                      {p.nom}
+                    </div>
                     <div className="vp-pmeta">
                       <span className="vp-tag">{m.label}</span>
                       {p.mode_vente === 'piece_pesee' && pm
@@ -916,7 +932,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   return (
                     <div className="vp-sline" key={k}>
                       <span className="l">
-                        {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
+                        {p.emoji} {p.origine_fr && <span className="vp-flag">🇫🇷</span>}{p.nom}{v ? ` — ${v.nom}` : ''}
                         <small>{detail}</small>
                       </span>
                       <span className="vp-step">
@@ -1128,7 +1144,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, origine_fr: false, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -1183,6 +1199,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       photo_url: p.photo_url || '',
       dlc: p.dlc || '',
       rupture: !!p.rupture,
+      origine_fr: !!p.origine_fr,
       variante_label: p.variante_label || '',
       variantes: variantesDe(p).map((v) => ({
         id: v.id, nom: v.nom || '',
@@ -1278,6 +1295,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
       dlc: form.dlc || null,
       rupture: !!form.rupture,
+      origine_fr: !!form.origine_fr,
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
@@ -1293,6 +1311,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   // modification express de la DLC depuis la liste, sans ouvrir le produit
   const majDlc = async (p, val) => {
     await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
+    reload();
+  };
+  const toggleFr = async (p) => {
+    await supabase.from('viande_produits').update({ origine_fr: !p.origine_fr }).eq('id', p.id);
+    setRetour(p.id);
     reload();
   };
   const toggleRupture = async (p) => {
@@ -1529,6 +1552,15 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div className={`vp-toggle ${form.disponible ? 'on' : ''}`} onClick={() => setForm({ ...form, disponible: !form.disponible })} />
         </div>
 
+        <label className={`vp-fr-case ${form.origine_fr ? 'on' : ''}`}>
+          <input type="checkbox" checked={!!form.origine_fr}
+            onChange={(e) => setForm({ ...form, origine_fr: e.target.checked })} />
+          <span>
+            <b>🇫🇷 Produit français</b>
+            <small>Affiche un petit drapeau devant le nom, dans la boutique et au panier.</small>
+          </span>
+        </label>
+
         <label className={`vp-rupt-case ${form.rupture ? 'on' : ''}`}>
           <input type="checkbox" checked={!!form.rupture}
             onChange={(e) => setForm({ ...form, rupture: e.target.checked })} />
@@ -1560,6 +1592,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
               : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700 }}>
+                {p.origine_fr && <span className="vp-flag" title="Produit français">🇫🇷</span>}
                 {p.nom}
                 {nbVars > 0 && <span className="vp-pill" style={{ marginLeft: 6 }}>
                   {nbVars} {(p.variante_label || 'option').toLowerCase()}{nbVars > 1 ? 's' : ''}
@@ -1584,6 +1617,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <input id={`dlc-${p.id}`} className="vp-dlc-input" type="date"
             value={p.dlc || ''} onChange={(e) => majDlc(p, e.target.value)} />
           {p.dlc && <button className="vp-dlc-x" onClick={() => majDlc(p, '')} aria-label="Effacer la DLC">×</button>}
+          <button className={`vp-fr-btn ${p.origine_fr ? 'on' : ''}`} onClick={() => toggleFr(p)}
+            title={p.origine_fr ? 'Retirer l\'origine française' : 'Marquer comme produit français'}>🇫🇷</button>
           <button className={`vp-rupt-btn ${p.rupture ? 'on' : ''}`} onClick={() => toggleRupture(p)}>
             {p.rupture ? 'En rupture' : 'Rupture'}
           </button>
