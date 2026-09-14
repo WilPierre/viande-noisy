@@ -21,7 +21,19 @@ const MODES = {
   piece_pesee: { label: 'À la pièce (pesé)',  court: 'pièce', prixUnite: '€/kg',    pese: true,  decimal: false },
 };
 const CATEGORIES = ['Viande', 'Charcuterie', 'Crèmerie', 'Autre'];
-const EMOJIS = ['🥩', '🍖', '🍗', '🥓', '🌭', '🧀', '🍳', '🐔', '🐖', '🐄', '🧺', '🛒'];
+// Emojis proposés dans l'admin, classés par famille.
+// Tu peux aussi coller n'importe quel autre emoji dans le champ libre.
+const EMOJIS = [
+  { groupe: 'Viande & volaille', liste: ['🥩', '🍖', '🍗', '🥩', '🐄', '🐖', '🐑', '🐓', '🐔', '🦆', '🦃', '🐇'] },
+  { groupe: 'Charcuterie',       liste: ['🥓', '🌭', '🥪', '🍕', '🧆', '🫓'] },
+  { groupe: 'Poisson & mer',     liste: ['🐟', '🐠', '🍣', '🍤', '🦐', '🦀', '🦞', '🦑', '🐙', '🐚'] },
+  { groupe: 'Crèmerie & œufs',   liste: ['🧀', '🥚', '🍳', '🥛', '🧈', '🍮'] },
+  { groupe: 'Épicerie',          liste: ['🫒', '🧴', '🫗', '🍯', '🧂', '🌶️', '🥫', '🫙', '🍝', '🍚', '🥖', '🥐', '🍞', '🥜'] },
+  { groupe: 'Fruits & légumes',  liste: ['🍅', '🥔', '🧅', '🧄', '🥕', '🥬', '🫑', '🍋', '🍎', '🍇', '🍓', '🍄'] },
+  { groupe: 'Boissons',          liste: ['🍷', '🍺', '🥂', '🍾', '🧃', '☕'] },
+  { groupe: 'Divers',            liste: ['🧺', '🛒', '📦', '🎁', '🏷️', '⭐', '🔥', '💰', '🥘', '🍽️', '❄️', '🇮🇹'] },
+];
+const TOUS_EMOJIS = EMOJIS.flatMap((g) => g.liste);
 
 /* ============================================================
    HELPERS
@@ -277,6 +289,21 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-col-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 10px;
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
+
+/* sélecteur d'icône */
+.vp-emoji-bar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.vp-emoji-cur{width:46px;height:46px;flex:0 0 auto;border-radius:12px;background:var(--paper);
+  border:1px solid var(--line);display:grid;place-items:center;font-size:26px;line-height:1}
+.vp-emoji-box{max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;
+  padding:10px;background:#fff;-webkit-overflow-scrolling:touch}
+.vp-emoji-grp{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);margin:8px 2px 6px}
+.vp-emoji-box > div:first-child .vp-emoji-grp{margin-top:0}
+.vp-emoji-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:6px}
+.vp-emoji-btn{height:42px;border-radius:10px;background:var(--paper);border:1px solid var(--line);
+  font-size:22px;line-height:1;display:grid;place-items:center}
+.vp-emoji-btn:active{transform:scale(.92)}
+.vp-emoji-btn.on{background:#fff;border-color:var(--wine);box-shadow:0 0 0 2px rgba(138,46,46,.25)}
 
 /* variantes — sélecteur client */
 .vp-variante{margin-top:6px;width:100%;max-width:230px;padding:7px 30px 7px 10px;
@@ -1096,11 +1123,39 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <label className="vp-label">Emoji {form.photo_url && <span style={{ fontWeight: 400 }}>(utilisé seulement si pas de photo)</span>}</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {EMOJIS.map((e) => (
-              <button key={e} onClick={() => setForm({ ...form, emoji: e })}
-                style={{ fontSize: 22, padding: 6, borderRadius: 9, background: form.emoji === e ? 'var(--wine)' : 'var(--paper)', border: '1px solid var(--line)' }}>{e}</button>
+          <label className="vp-label">
+            Icône {form.photo_url && <span style={{ fontWeight: 400 }}>(utilisée seulement si pas de photo)</span>}
+          </label>
+
+          <div className="vp-emoji-bar">
+            <span className="vp-emoji-cur">{form.emoji || '🥩'}</span>
+            <input
+              className="vp-input"
+              value={TOUS_EMOJIS.includes(form.emoji) ? '' : (form.emoji || '')}
+              onChange={(e) => {
+                const c = Array.from(e.target.value.trim())[0] || '';
+                setForm({ ...form, emoji: c });
+              }}
+              placeholder="Ou colle un emoji ici"
+              maxLength={8}
+            />
+          </div>
+
+          <div className="vp-emoji-box">
+            {EMOJIS.map((g) => (
+              <div key={g.groupe}>
+                <div className="vp-emoji-grp">{g.groupe}</div>
+                <div className="vp-emoji-grid">
+                  {Array.from(new Set(g.liste)).map((e) => (
+                    <button
+                      key={g.groupe + e}
+                      className={`vp-emoji-btn ${form.emoji === e ? 'on' : ''}`}
+                      onClick={() => setForm({ ...form, emoji: e })}
+                      aria-label={e}
+                    >{e}</button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
