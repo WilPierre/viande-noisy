@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14c · origine française';
+const VERSION = '2026-09-14d · drapeau SVG';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -37,7 +37,7 @@ const EMOJIS = [
   { groupe: 'Épicerie',          liste: ['🫒', '🧴', '🫗', '🍯', '🧂', '🌶️', '🥫', '🫙', '🍝', '🍚', '🥖', '🥐', '🍞', '🥜'] },
   { groupe: 'Fruits & légumes',  liste: ['🍅', '🥔', '🧅', '🧄', '🥕', '🥬', '🫑', '🍋', '🍎', '🍇', '🍓', '🍄'] },
   { groupe: 'Boissons',          liste: ['🍷', '🍺', '🥂', '🍾', '🧃', '☕'] },
-  { groupe: 'Divers',            liste: ['🧺', '🛒', '📦', '🎁', '🏷️', '⭐', '🔥', '💰', '🥘', '🍽️', '❄️', '🇮🇹'] },
+  { groupe: 'Divers',            liste: ['🧺', '🛒', '📦', '🎁', '🏷️', '⭐', '🔥', '💰', '🥘', '🍽️', '❄️', '🧊'] },
 ];
 const TOUS_EMOJIS = EMOJIS.flatMap((g) => g.liste);
 
@@ -429,10 +429,12 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-avert b:first-child{display:block;margin-bottom:4px;font-size:13.5px}
 
 /* origine française */
-.vp-flag{margin-right:4px;font-size:1em;line-height:1}
-.vp-fr-btn{flex:0 0 auto;width:34px;height:30px;border-radius:8px;background:var(--paper);
-  border:1px solid var(--line);font-size:15px;line-height:1;display:grid;place-items:center;
-  filter:grayscale(1);opacity:.5}
+.vp-flag{margin-right:5px;vertical-align:-0.12em;flex:0 0 auto;
+  border-radius:2px;display:inline-block}
+.vp-fr-btn{flex:0 0 auto;width:36px;height:30px;border-radius:8px;background:var(--paper);
+  border:1px solid var(--line);display:grid;place-items:center;
+  filter:grayscale(1);opacity:.45}
+.vp-fr-btn .vp-flag{margin:0}
 .vp-fr-btn.on{filter:none;opacity:1;background:#fff;border-color:var(--wine)}
 .vp-fr-btn:active{transform:scale(.94)}
 .vp-fr-case{display:flex;gap:11px;align-items:flex-start;margin-top:12px;padding:12px;
@@ -636,6 +638,26 @@ export default function App() {
         />
       )}
     </>
+  );
+}
+
+/* ============================================================
+   DRAPEAU FRANÇAIS
+   Dessiné en SVG : l'emoji 🇫🇷 s'affiche « FR » sur Windows,
+   qui ne rend pas les indicateurs régionaux.
+============================================================ */
+function DrapeauFR({ taille = 13 }) {
+  const w = Math.round(taille * 1.45);
+  return (
+    <svg className="vp-flag" width={w} height={taille} viewBox="0 0 18 12"
+      role="img" aria-label="Produit français">
+      <title>Produit français</title>
+      <rect width="18" height="12" rx="1.6" fill="#FFFFFF" />
+      <path d="M1.6 0H6v12H1.6A1.6 1.6 0 0 1 0 10.4V1.6A1.6 1.6 0 0 1 1.6 0z" fill="#0055A4" />
+      <path d="M12 0h4.4A1.6 1.6 0 0 1 18 1.6v8.8a1.6 1.6 0 0 1-1.6 1.6H12z" fill="#EF4135" />
+      <rect x=".4" y=".4" width="17.2" height="11.2" rx="1.3" fill="none"
+        stroke="rgba(36,30,27,.22)" strokeWidth=".8" />
+    </svg>
   );
 }
 
@@ -863,7 +885,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     : <div className="vp-emoji">{p.emoji}</div>}
                   <div className="vp-pinfo">
                     <div className="vp-pname">
-                      {p.origine_fr && <span className="vp-flag" title="Produit français">🇫🇷</span>}
+                      {p.origine_fr && <DrapeauFR taille={14} />}
                       {p.nom}
                     </div>
                     <div className="vp-pmeta">
@@ -932,7 +954,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   return (
                     <div className="vp-sline" key={k}>
                       <span className="l">
-                        {p.emoji} {p.origine_fr && <span className="vp-flag">🇫🇷</span>}{p.nom}{v ? ` — ${v.nom}` : ''}
+                        {p.emoji} {p.origine_fr && <DrapeauFR taille={12} />}{p.nom}{v ? ` — ${v.nom}` : ''}
                         <small>{detail}</small>
                       </span>
                       <span className="vp-step">
@@ -1556,7 +1578,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <input type="checkbox" checked={!!form.origine_fr}
             onChange={(e) => setForm({ ...form, origine_fr: e.target.checked })} />
           <span>
-            <b>🇫🇷 Produit français</b>
+            <b><DrapeauFR taille={14} /> Produit français</b>
             <small>Affiche un petit drapeau devant le nom, dans la boutique et au panier.</small>
           </span>
         </label>
@@ -1592,7 +1614,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
               : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700 }}>
-                {p.origine_fr && <span className="vp-flag" title="Produit français">🇫🇷</span>}
+                {p.origine_fr && <DrapeauFR />}
                 {p.nom}
                 {nbVars > 0 && <span className="vp-pill" style={{ marginLeft: 6 }}>
                   {nbVars} {(p.variante_label || 'option').toLowerCase()}{nbVars > 1 ? 's' : ''}
@@ -1618,7 +1640,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
             value={p.dlc || ''} onChange={(e) => majDlc(p, e.target.value)} />
           {p.dlc && <button className="vp-dlc-x" onClick={() => majDlc(p, '')} aria-label="Effacer la DLC">×</button>}
           <button className={`vp-fr-btn ${p.origine_fr ? 'on' : ''}`} onClick={() => toggleFr(p)}
-            title={p.origine_fr ? 'Retirer l\'origine française' : 'Marquer comme produit français'}>🇫🇷</button>
+            title={p.origine_fr ? 'Retirer l\'origine française' : 'Marquer comme produit français'}>
+            <DrapeauFR taille={13} />
+          </button>
           <button className={`vp-rupt-btn ${p.rupture ? 'on' : ''}`} onClick={() => toggleRupture(p)}>
             {p.rupture ? 'En rupture' : 'Rupture'}
           </button>
