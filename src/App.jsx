@@ -8,6 +8,10 @@ import { createClient } from '@supabase/supabase-js';
      REACT_APP_SUPABASE_ANON_KEY
    (les mêmes que ton projet Noisy en Fête)
 ============================================================ */
+// Marqueur de version — affiché en bas de la boutique.
+// Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
+const VERSION = '2026-09-14 · panier flottant';
+
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const supabase = SB_URL && SB_KEY ? createClient(SB_URL, SB_KEY) : null;
@@ -16,9 +20,11 @@ const supabase = SB_URL && SB_KEY ? createClient(SB_URL, SB_KEY) : null;
    MODES DE VENTE
 ============================================================ */
 const MODES = {
-  piece_fixe:  { label: 'À la pièce',         court: 'pièce', prixUnite: '€/pièce', pese: false, decimal: false },
-  kg:          { label: 'Au kilo',            court: 'kg',    prixUnite: '€/kg',    pese: true,  decimal: true  },
-  piece_pesee: { label: 'À la pièce (pesé)',  court: 'pièce', prixUnite: '€/kg',    pese: true,  decimal: false },
+  // prixUnite : pour les libellés de champs (« Prix Patrice (€/kg) »)
+  // suffixe   : à coller après un montant déjà formaté par eur() → « 13,99 €/kg »
+  piece_fixe:  { label: 'À la pièce',         court: 'pièce', prixUnite: '€/pièce', suffixe: '/pièce', pese: false, decimal: false },
+  kg:          { label: 'Au kilo',            court: 'kg',    prixUnite: '€/kg',    suffixe: '/kg',    pese: true,  decimal: true  },
+  piece_pesee: { label: 'À la pièce (pesé)',  court: 'pièce', prixUnite: '€/kg',    suffixe: '/kg',    pese: true,  decimal: false },
 };
 const CATEGORIES = ['Viande', 'Charcuterie', 'Crèmerie', 'Autre'];
 // Emojis proposés dans l'admin, classés par famille.
@@ -313,6 +319,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-col-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 10px;
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
+
+.vp-ver{text-align:center;color:var(--muted);font-size:11px;opacity:.6;margin-top:28px}
 
 /* ===== PANIER FLOTTANT (client) ===== */
 .vp-backdrop{position:fixed;inset:0;background:rgba(36,30,27,.38);z-index:39;
@@ -772,13 +780,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                         {vs.map((o) => (
                           <option key={o.id} value={o.id}>
                             {o.nom}
-                            {vide0(o.prix_william) ? '' : ` · ${eur(o.prix_william)} ${m.prixUnite}`}
+                            {vide0(o.prix_william) ? '' : ` · ${eur(o.prix_william)}${m.suffixe}`}
                           </option>
                         ))}
                       </select>
                     )}
                     <div style={{ marginTop: 4 }}>
-                      <span className="vp-price">{eur(prix)} {m.prixUnite}</span>
+                      <span className="vp-price">{eur(prix)}{m.suffixe}</span>
                     </div>
                   </div>
                   <div className="vp-step">
@@ -794,6 +802,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           ))}
         </>
       )}
+
+      <div className="vp-ver">v{VERSION}</div>
 
       {ouvert && lignes.length > 0 && (
         <>
@@ -1407,7 +1417,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 </span>}
               </div>
               <div className="vp-sub">
-                {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)} {m.prixUnite}
+                {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)}{m.suffixe}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
               {dlc && <div style={{ marginTop: 5 }}><span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span></div>}
