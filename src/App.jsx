@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { jsPDF } from 'jspdf';
-import { autoTable } from 'jspdf-autotable';
 
 /* ============================================================
    CONFIG SUPABASE
@@ -273,17 +271,27 @@ export default function App() {
     return () => { supabase.removeChannel(ch); clearInterval(poll); };
   }, []);
 
-  // état d'ouverture
-  const ouvertureAt = useMemo(() => {
-    if (!settings) return null;
-    try { return new Date(`${settings.date_vente}T${settings.heure_ouverture || '09:00'}:00`).getTime(); }
-    catch { return null; }
-  }, [settings]);
-  const fermetureAt = useMemo(() => {
-    if (!settings) return null;
-    try { return new Date(`${settings.date_vente}T${settings.heure_fermeture}:00`).getTime(); }
-    catch { return null; }
-  }, [settings]);
+  // Jour de la semaine en temps réel (0=dim, 6=sam)
+  const jourSemaine = useMemo(() => new Date(now).getDay(), [now]);
+  const estSemaine = jourSemaine >= 1 && jourSemaine <= 5;
+
+  // Horaires calculés sur AUJOURD'HUI (pas sur date_vente stockée)
+  const { ouvertureAt, fermetureAt } = useMemo(() => {
+    if (!settings) return { ouvertureAt: null, fermetureAt: null };
+    try {
+      const d = new Date(now);
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return {
+        ouvertureAt: new Date(`${today}T${settings.heure_ouverture || '09:00'}:00`).getTime(),
+        fermetureAt: new Date(`${today}T${settings.heure_fermeture}:00`).getTime(),
+      };
+    } catch { return { ouvertureAt: null, fermetureAt: null }; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, now]);
+
+  // Ouvert si :
+  //   - semaine : vente_active=true ET dans les horaires (auto)
+  //   - weekend : vente_active=true ET dans les horaires (manuel requis)
   const ouvert = !!settings?.vente_active
     && (!ouvertureAt || now >= ouvertureAt)
     && (!fermetureAt || now < fermetureAt);
@@ -299,12 +307,14 @@ export default function App() {
         <Admin
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
+          estSemaine={estSemaine}
           reload={loadBase} showToast={showToast}
         />
       ) : (
         <Client
           settings={settings} produits={produits} now={now}
-          fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert} showToast={showToast}
+          fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
+          estSemaine={estSemaine} showToast={showToast}
         />
       )}
     </>
@@ -330,16 +340,30 @@ function SetupScreen() {
 /* ============================================================
    COUNTDOWN
 ============================================================ */
-function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive }) {
-  if (!fermetureAt && !ouvertureAt) return null;
+function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive, estSemaine }) {
+  // Fermé manuellement (override)
   if (!venteActive) {
-    return <span className="vp-status vp-closed"><span className="vp-dot" />Commandes fermées</span>;
+    return <span className="vp-status vp-closed">
+      <span className="vp-dot" />
+      {estSemaine ? 'Fermé manuellement' : 'Fermé le week-end'}
+    </span>;
   }
+  // Pas encore ouvert — compte à rebours avant ouverture
   if (ouvertureAt && now < ouvertureAt) {
-    const h = new Date(ouvertureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    return <span className="vp-status vp-closed"><span className="vp-dot" />Ouverture à {h}</span>;
+    const resteAvant = ouvertureAt - now;
+    const h = Math.floor(resteAvant / 3600000);
+    const m = Math.floor((resteAvant % 3600000) / 60000);
+    const hLabel = new Date(ouvertureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const txt = h > 0 ? `Ouverture à ${hLabel} (dans ${h}h${String(m).padStart(2, '0')})` : `Ouverture à ${hLabel} (dans ${m} min)`;
+    return <span className="vp-status vp-closed"><span className="vp-dot" />{txt}</span>;
   }
-  if (!ouvert) return <span className="vp-status vp-closed"><span className="vp-dot" />Commandes fermées</span>;
+  // Fermé (après l'heure)
+  if (!ouvert) {
+    const hO = new Date(ouvertureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const msg = estSemaine ? `Réouverture demain à ${hO}` : 'Fermé';
+    return <span className="vp-status vp-closed"><span className="vp-dot" />{msg}</span>;
+  }
+  // Ouvert — compte à rebours fermeture
   const reste = fermetureAt - now;
   const h = Math.floor(reste / 3600000);
   const m = Math.floor((reste % 3600000) / 60000);
@@ -350,7 +374,7 @@ function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive }) {
 /* ============================================================
    CLIENT — interface de commande
 ============================================================ */
-function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, showToast }) {
+function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast }) {
   const [cart, setCart] = useState({}); // id -> quantite
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
@@ -441,7 +465,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
       <div className="vp-head">
         <img src="/logo-mouton.png" alt="" className="vp-logo" />
         <h1 className="vp-title">{settings.titre}</h1>
-        <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} />
+        <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} estSemaine={estSemaine} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
       </div>
 
@@ -514,7 +538,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
 
       {ouvert && lignes.length > 0 && (
         <>
-          <div className="vp-ticket" id="zone-commande">
+          <div className="vp-ticket">
             <div className="vp-th">Ton panier</div>
             {lignes.map(({ p, q }) => {
               const m = MODES[p.mode_vente];
@@ -554,24 +578,6 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
           </div>
         </>
       )}
-
-      {/* Bouton flottant "Commander" : visible dès qu'il y a des articles,
-          il reste collé en bas à droite et défile jusqu'au panier. */}
-      {ouvert && lignes.length > 0 && (
-        <button
-          onClick={() => document.getElementById('zone-commande')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          aria-label="Aller à la commande"
-          style={{
-            position: 'fixed', right: 16, bottom: 88, zIndex: 40,
-            background: 'var(--wine)', color: '#fff', border: 'none',
-            borderRadius: 999, padding: '13px 20px', fontWeight: 800,
-            fontSize: 15, boxShadow: '0 8px 24px rgba(36,30,27,.28)',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}
-        >
-          Commander · {eur(total)}
-        </button>
-      )}
     </div>
   );
 }
@@ -579,7 +585,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, sho
 /* ============================================================
    ADMIN
 ============================================================ */
-function Admin({ settings, produits, now, fermetureAt, ouvert, reload, showToast }) {
+function Admin({ settings, produits, now, fermetureAt, ouvert, estSemaine, reload, showToast }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
   const [tab, setTab] = useState('commandes');
@@ -649,7 +655,7 @@ function Admin({ settings, produits, now, fermetureAt, ouvert, reload, showToast
       {tab === 'produits' && <AdminProduits produits={produits} settings={settings} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settings} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} settings={settings} reload={loadCommandes} showToast={showToast} />}
-      {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} reload={reload} showToast={showToast} />}
+      {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
       <div className="vp-foot">
         <button onClick={() => { window.location.hash = ''; }}>← Voir la boutique</button>
@@ -936,273 +942,50 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
 /* ---------- Admin : Export Patrice ---------- */
 function AdminExport({ commandes, produits, settings, showToast }) {
-  // Les lignes ne stockent pas la catégorie -> on la retrouve via le produit
-  const catParId = useMemo(() => {
-    const m = {};
-    (produits || []).forEach((p) => { m[p.id] = p.categorie || 'Autre'; });
-    return m;
-  }, [produits]);
+  // agrégation par produit
+  const agg = {};
+  commandes.forEach((c) => (c.lignes || []).forEach((l) => {
+    if (!agg[l.produit_nom]) agg[l.produit_nom] = { nom: l.produit_nom, emoji: l.emoji, mode: l.mode_vente, qte: 0, cout: 0 };
+    agg[l.produit_nom].qte += Number(l.quantite || 0);
+    agg[l.produit_nom].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
+  }));
+  const lignes = Object.values(agg);
+  const coutTotal = lignes.reduce((s, x) => s + x.cout, 0);
 
-  const { groupes, coutTotal, poidsTotal } = useMemo(() => {
-    // Agrégation par produit (chaque produit a un seul mode_vente)
-    const agg = {};
-    commandes.forEach((c) => (c.lignes || []).forEach((l) => {
-      const key = l.produit_id ?? l.produit_nom;
-      if (!agg[key]) {
-        agg[key] = {
-          nom: l.produit_nom,
-          emoji: l.emoji,
-          mode: l.mode_vente,
-          categorie: catParId[l.produit_id] || 'Autre',
-          prixPatrice: Number(l.prix_patrice) || 0, // prix unitaire d'achat
-          prixWilliam: Number(l.prix_william) || 0, // notre prix unitaire
-          qte: 0,      // pièces (piece_fixe/piece_pesee) ou kg (mode kg)
-          poidsKg: 0,  // poids estimé en kg (0 pour piece_fixe)
-          cout: 0,     // au prix Patrice
-        };
-      }
-      agg[key].qte += Number(l.quantite || 0);
-      agg[key].poidsKg += poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
-      agg[key].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
-    }));
+  const uniteTxt = (mode, qte) =>
+    mode === 'kg' ? `${num(qte)} kg` : `${num(qte)} pièce(s)`;
 
-    const lignes = Object.values(agg);
-
-    // Tri par ordre de CATEGORIES puis nom
-    const rangCat = (cat) => {
-      const i = CATEGORIES.indexOf(cat);
-      return i === -1 ? 99 : i;
-    };
-    lignes.sort((a, b) =>
-      rangCat(a.categorie) - rangCat(b.categorie) || a.nom.localeCompare(b.nom, 'fr'));
-
-    // Regroupement par catégorie + sous-totaux
-    const groupes = [];
-    lignes.forEach((l) => {
-      let g = groupes.find((x) => x.categorie === l.categorie);
-      if (!g) {
-        g = { categorie: l.categorie, lignes: [], sousCout: 0, sousPoids: 0 };
-        groupes.push(g);
-      }
-      g.lignes.push(l);
-      g.sousCout += l.cout;
-      g.sousPoids += l.poidsKg;
-    });
-
-    return {
-      groupes,
-      coutTotal: lignes.reduce((s, x) => s + x.cout, 0),
-      poidsTotal: lignes.reduce((s, x) => s + x.poidsKg, 0),
-    };
-  }, [commandes, catParId]);
-
-  const aDesLignes = groupes.some((g) => g.lignes.length > 0);
-
-  // Quantité lisible pour Patrice selon le mode
-  const qteTxt = (x) => {
-    if (x.mode === 'kg') return `${num(x.qte)} kg`;
-    if (x.mode === 'piece_pesee') return `${num(x.qte)} pièce(s) ≈ ${num(x.poidsKg)} kg`;
-    return `${num(x.qte)} pièce(s)`;
-  };
-
-  // ── 1) Message WhatsApp ────────────────────────────────────────────
   const texte = () => {
-    let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n`;
-    if (settings.titre) t += `${settings.titre}\n`;
-    t += '\n';
-    groupes.forEach((g) => {
-      t += `— ${g.categorie.toUpperCase()} —\n`;
-      g.lignes.forEach((x) => { t += `• ${x.nom} : ${qteTxt(x)}\n`; });
-      t += '\n';
-    });
-    if (poidsTotal > 0) t += `Poids estimé total : ${num(poidsTotal)} kg\n`;
-    t += `Coût total estimé (prix Patrice) : ${eur(coutTotal)}`;
+    let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n\n`;
+    lignes.forEach((x) => { t += `• ${x.nom} : ${uniteTxt(x.mode, x.qte)}\n`; });
+    t += `\nCoût total estimé (prix Patrice) : ${eur(coutTotal)}`;
     return t;
   };
 
-  // ── 2) CSV / feuille de réconciliation (UNE COMMANDE PAR BLOC) ─────
-  // Chaque commande client = ses lignes + une ligne "Total", suivie
-  // d'une ligne vide pour bien séparer les clients.
-  // Colonnes : A Quantité · B Produit · C Poids (rempli à la main)
-  //            D Prix Patrice · E Total Patrice · F Prix Nous · G Total Nous
-  // Les colonnes Total sont de vraies formules Excel (recalcul auto
-  // dès qu'un poids est saisi en colonne C).
   const csv = () => {
-    const prix = (n) => (Math.round((Number(n) || 0) * 100) / 100).toString().replace('.', ',');
-    const qteFr = (n) => String(Number(n) || 0).replace('.', ',');
-
-    const out = [];
-    let row = 0;
-    const push = (cells) => { out.push(cells.join(';')); row += 1; };
-
-    // En-tête (ligne 1)
-    push(['Quantité', 'Produit', 'Poids', 'Prix Patrice', 'Total Patrice', 'Prix Nous', 'Total Nous']);
-
-    commandes.forEach((c) => {
-      const lignes = c.lignes || [];
-      if (lignes.length === 0) return;
-
-      // Libellé de la commande
-      push([`COMMANDE — ${c.nom_client || 'client'}`, '', '', '', '', '', '']);
-
-      const first = row + 1; // 1re ligne produit de ce bloc
-      lignes.forEach((l) => {
-        const r = row + 1; // n° de ligne Excel de ce produit
-        // Produit pesé (kg / piece_pesee) -> total = Poids (C) × prix
-        // Produit à la pièce non pesé      -> total = Quantité (A) × prix
-        const base = l.mode_vente === 'piece_fixe' ? `A${r}` : `C${r}`;
-        push([
-          qteFr(l.quantite),                                  // A
-          l.produit_nom,                                      // B
-          l.poids_reel != null ? qteFr(l.poids_reel) : '',    // C (pré-rempli si déjà pesé)
-          prix(l.prix_patrice),                               // D
-          `=${base}*D${r}`,                                   // E (formule)
-          prix(l.prix_william),                               // F
-          `=${base}*F${r}`,                                   // G (formule)
-        ]);
-      });
-      const last = row; // dernière ligne produit de ce bloc
-
-      // Total de la commande
-      push([
-        `Total ${c.nom_client || ''}`.trim(), '',
-        `=SOMME(C${first}:C${last})`, '',
-        `=SOMME(E${first}:E${last})`, '',
-        `=SOMME(G${first}:G${last})`,
-      ]);
-
-      // Ligne vide de séparation entre deux clients
-      push(['', '', '', '', '', '', '']);
+    let c = 'Produit;Mode;Quantite;Unite;Prix Patrice;Cout estime\n';
+    lignes.forEach((x) => {
+      const unite = x.mode === 'kg' ? 'kg' : 'piece';
+      c += `${x.nom};${MODES[x.mode].label};${num(x.qte)};${unite};;${(Math.round(x.cout * 100) / 100).toString().replace('.', ',')}\n`;
     });
-
-    const blob = new Blob(['\ufeff' + out.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `commande-patrice-${settings.date_vente}.csv`;
-    a.click();
-  };
-
-  // ── 3) PDF (UNE COMMANDE PAR CLIENT) ──────────────────────────────
-  const pdf = () => {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
-    const W = doc.internal.pageSize.getWidth();
-    const H = doc.internal.pageSize.getHeight();
-    const M = 36;
-
-    const poidsLigne = (l) =>
-      l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
-    const totPatrice = (l) =>
-      l.mode_vente === 'piece_fixe'
-        ? (Number(l.quantite) || 0) * (Number(l.prix_patrice) || 0)
-        : poidsLigne(l) * (Number(l.prix_patrice) || 0);
-    const totNous = (l) => sousTotalFinal(l);
-
-    doc.setFillColor(12, 47, 35); doc.rect(0, 0, W, 70, 'F');
-    doc.setFillColor(200, 162, 74); doc.rect(0, 70, W, 4, 'F');
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
-    doc.text('COMMANDES PAR CLIENT', M, 34);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(200, 162, 74);
-    doc.text(`Viande Noisy${settings.titre ? ' — ' + settings.titre : ''}`, M, 52);
-    doc.setTextColor(220, 226, 222); doc.setFontSize(9);
-    doc.text(`Vente du ${fmtDateCourt(settings.date_vente)} · ${commandes.length} commande(s)`, W - M, 34, { align: 'right' });
-
-    let y = 92;
-    let gPatrice = 0, gNous = 0;
-
-    commandes.forEach((c) => {
-      const lignes = c.lignes || [];
-      if (lignes.length === 0) return;
-      if (y > H - 90) { doc.addPage(); y = M; }
-
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(138, 46, 46);
-      const tel = c.telephone ? ` · ${c.telephone}` : '';
-      doc.text(`${c.nom_client || 'Client'}${tel}`, M, y);
-      y += 6;
-
-      let sP = 0, sN = 0;
-      const body = lignes.map((l) => {
-        const tp = totPatrice(l); const tn = totNous(l);
-        sP += tp; sN += tn;
-        const pr = poidsLigne(l);
-        return [
-          num(l.quantite),
-          l.produit_nom,
-          l.mode_vente === 'piece_fixe' ? '—' : (l.poids_reel != null ? `${num(pr)} kg` : `≈ ${num(pr)} kg`),
-          eur(l.prix_patrice),
-          eur(tp),
-          eur(l.prix_william),
-          eur(tn),
-        ];
-      });
-      gPatrice += sP; gNous += sN;
-
-      autoTable(doc, {
-        startY: y,
-        margin: { left: M, right: M },
-        head: [['Qté', 'Produit', 'Poids', 'Prix Patrice', 'Total Patrice', 'Prix Nous', 'Total Nous']],
-        body,
-        foot: [[
-          { content: `Total ${c.nom_client || ''}`.trim(), colSpan: 4, styles: { halign: 'right' } },
-          eur(sP), '', eur(sN),
-        ]],
-        theme: 'grid',
-        styles: { font: 'helvetica', fontSize: 9, cellPadding: 4, lineColor: [228, 226, 219] },
-        headStyles: { fillColor: [20, 83, 45], textColor: 255, fontStyle: 'bold' },
-        footStyles: { fillColor: [241, 244, 242], textColor: [22, 20, 19], fontStyle: 'bold' },
-        columnStyles: {
-          0: { halign: 'right', cellWidth: 38 }, 2: { halign: 'right' },
-          3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
-        },
-      });
-      y = doc.lastAutoTable.finalY + 20;
-    });
-
-    if (y > H - 70) { doc.addPage(); y = M; }
-    autoTable(doc, {
-      startY: y, margin: { left: M, right: M }, theme: 'plain',
-      body: [[
-        { content: 'TOTAL GÉNÉRAL', styles: { fontStyle: 'bold' } },
-        { content: `Achat (Patrice) : ${eur(gPatrice)}`, styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: `Vente (Nous) : ${eur(gNous)}`, styles: { halign: 'right', fontStyle: 'bold', textColor: [20, 83, 45] } },
-        { content: `Marge : ${eur(gNous - gPatrice)}`, styles: { halign: 'right', fontStyle: 'bold', textColor: [200, 162, 74] } },
-      ]],
-      styles: { font: 'helvetica', fontSize: 11, cellPadding: 6 },
-    });
-
-    const pages = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-      doc.text(`Noisy en Fête · Viande Noisy — page ${i}/${pages}`, W / 2, H - 16, { align: 'center' });
-    }
-
-    doc.save(`commandes-clients-${settings.date_vente}.pdf`);
+    const blob = new Blob(['\ufeff' + c], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `commande-patrice-${settings.date_vente}.csv`; a.click();
   };
 
   return (
     <>
       <div className="vp-section">
         <div className="vp-h2">Récap pour Patrice</div>
-        <div className="vp-sub">
-          Quantités cumulées de toutes les commandes, par catégorie. À envoyer après la fermeture.
-        </div>
-
-        {!aDesLignes ? (
+        <div className="vp-sub">Quantités cumulées de toutes les commandes. À envoyer après la fermeture.</div>
+        {lignes.length === 0 ? (
           <div className="vp-empty">Pas encore de commande à cumuler.</div>
         ) : (
           <>
             <div className="vp-pre" style={{ marginTop: 12 }}>{texte()}</div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
-              <button
-                className="vp-btn green"
-                onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}
-              >
-                Copier le message
-              </button>
-              <button className="vp-btn ghost" onClick={pdf}>Télécharger le PDF</button>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <button className="vp-btn ghost sm" onClick={csv}>Télécharger le CSV</button>
+              <button className="vp-btn green" onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}>Copier le message</button>
+              <button className="vp-btn ghost" onClick={csv}>Télécharger CSV</button>
             </div>
           </>
         )}
@@ -1213,10 +996,14 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, settings, reload, showToast }) {
-  // produits pesés (kg / piece_pesee), regroupés PAR CLIENT
-  const pesablesParClient = commandes
-    .map((c) => ({ c, lignes: (c.lignes || []).filter((l) => l.mode_vente !== 'piece_fixe') }))
-    .filter((x) => x.lignes.length > 0);
+  // produits pesés (kg / piece_pesee), regroupés par produit
+  const groupes = {};
+  commandes.forEach((c) => (c.lignes || []).forEach((l) => {
+    if (l.mode_vente === 'piece_fixe') return;
+    if (!groupes[l.produit_nom]) groupes[l.produit_nom] = { nom: l.produit_nom, emoji: l.emoji, lignes: [] };
+    groupes[l.produit_nom].lignes.push({ l, client: c.nom_client });
+  }));
+  const liste = Object.values(groupes);
 
   // état local des poids saisis : ligneId -> valeur
   const [poids, setPoids] = useState({});
@@ -1289,67 +1076,6 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
     return t;
   };
 
-  const imprimer = () => {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const H = doc.internal.pageSize.getHeight();
-    const M = 40;
-
-    const poidsLigne = (l) =>
-      l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
-    const tPatrice = (l) =>
-      l.mode_vente === 'piece_fixe'
-        ? (Number(l.quantite) || 0) * (Number(l.prix_patrice) || 0)
-        : poidsLigne(l) * (Number(l.prix_patrice) || 0);
-    const tNous = (l) => sousTotalFinal(l);
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(0, 0, 0);
-    doc.text(`Pesées — ${settings.titre || 'Viande Noisy'}`, M, 46);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.text(`${fmtDateCourt(settings.date_vente)} · ${commandes.length} commande(s)`, M, 62);
-
-    let y = 80;
-    let gP = 0, gN = 0;
-    commandes.forEach((c) => {
-      const lignes = c.lignes || [];
-      if (lignes.length === 0) return;
-      if (y > H - 80) { doc.addPage(); y = M; }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
-      doc.text(c.nom_client || 'Client', M, y); y += 4;
-
-      let sP = 0, sN = 0;
-      const body = lignes.map((l) => {
-        const tp = tPatrice(l), tn = tNous(l); sP += tp; sN += tn;
-        const pr = poidsLigne(l);
-        return [
-          num(l.quantite),
-          l.produit_nom,
-          l.mode_vente === 'piece_fixe' ? '—' : (l.poids_reel != null ? `${num(pr)} kg` : `≈ ${num(pr)} kg`),
-          eur(l.prix_patrice), eur(tp), eur(l.prix_william), eur(tn),
-        ];
-      });
-      gP += sP; gN += sN;
-
-      autoTable(doc, {
-        startY: y, margin: { left: M, right: M },
-        head: [['Qté', 'Produit', 'Poids', 'Px Patrice', 'Tot. Patrice', 'Px Nous', 'Tot. Nous']],
-        body,
-        foot: [[ { content: `Total ${c.nom_client || ''}`.trim(), colSpan: 4, styles: { halign: 'right' } }, eur(sP), '', eur(sN) ]],
-        theme: 'grid',
-        styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, textColor: [0, 0, 0], lineColor: [200, 200, 200] },
-        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [120, 120, 120] },
-        footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
-        columnStyles: { 0: { halign: 'right', cellWidth: 30 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
-      });
-      y = doc.lastAutoTable.finalY + 16;
-    });
-
-    if (y > H - 50) { doc.addPage(); y = M; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
-    doc.text(`TOTAL — Achat : ${eur(gP)}   Vente : ${eur(gN)}   Marge : ${eur(gN - gP)}`, M, y + 4);
-
-    doc.save(`pesees-${settings.date_vente}.pdf`);
-  };
-
   return (
     <>
       <div className="vp-section">
@@ -1357,17 +1083,17 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
         <div className="vp-sub">Saisis le poids réel (kg) de chaque produit pesé d'après la facture de Patrice. Les notes se recalculent automatiquement.</div>
       </div>
 
-      {pesablesParClient.length === 0 ? (
+      {liste.length === 0 ? (
         <div className="vp-empty">Aucun produit pesé dans les commandes. Tout est à prix fixe.</div>
       ) : (
         <>
-          {pesablesParClient.map(({ c, lignes }) => (
-            <div className="vp-section" key={c.id}>
-              <div className="vp-h2" style={{ fontSize: 16 }}>{c.nom_client}</div>
-              {lignes.map((l) => (
+          {liste.map((g) => (
+            <div className="vp-section" key={g.nom}>
+              <div className="vp-h2" style={{ fontSize: 16 }}>{g.emoji} {g.nom}</div>
+              {g.lignes.map(({ l, client }) => (
                 <div className="vp-wline" key={l.id}>
                   <div className="nm">
-                    {l.emoji} {l.produit_nom}
+                    {client}
                     <small>{l.mode_vente === 'kg' ? `${num(l.quantite)} kg souhaités` : `${num(l.quantite)} pièce(s)`} · {eur(l.prix_william)}/kg</small>
                   </div>
                   <input className="vp-winput" inputMode="decimal" placeholder="kg"
@@ -1387,9 +1113,6 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
             onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>
             Copier le récap global
           </button>
-          <button className="vp-btn ghost sm" style={{ marginTop: 10, marginLeft: 8 }} onClick={imprimer}>
-            Imprimer (PDF)
-          </button>
           <div style={{ marginTop: 12 }}>
             {commandes.map((c) => (
               <div className="vp-srow" key={c.id} style={{ padding: '8px 0', borderBottom: '1px dotted var(--line)' }}>
@@ -1405,25 +1128,45 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
 }
 
 /* ---------- Admin : Réglages ---------- */
-function AdminReglages({ settings, commandes, reload, showToast }) {
+function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
   const [f, setF] = useState({
-    titre: settings.titre, date_vente: settings.date_vente,
-    heure_ouverture: settings.heure_ouverture || '09:00', heure_fermeture: settings.heure_fermeture,
-    vente_active: settings.vente_active, message_accueil: settings.message_accueil || '',
-    pin_admin: settings.pin_admin, marge_defaut: String(settings.marge_defaut),
+    titre: settings.titre,
+    heure_ouverture: settings.heure_ouverture || '09:00',
+    heure_fermeture: settings.heure_fermeture,
+    vente_active: settings.vente_active,
+    message_accueil: settings.message_accueil || '',
+    pin_admin: settings.pin_admin,
+    marge_defaut: String(settings.marge_defaut),
   });
+
+  const todayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  // Mise à jour silencieuse de date_vente si on change de jour
+  useEffect(() => {
+    const today = todayStr();
+    if (settings.date_vente !== today) {
+      supabase.from('viande_settings').update({ date_vente: today }).eq('id', 1).then(() => reload());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleVente = async () => {
     const nouveau = !f.vente_active;
     setF((x) => ({ ...x, vente_active: nouveau }));
     await supabase.from('viande_settings').update({ vente_active: nouveau, updated_at: new Date().toISOString() }).eq('id', 1);
     reload();
-    showToast(nouveau ? 'Vente activée' : 'Vente désactivée — boutique fermée');
+    showToast(nouveau
+      ? (estSemaine ? 'Horaires automatiques réactivés' : 'Boutique ouverte manuellement')
+      : (estSemaine ? 'Boutique fermée manuellement' : 'Boutique fermée'));
   };
 
   const sauver = async () => {
     await supabase.from('viande_settings').update({
-      titre: f.titre.trim() || 'Promo viande', date_vente: f.date_vente,
+      titre: f.titre.trim() || 'Viande Noisy',
+      date_vente: todayStr(),
       heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
       vente_active: f.vente_active, message_accueil: f.message_accueil.trim() || null,
       pin_admin: f.pin_admin.trim() || '0000', marge_defaut: parseFloat(f.marge_defaut) || 0,
@@ -1434,30 +1177,40 @@ function AdminReglages({ settings, commandes, reload, showToast }) {
 
   const nouvelleVente = async () => {
     if (!window.confirm('Démarrer une NOUVELLE vente ? Cela supprime toutes les commandes en cours (les produits sont conservés).')) return;
+    const today = todayStr();
     await supabase.from('viande_commandes').delete().eq('date_vente', settings.date_vente);
-    await supabase.from('viande_settings').update({
-      date_vente: new Date().toISOString().slice(0, 10), vente_active: true,
-      updated_at: new Date().toISOString(),
-    }).eq('id', 1);
-    setF((x) => ({ ...x, date_vente: new Date().toISOString().slice(0, 10), vente_active: true }));
+    await supabase.from('viande_settings').update({ date_vente: today, vente_active: true, updated_at: new Date().toISOString() }).eq('id', 1);
     reload(); showToast('Nouvelle vente prête');
   };
+
+  const JOURS = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const jourActuel = JOURS[new Date().getDay()];
 
   return (
     <>
       <div className="vp-section">
         <div className="vp-srow">
           <div>
-            <div className="vp-h2">{f.vente_active ? 'Boutique ouverte' : 'Boutique fermée'}</div>
+            <div className="vp-h2">{f.vente_active ? '🟢 Activée' : '🔴 Désactivée'}</div>
             <div className="vp-sub">
-              {f.vente_active
-                ? `Ouvre auto. à ${f.heure_ouverture}, ferme à ${f.heure_fermeture} — ou coupe ici à tout moment`
-                : 'Coupée manuellement, même pendant les horaires habituels'}
+              {estSemaine
+                ? (f.vente_active
+                    ? `${jourActuel} — ouverture auto ${f.heure_ouverture} · fermeture ${f.heure_fermeture}`
+                    : `${jourActuel} — fermée manuellement (horaires suspendus)`)
+                : (f.vente_active
+                    ? `${jourActuel} — ouverte manuellement`
+                    : `${jourActuel} — fermée (week-end par défaut)`)}
             </div>
           </div>
           <div className={`vp-toggle ${f.vente_active ? 'on' : ''}`} onClick={toggleVente} />
         </div>
       </div>
+
+      {!estSemaine && !f.vente_active && (
+        <div className="vp-note" style={{ marginBottom: 14 }}>
+          Week-end : boutique fermée par défaut. Active le bouton si tu as une promo exceptionnelle.
+        </div>
+      )}
 
       <div className="vp-section">
         <label className="vp-label">Titre de la vente</label>
@@ -1465,17 +1218,16 @@ function AdminReglages({ settings, commandes, reload, showToast }) {
 
         <div className="vp-grid2" style={{ marginTop: 12 }}>
           <div>
-            <label className="vp-label">Date</label>
-            <input className="vp-input" type="date" value={f.date_vente} onChange={(e) => setF({ ...f, date_vente: e.target.value })} />
-          </div>
-          <div>
-            <label className="vp-label">Heure d'ouverture</label>
+            <label className="vp-label">Ouverture auto (lun-ven)</label>
             <input className="vp-input" type="time" value={f.heure_ouverture} onChange={(e) => setF({ ...f, heure_ouverture: e.target.value })} />
           </div>
+          <div>
+            <label className="vp-label">Fermeture auto</label>
+            <input className="vp-input" type="time" value={f.heure_fermeture} onChange={(e) => setF({ ...f, heure_fermeture: e.target.value })} />
+          </div>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <label className="vp-label">Heure de fermeture</label>
-          <input className="vp-input" type="time" value={f.heure_fermeture} onChange={(e) => setF({ ...f, heure_fermeture: e.target.value })} />
+        <div className="vp-sub" style={{ marginTop: 8 }}>
+          Appliqués automatiquement du lundi au vendredi. Week-end : utilise le bouton on/off.
         </div>
 
         <div className="vp-field">
