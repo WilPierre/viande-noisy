@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14 · panier flottant';
+const VERSION = '2026-09-14b · impression, rupture, doublons';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -93,6 +93,52 @@ function fmtDateCourt(d) {
   if (!d) return '';
   try { return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); }
   catch { return d; }
+}
+
+/* ---- impression / PDF ----
+   Ouvre une fenêtre propre et déclenche l'impression.
+   Le navigateur propose « Enregistrer au format PDF » dans la liste
+   des imprimantes — c'est ce qui sert de téléchargement PDF. */
+function imprimerDocument(titre, corpsHTML) {
+  const w = window.open('', '_blank');
+  if (!w) return false;
+  const style = `
+    @page{size:A4;margin:14mm}
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+      color:#241E1B;margin:0;font-size:12.5px;line-height:1.45}
+    h1{font-size:19px;margin:0 0 2px}
+    .meta{color:#6b625c;font-size:12px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px}
+    th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+      color:#6b625c;border-bottom:1.5px solid #241E1B;padding:0 6px 5px}
+    td{padding:6px;border-bottom:1px solid #e6ded4;vertical-align:top}
+    td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .bloc{margin-bottom:18px;page-break-inside:avoid}
+    .bloc h2{font-size:14px;margin:0 0 2px;padding-bottom:4px;border-bottom:2px solid #241E1B}
+    .bloc .tel{color:#6b625c;font-size:11.5px;margin:3px 0 6px}
+    .tot{font-weight:700}
+    .grand{margin-top:14px;padding-top:9px;border-top:2px solid #241E1B;
+      display:flex;justify-content:space-between;font-size:16px;font-weight:700}
+    .rupture{color:#B3261E;font-weight:700}
+    .rupture .nom{text-decoration:line-through}
+    .note{margin-top:4px;font-style:italic;color:#6b625c;font-size:11.5px}
+    .pied{margin-top:20px;color:#8A7E76;font-size:10.5px;text-align:center}
+  `;
+  w.document.write(
+    '<!doctype html><html lang="fr"><head><meta charset="utf-8">' +
+    '<title>' + titre + '</title><style>' + style + '</style></head><body>' +
+    corpsHTML +
+    '<scr' + 'ipt>window.onload=function(){window.focus();window.print();}</scr' + 'ipt>' +
+    '</body></html>'
+  );
+  w.document.close();
+  return true;
+}
+// échappement pour injecter du texte dans le HTML d'impression
+function esc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /* ---- DLC ---- */
@@ -376,6 +422,44 @@ textarea.vp-input{resize:vertical;min-height:64px}
   .vp-bar-chev{transition:none}
 }
 
+/* avertissement estimation (panier client) */
+.vp-avert{margin-top:12px;background:#FFF8EC;border:1px solid #F1DFBC;color:#7A5A20;
+  border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.55}
+.vp-avert b{display:inline}
+.vp-avert b:first-child{display:block;margin-bottom:4px;font-size:13.5px}
+
+/* rupture */
+.vp-rupt-pill{background:#FBEDED;border:1px solid #F0CFCF;color:#B3261E;border-radius:6px;
+  padding:1px 7px;font-size:11px;font-weight:800;letter-spacing:.04em}
+.vp-rupt-btn{flex:0 0 auto;padding:6px 10px;border-radius:8px;background:var(--paper);
+  border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}
+.vp-rupt-btn.on{background:#FBEDED;border-color:#F0CFCF;color:#B3261E}
+.vp-rupt-case{display:flex;gap:11px;align-items:flex-start;margin-top:12px;padding:12px;
+  border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}
+.vp-rupt-case.on{background:#FBEDED;border-color:#F0CFCF}
+.vp-rupt-case input{width:20px;height:20px;flex:0 0 auto;margin:1px 0 0;accent-color:#B3261E}
+.vp-rupt-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
+.vp-rupt-note{margin-top:10px;background:#FBEDED;border:1px solid #F0CFCF;color:#B3261E;
+  border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600}
+.vp-wline.rupt{opacity:.75}
+.vp-wline.rupt .nm small{color:#B3261E;font-weight:700}
+.vp-barre{text-decoration:line-through}
+
+/* doublons */
+.vp-doublon{margin-top:10px;background:#FFF8EC;border:1px solid #F1DFBC;color:#7A5A20;
+  border-radius:12px;padding:11px 13px;font-size:13px}
+.vp-doublon-l{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  margin-top:8px;padding-top:8px;border-top:1px dotted #F1DFBC}
+.vp-doublon-l > span{min-width:0}
+
+/* bouton « copier ≈ » */
+.vp-approx{flex:0 0 auto;padding:4px 10px;border-radius:7px;background:var(--paper);
+  border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}
+.vp-approx:active{background:var(--line);color:var(--wine)}
+
+/* bascule de vue (pesées) */
+.vp-vue{display:flex;gap:6px;margin-top:12px}
+
 /* pastille DLC */
 .vp-dlc{display:inline-flex;align-items:center;gap:4px;background:#FFF8EC;border:1px solid #F1DFBC;
   color:#7A5A20;border-radius:6px;padding:1px 7px;font-size:11.5px;font-weight:700;white-space:nowrap}
@@ -606,7 +690,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [filtreCat, setFiltreCat] = useState('Tous');
   const [panierOuvert, setPanierOuvert] = useState(false);
 
-  const dispo = produits.filter((p) => p.disponible);
+  const dispo = produits.filter((p) => p.disponible && !p.rupture);
   const cats = CATEGORIES.filter((c) => dispo.some((p) => p.categorie === c));
 
   useEffect(() => {
@@ -646,13 +730,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   const envoyer = async () => {
     if (!nom.trim()) { showToast('Indique ton prénom'); return; }
+    if (tel.replace(/\D/g, '').length < 10) { showToast('Ton numéro de téléphone est obligatoire'); return; }
     if (lignes.length === 0) { showToast('Ton panier est vide'); return; }
     setEnvoi(true);
     try {
       const totalPatrice = lignes.reduce(
         (s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_patrice'), 0);
       const { data: cmd, error } = await supabase.from('viande_commandes').insert({
-        nom_client: nom.trim(), telephone: tel.trim() || null, note: note.trim() || null,
+        nom_client: nom.trim(), telephone: tel.trim(), note: note.trim() || null,
         total_estime: Math.round(total * 100) / 100,
         total_patrice: Math.round(totalPatrice * 100) / 100,
         date_vente: settings.date_vente,
@@ -688,8 +773,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           <div className="vp-check">✓</div>
           <h1 style={{ fontSize: 26 }}>Commande envoyée !</h1>
           <p style={{ color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-            Merci {done.nom}. Total estimé : <b>{eur(done.total)}</b>.<br />
-            {done.aDuPese && 'Les produits au kilo seront ajustés au poids réel à la livraison.'}
+            Merci {done.nom}. Total estimé : <b>{done.aDuPese ? '≈ ' : ''}{eur(done.total)}</b>.<br />
+            {done.aDuPese && (
+              <><br /><b>Ce total est une estimation</b> : les produits au kilo seront recalculés
+              au poids réel à la livraison. Tu recevras ta note définitive.</>
+            )}
           </p>
           <button className="vp-btn ghost" style={{ marginTop: 22 }} onClick={() => setDone(null)}>
             Passer une autre commande
@@ -841,8 +929,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   );
                 })}
 
-                <div className="vp-tot"><span>Total estimé</span><span className="r">{eur(total)}</span></div>
-                {aDuPese && <div className="vp-mini">≈ Les montants au kilo sont des estimations. Le prix final sera calculé au poids réel.</div>}
+                <div className="vp-tot"><span>Total estimé</span><span className="r">{aDuPese ? '≈ ' : ''}{eur(total)}</span></div>
+                {aDuPese && (
+                  <div className="vp-avert">
+                    <b>⚠️ Ce montant n'est qu'une estimation.</b>
+                    Les produits au kilo sont calculés sur un <b>poids moyen</b>. Les pièces étant toutes
+                    différentes, le poids réel — et donc le prix — <b>sera différent</b>. Le montant définitif
+                    te sera communiqué après la pesée chez le fournisseur.
+                  </div>
+                )}
                 <button className="vp-trash" onClick={() => setCart({})}>Vider le panier</button>
 
                 <div className="vp-field">
@@ -850,8 +945,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
                 </div>
                 <div className="vp-field">
-                  <label className="vp-label">Téléphone (facultatif)</label>
-                  <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} placeholder="06 …" inputMode="tel" />
+                  <label className="vp-label">Téléphone *</label>
+                  <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} placeholder="06 12 34 56 78" inputMode="tel" />
+                  <div className="vp-sub" style={{ marginTop: 4 }}>Nécessaire pour te prévenir en cas de rupture ou d'ajustement de poids.</div>
                 </div>
                 <div className="vp-field">
                   <label className="vp-label">Un mot pour la commande (facultatif)</label>
@@ -958,7 +1054,7 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
       {tab === 'commandes' && <AdminCommandes commandes={commandes} ouvert={ouvert} reload={loadCommandes} showToast={showToast} />}
       {tab === 'produits' && <AdminProduits produits={produits} settings={settings} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settings} showToast={showToast} />}
-      {tab === 'pesees' && <AdminPesees commandes={commandes} settings={settings} reload={loadCommandes} showToast={showToast} />}
+      {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settings} reload={loadCommandes} showToast={showToast} />}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
       <div className="vp-foot">
@@ -1032,7 +1128,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -1086,6 +1182,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '',
       photo_url: p.photo_url || '',
       dlc: p.dlc || '',
+      rupture: !!p.rupture,
       variante_label: p.variante_label || '',
       variantes: variantesDe(p).map((v) => ({
         id: v.id, nom: v.nom || '',
@@ -1144,8 +1241,24 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     setForm((f) => ({ ...f, prix_william: String(w) }));
   };
 
+  // doublons : même nom, ou un nom contenu dans l'autre (≥ 4 caractères)
+  const doublons = (() => {
+    if (!form) return [];
+    const n = normaliser(form.nom.trim());
+    if (n.length < 4) return [];
+    return produits.filter((p) => {
+      if (form.id && p.id === form.id) return false;
+      const a = normaliser(p.nom);
+      return a === n || a.includes(n) || n.includes(a);
+    });
+  })();
+  const doublonExact = doublons.some((p) => normaliser(p.nom) === normaliser(form ? form.nom.trim() : ''));
+
   const enregistrer = async () => {
     if (!form.nom.trim()) { showToast('Nom requis'); return; }
+    if (doublonExact && !window.confirm(
+      `« ${form.nom.trim()} » existe déjà au catalogue.\n\nCréer quand même un second produit portant ce nom ?`
+    )) return;
     const vars = (form.variantes || [])
       .filter((v) => v.nom.trim())
       .map((v) => ({
@@ -1164,6 +1277,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       poids_moyen: form.mode_vente === 'piece_pesee' ? (parseFloat(form.poids_moyen) || null) : null,
       emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
       dlc: form.dlc || null,
+      rupture: !!form.rupture,
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
@@ -1180,6 +1294,12 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const majDlc = async (p, val) => {
     await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
     reload();
+  };
+  const toggleRupture = async (p) => {
+    await supabase.from('viande_produits').update({ rupture: !p.rupture }).eq('id', p.id);
+    setRetour(p.id);
+    reload();
+    showToast(!p.rupture ? 'Marqué en rupture' : 'Rupture levée');
   };
   const toggleDispo = async (p) => {
     await supabase.from('viande_produits').update({ disponible: !p.disponible }).eq('id', p.id);
@@ -1199,8 +1319,24 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       <div className="vp-section">
         <div className="vp-h2" style={{ marginBottom: 12 }}>{form.id ? 'Modifier' : 'Nouveau produit'}</div>
 
-        <label className="vp-label">Nom</label>
+        <div className="vp-srow" style={{ marginBottom: 5 }}>
+          <label className="vp-label" style={{ margin: 0 }}>Nom</label>
+          <button className="vp-approx" onClick={async () => { (await copier('≈')) && showToast('≈ copié'); }}
+            title="Copier le signe ≈">≈ copier</button>
+        </div>
         <input className="vp-input" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} placeholder="Ex : Côte de bœuf" />
+
+        {doublons.length > 0 && (
+          <div className="vp-doublon">
+            <b>{doublonExact ? '⚠️ Ce produit existe déjà' : '⚠️ Produit ressemblant déjà au catalogue'}</b>
+            {doublons.slice(0, 4).map((p) => (
+              <div className="vp-doublon-l" key={p.id}>
+                <span>{p.emoji} {p.nom} <span className="vp-pill">{eur(p.prix_william)}</span></span>
+                <button className="vp-btn ghost sm" onClick={() => ouvrirEdit(p)}>Ouvrir celui-ci</button>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="vp-grid2" style={{ marginTop: 12 }}>
           <div>
@@ -1243,7 +1379,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
         {form.mode_vente === 'piece_pesee' && (
           <div style={{ marginTop: 12 }}>
-            <label className="vp-label">Poids moyen par pièce (kg) — pour l'estimation</label>
+            <div className="vp-srow" style={{ marginBottom: 5 }}>
+              <label className="vp-label" style={{ margin: 0 }}>Poids moyen par pièce (kg) — pour l'estimation</label>
+              <button className="vp-approx" onClick={async () => { (await copier('≈')) && showToast('≈ copié'); }}
+                title="Copier le signe ≈">≈ copier</button>
+            </div>
             <input className="vp-input" value={form.poids_moyen} inputMode="decimal"
               onChange={(e) => setForm({ ...form, poids_moyen: e.target.value })} placeholder="Ex : 1.4" />
           </div>
@@ -1389,6 +1529,15 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div className={`vp-toggle ${form.disponible ? 'on' : ''}`} onClick={() => setForm({ ...form, disponible: !form.disponible })} />
         </div>
 
+        <label className={`vp-rupt-case ${form.rupture ? 'on' : ''}`}>
+          <input type="checkbox" checked={!!form.rupture}
+            onChange={(e) => setForm({ ...form, rupture: e.target.checked })} />
+          <span>
+            <b>Produit en rupture</b>
+            <small>Retiré de la boutique et signalé en rouge sur les récaps, pour penser à prévenir les clients.</small>
+          </span>
+        </label>
+
         <div className="vp-grid2" style={{ marginTop: 18 }}>
           <button className="vp-btn ghost" onClick={() => setForm(null)}>Annuler</button>
           <button className="vp-btn" onClick={enregistrer}>Enregistrer</button>
@@ -1420,7 +1569,12 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)}{m.suffixe}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
-              {dlc && <div style={{ marginTop: 5 }}><span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span></div>}
+              {(dlc || p.rupture) && (
+                <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {p.rupture && <span className="vp-rupt-pill">EN RUPTURE</span>}
+                  {dlc && <span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span>}
+                </div>
+              )}
             </div>
           </div>
           <div className={`vp-toggle ${p.disponible ? 'on' : ''}`} onClick={() => toggleDispo(p)} />
@@ -1430,6 +1584,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <input id={`dlc-${p.id}`} className="vp-dlc-input" type="date"
             value={p.dlc || ''} onChange={(e) => majDlc(p, e.target.value)} />
           {p.dlc && <button className="vp-dlc-x" onClick={() => majDlc(p, '')} aria-label="Effacer la DLC">×</button>}
+          <button className={`vp-rupt-btn ${p.rupture ? 'on' : ''}`} onClick={() => toggleRupture(p)}>
+            {p.rupture ? 'En rupture' : 'Rupture'}
+          </button>
         </div>
         <div className="vp-grid2" style={{ marginTop: 10 }}>
           <button className="vp-btn ghost sm" onClick={() => ouvrirEdit(p)}>Modifier</button>
@@ -1528,36 +1685,70 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
 /* ---------- Admin : Export Patrice ---------- */
 function AdminExport({ commandes, produits, settings, showToast }) {
-  // agrégation par produit
+  const enRupture = new Set(produits.filter((p) => p.rupture).map((p) => String(p.id)));
+
+  // agrégation par produit + variante
   const agg = {};
   commandes.forEach((c) => (c.lignes || []).forEach((l) => {
     const k = nomLigne(l);
-    if (!agg[k]) agg[k] = { nom: k, emoji: l.emoji, mode: l.mode_vente, qte: 0, cout: 0 };
+    if (!agg[k]) agg[k] = {
+      nom: k, emoji: l.emoji, mode: l.mode_vente, qte: 0, cout: 0,
+      rupture: enRupture.has(String(l.produit_id)),
+    };
     agg[k].qte += Number(l.quantite || 0);
     agg[k].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
   }));
   const lignes = Object.values(agg);
-  const coutTotal = lignes.reduce((s, x) => s + x.cout, 0);
+  const coutTotal = lignes.reduce((s, x) => s + (x.rupture ? 0 : x.cout), 0);
+  const nbRupture = lignes.filter((x) => x.rupture).length;
 
   const uniteTxt = (mode, qte) =>
     mode === 'kg' ? `${num(qte)} kg` : `${num(qte)} pièce(s)`;
 
   const texte = () => {
     let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n\n`;
-    lignes.forEach((x) => { t += `• ${x.nom} : ${uniteTxt(x.mode, x.qte)}\n`; });
+    lignes.filter((x) => !x.rupture).forEach((x) => { t += `• ${x.nom} : ${uniteTxt(x.mode, x.qte)}\n`; });
+    const r = lignes.filter((x) => x.rupture);
+    if (r.length) {
+      t += `\n❌ En rupture (non commandé) :\n`;
+      r.forEach((x) => { t += `• ${x.nom}\n`; });
+    }
     t += `\nCoût total estimé (prix Patrice) : ${eur(coutTotal)}`;
     return t;
   };
 
   const csv = () => {
-    let c = 'Produit;Mode;Quantite;Unite;Prix Patrice;Cout estime\n';
+    let c = 'Produit;Mode;Quantite;Unite;Rupture;Cout estime\n';
     lignes.forEach((x) => {
       const unite = x.mode === 'kg' ? 'kg' : 'piece';
-      c += `${x.nom};${MODES[x.mode].label};${num(x.qte)};${unite};;${(Math.round(x.cout * 100) / 100).toString().replace('.', ',')}\n`;
+      c += `${x.nom};${MODES[x.mode].label};${num(x.qte)};${unite};${x.rupture ? 'OUI' : ''};${(Math.round(x.cout * 100) / 100).toString().replace('.', ',')}\n`;
     });
     const blob = new Blob(['\ufeff' + c], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `commande-patrice-${settings.date_vente}.csv`; a.click();
+  };
+
+  const imprimer = () => {
+    const rows = lignes.map((x) => `
+      <tr class="${x.rupture ? 'rupture' : ''}">
+        <td><span class="nom">${esc(x.nom)}</span>${x.rupture ? ' — EN RUPTURE' : ''}</td>
+        <td class="n">${esc(uniteTxt(x.mode, x.qte))}</td>
+        <td class="n">${x.rupture ? '—' : esc(eur(x.cout))}</td>
+      </tr>`).join('');
+    const corps = `
+      <h1>Commande pour Patrice</h1>
+      <div class="meta">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))} ·
+        ${commandes.length} commande(s) cumulée(s)</div>
+      <table>
+        <thead><tr><th>Produit</th><th style="text-align:right">Quantité</th>
+          <th style="text-align:right">Coût estimé</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="grand"><span>Coût total estimé</span><span>${esc(eur(coutTotal))}</span></div>
+      <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
+    if (!imprimerDocument(`Commande Patrice ${settings.date_vente}`, corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
   };
 
   return (
@@ -1565,6 +1756,11 @@ function AdminExport({ commandes, produits, settings, showToast }) {
       <div className="vp-section">
         <div className="vp-h2">Récap pour Patrice</div>
         <div className="vp-sub">Quantités cumulées de toutes les commandes. À envoyer après la fermeture.</div>
+        {nbRupture > 0 && (
+          <div className="vp-rupt-note">
+            {nbRupture} produit(s) en rupture — exclus du total et signalés en rouge sur l'impression.
+          </div>
+        )}
         {lignes.length === 0 ? (
           <div className="vp-empty">Pas encore de commande à cumuler.</div>
         ) : (
@@ -1572,7 +1768,11 @@ function AdminExport({ commandes, produits, settings, showToast }) {
             <div className="vp-pre" style={{ marginTop: 12 }}>{texte()}</div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
               <button className="vp-btn green" onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}>Copier le message</button>
-              <button className="vp-btn ghost" onClick={csv}>Télécharger CSV</button>
+              <button className="vp-btn" onClick={imprimer}>Imprimer / PDF</button>
+            </div>
+            <button className="vp-btn ghost" style={{ width: '100%', marginTop: 10 }} onClick={csv}>Télécharger CSV</button>
+            <div className="vp-sub" style={{ marginTop: 8 }}>
+              Pour un PDF : choisis « Enregistrer au format PDF » dans la liste des imprimantes.
             </div>
           </>
         )}
@@ -1582,8 +1782,35 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 }
 
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
-function AdminPesees({ commandes, settings, reload, showToast }) {
-  // produits pesés (kg / piece_pesee), regroupés par produit
+function AdminPesees({ commandes, produits, settings, reload, showToast }) {
+  const [vue, setVue] = useState('client');
+  const [poids, setPoids] = useState({});
+
+  const enRupture = new Set((produits || []).filter((p) => p.rupture).map((p) => String(p.id)));
+  const estRupture = (l) => enRupture.has(String(l.produit_id));
+
+  // sous-total d'une ligne d'après la saisie en cours (0 si rupture)
+  const stLive = (l) => {
+    if (estRupture(l)) return 0;
+    if (l.mode_vente === 'piece_fixe') return (Number(l.quantite) || 0) * (Number(l.prix_william) || 0);
+    const v = poids[l.id];
+    const saisi = (v !== '' && v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : null;
+    const pr = saisi != null ? saisi
+      : (l.poids_reel != null ? Number(l.poids_reel)
+        : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen));
+    return pr * (Number(l.prix_william) || 0);
+  };
+  // le montant est-il encore une estimation ?
+  const estEstime = (l) => {
+    if (estRupture(l) || l.mode_vente === 'piece_fixe') return false;
+    const v = poids[l.id];
+    const saisi = (v !== '' && v != null && !isNaN(parseFloat(v)));
+    return !saisi && l.poids_reel == null;
+  };
+  const totalCmd = (c) => (c.lignes || []).reduce((s, l) => s + stLive(l), 0);
+  const totalGroupe = commandes.reduce((s, c) => s + totalCmd(c), 0);
+
+  // regroupement par produit (vue alternative)
   const groupes = {};
   commandes.forEach((c) => (c.lignes || []).forEach((l) => {
     if (l.mode_vente === 'piece_fixe') return;
@@ -1593,11 +1820,6 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
   }));
   const liste = Object.values(groupes);
 
-  // état local des poids saisis : ligneId -> valeur
-  const [poids, setPoids] = useState({});
-
-  // signature = id + poids déjà en base, pour réagir aussi à une MAJ de poids
-  // (et pas seulement à un changement du nombre de commandes)
   const signature = useMemo(
     () => commandes
       .flatMap((c) => (c.lignes || []).map((l) => `${l.id}:${l.poids_reel ?? ''}`))
@@ -1614,112 +1836,193 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
   }, [signature]);
 
   const enregistrer = async () => {
-    // 1) maj des lignes pesées
     const updates = [];
     commandes.forEach((c) => (c.lignes || []).forEach((l) => {
       if (l.mode_vente === 'piece_fixe') return;
+      if (estRupture(l)) { updates.push({ id: l.id, poids_reel: null, sous_total_final: 0 }); return; }
       const v = poids[l.id];
       if (v === '' || v == null) return;
       const pr = parseFloat(v);
       if (isNaN(pr)) return;
-      const st = Math.round(pr * Number(l.prix_william) * 100) / 100;
-      updates.push({ id: l.id, poids_reel: pr, sous_total_final: st });
+      updates.push({ id: l.id, poids_reel: pr, sous_total_final: Math.round(pr * Number(l.prix_william) * 100) / 100 });
     }));
     for (const u of updates) {
       await supabase.from('viande_commande_lignes')
         .update({ poids_reel: u.poids_reel, sous_total_final: u.sous_total_final }).eq('id', u.id);
     }
-    // 2) recalcul total par commande
     for (const c of commandes) {
-      const total = (c.lignes || []).reduce((s, l) => {
-        const upd = updates.find((u) => u.id === l.id);
-        const lcopy = upd ? { ...l, poids_reel: upd.poids_reel } : l;
-        return s + sousTotalFinal(lcopy);
-      }, 0);
       const tousPeses = (c.lignes || []).every((l) =>
-        l.mode_vente === 'piece_fixe' || updates.find((u) => u.id === l.id) || l.poids_reel != null);
+        l.mode_vente === 'piece_fixe' || estRupture(l)
+        || updates.find((u) => u.id === l.id) || l.poids_reel != null);
       await supabase.from('viande_commandes')
-        .update({ total_final: Math.round(total * 100) / 100, statut: tousPeses ? 'finalisee' : 'en_cours' })
+        .update({ total_final: Math.round(totalCmd(c) * 100) / 100, statut: tousPeses ? 'finalisee' : 'en_cours' })
         .eq('id', c.id);
     }
     showToast('Poids enregistrés — notes recalculées');
     reload();
   };
 
-  // génération des notes clients
+  const ligneTxt = (l) => {
+    const n = nomLigne(l);
+    if (estRupture(l)) return `• ${n} : ❌ EN RUPTURE — non fourni\n`;
+    if (l.mode_vente === 'piece_fixe') {
+      return `• ${n} : ${num(l.quantite)} × ${eur(l.prix_william)} = ${eur(stLive(l))}\n`;
+    }
+    const v = poids[l.id];
+    const saisi = (v !== '' && v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : l.poids_reel;
+    if (saisi != null) return `• ${n} : ${num(saisi)} kg × ${eur(l.prix_william)} = ${eur(stLive(l))}\n`;
+    return `• ${n} : (poids à confirmer)\n`;
+  };
+
   const noteClient = (c) => {
     let t = `🥩 ${settings.titre} — ${fmtDateCourt(settings.date_vente)}\nNote de ${c.nom_client}\n\n`;
-    (c.lignes || []).forEach((l) => {
-      const n = nomLigne(l);
-      if (l.mode_vente === 'piece_fixe') {
-        t += `• ${n} : ${num(l.quantite)} × ${eur(l.prix_william)} = ${eur(l.quantite * l.prix_william)}\n`;
-      } else {
-        const pr = l.poids_reel;
-        if (pr != null) t += `• ${n} : ${num(pr)} kg × ${eur(l.prix_william)} = ${eur(pr * l.prix_william)}\n`;
-        else t += `• ${n} : (poids à confirmer)\n`;
-      }
-    });
-    const total = (c.lignes || []).reduce((s, l) => s + sousTotalFinal(l), 0);
-    t += `\nTotal : ${eur(total)}\nMerci ! 😊`;
+    (c.lignes || []).forEach((l) => { t += ligneTxt(l); });
+    t += `\nTotal : ${eur(totalCmd(c))}\nMerci ! 😊`;
     return t;
   };
   const recapGlobal = () => {
     let t = `🥩 Récap commandes — ${fmtDateCourt(settings.date_vente)}\n\n`;
-    let tot = 0;
-    commandes.forEach((c) => {
-      const v = (c.lignes || []).reduce((s, l) => s + sousTotalFinal(l), 0);
-      tot += v; t += `${c.nom_client} : ${eur(v)}\n`;
-    });
-    t += `\nTotal groupe : ${eur(tot)}`;
+    commandes.forEach((c) => { t += `${c.nom_client} : ${eur(totalCmd(c))}\n`; });
+    t += `\nTotal groupe : ${eur(totalGroupe)}`;
     return t;
   };
+
+  const imprimer = () => {
+    const blocs = commandes.map((c) => {
+      const rows = (c.lignes || []).map((l) => {
+        const rupt = estRupture(l);
+        const v = poids[l.id];
+        const saisi = (v !== '' && v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : l.poids_reel;
+        const detail = rupt ? 'EN RUPTURE — non fourni'
+          : l.mode_vente === 'piece_fixe' ? `${num(l.quantite)} × ${eur(l.prix_william)}`
+          : saisi != null ? `${num(saisi)} kg × ${eur(l.prix_william)}/kg`
+          : `${num(l.quantite)} ${l.mode_vente === 'kg' ? 'kg' : 'pc'} · poids à confirmer`;
+        return `<tr class="${rupt ? 'rupture' : ''}">
+          <td><span class="nom">${esc(nomLigne(l))}</span></td>
+          <td>${esc(detail)}</td>
+          <td class="n">${rupt ? '—' : (estEstime(l) ? '≈ ' : '') + esc(eur(stLive(l)))}</td>
+        </tr>`;
+      }).join('');
+      return `<div class="bloc">
+        <h2>${esc(c.nom_client)}</h2>
+        <div class="tel">${esc(c.telephone || '')}</div>
+        <table><tbody>${rows}
+          <tr><td class="tot">Total</td><td></td><td class="n tot">${esc(eur(totalCmd(c)))}</td></tr>
+        </tbody></table>
+        ${c.note ? `<div class="note">« ${esc(c.note)} »</div>` : ''}
+      </div>`;
+    }).join('');
+    const corps = `
+      <h1>Feuille de totaux</h1>
+      <div class="meta">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))} ·
+        ${commandes.length} client(s)</div>
+      ${blocs}
+      <div class="grand"><span>Total groupe</span><span>${esc(eur(totalGroupe))}</span></div>
+      <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
+    if (!imprimerDocument(`Totaux ${settings.date_vente}`, corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
+  };
+
+  const champPoids = (l) => (
+    <input className="vp-winput" inputMode="decimal" placeholder="kg"
+      value={poids[l.id] ?? ''} disabled={estRupture(l)}
+      onChange={(e) => setPoids((p) => ({ ...p, [l.id]: e.target.value }))} />
+  );
 
   return (
     <>
       <div className="vp-section">
         <div className="vp-h2">Pesées du lendemain</div>
-        <div className="vp-sub">Saisis le poids réel (kg) de chaque produit pesé d'après la facture de Patrice. Les notes se recalculent automatiquement.</div>
+        <div className="vp-sub">Saisis le poids réel (kg) d'après la facture de Patrice. Les notes se recalculent automatiquement.</div>
+        <div className="vp-vue">
+          <button className={`vp-tab ${vue === 'client' ? 'on' : ''}`} onClick={() => setVue('client')}>Par client</button>
+          <button className={`vp-tab ${vue === 'produit' ? 'on' : ''}`} onClick={() => setVue('produit')}>Par produit</button>
+        </div>
       </div>
 
-      {liste.length === 0 ? (
-        <div className="vp-empty">Aucun produit pesé dans les commandes. Tout est à prix fixe.</div>
-      ) : (
+      {commandes.length === 0 ? (
+        <div className="vp-empty">Aucune commande à traiter.</div>
+      ) : vue === 'client' ? (
         <>
-          {liste.map((g) => (
-            <div className="vp-section" key={g.nom}>
-              <div className="vp-h2" style={{ fontSize: 16 }}>{g.emoji} {g.nom}</div>
-              {g.lignes.map(({ l, client }) => (
-                <div className="vp-wline" key={l.id}>
-                  <div className="nm">
-                    {client}
-                    <small>{l.mode_vente === 'kg' ? `${num(l.quantite)} kg souhaités` : `${num(l.quantite)} pièce(s)`} · {eur(l.prix_william)}/kg</small>
-                  </div>
-                  <input className="vp-winput" inputMode="decimal" placeholder="kg"
-                    value={poids[l.id] ?? ''} onChange={(e) => setPoids((p) => ({ ...p, [l.id]: e.target.value }))} />
+          {commandes.map((c) => (
+            <div className="vp-section" key={c.id}>
+              <div className="vp-srow">
+                <div>
+                  <div className="vp-h2" style={{ fontSize: 17 }}>{c.nom_client}</div>
+                  {c.telephone && <div className="vp-sub">{c.telephone}</div>}
                 </div>
-              ))}
+                <div className="vp-h2" style={{ fontSize: 17, color: 'var(--wine)' }}>{eur(totalCmd(c))}</div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                {(c.lignes || []).map((l) => {
+                  const rupt = estRupture(l);
+                  return (
+                    <div className={`vp-wline ${rupt ? 'rupt' : ''}`} key={l.id}>
+                      <div className="nm">
+                        <span className={rupt ? 'vp-barre' : ''}>{l.emoji} {nomLigne(l)}</span>
+                        <small>
+                          {rupt ? 'EN RUPTURE — non fourni'
+                            : l.mode_vente === 'piece_fixe'
+                              ? `${num(l.quantite)} × ${eur(l.prix_william)} = ${eur(stLive(l))}`
+                              : `${l.mode_vente === 'kg' ? `${num(l.quantite)} kg souhaités` : `${num(l.quantite)} pièce(s)`} · ${eur(l.prix_william)}/kg → ${estEstime(l) ? '≈ ' : ''}${eur(stLive(l))}`}
+                        </small>
+                      </div>
+                      {l.mode_vente === 'piece_fixe' || rupt
+                        ? <span className="vp-pill" style={{ textAlign: 'center' }}>{rupt ? '—' : 'fixe'}</span>
+                        : champPoids(l)}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {c.note && <div className="vp-sub" style={{ marginTop: 8, fontStyle: 'italic' }}>« {c.note} »</div>}
+              <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
+                onClick={async () => { (await copier(noteClient(c))) && showToast(`Note de ${c.nom_client} copiée`); }}>
+                Copier sa note
+              </button>
             </div>
           ))}
-          <button className="vp-cta" onClick={enregistrer}>Enregistrer les poids & recalculer</button>
         </>
-      )}
-
-      {commandes.length > 0 && (
-        <div className="vp-section" style={{ marginTop: 14 }}>
-          <div className="vp-h2" style={{ fontSize: 16 }}>Notes à envoyer</div>
-          <button className="vp-btn green sm" style={{ marginTop: 10 }}
-            onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>
-            Copier le récap global
-          </button>
-          <div style={{ marginTop: 12 }}>
-            {commandes.map((c) => (
-              <div className="vp-srow" key={c.id} style={{ padding: '8px 0', borderBottom: '1px dotted var(--line)' }}>
-                <span>{c.nom_client} <span className="vp-pill">{c.total_final != null ? eur(c.total_final) : `≈ ${eur(c.total_estime)}`}</span></span>
-                <button className="vp-btn ghost sm" onClick={async () => { (await copier(noteClient(c))) && showToast(`Note de ${c.nom_client} copiée`); }}>Copier sa note</button>
+      ) : liste.length === 0 ? (
+        <div className="vp-empty">Aucun produit pesé dans les commandes. Tout est à prix fixe.</div>
+      ) : (
+        liste.map((g) => (
+          <div className="vp-section" key={g.nom}>
+            <div className="vp-h2" style={{ fontSize: 16 }}>{g.emoji} {g.nom}</div>
+            {g.lignes.map(({ l, client }) => (
+              <div className={`vp-wline ${estRupture(l) ? 'rupt' : ''}`} key={l.id}>
+                <div className="nm">
+                  <span className={estRupture(l) ? 'vp-barre' : ''}>{client}</span>
+                  <small>{estRupture(l) ? 'EN RUPTURE' : `${l.mode_vente === 'kg' ? `${num(l.quantite)} kg souhaités` : `${num(l.quantite)} pièce(s)`} · ${eur(l.prix_william)}/kg`}</small>
+                </div>
+                {estRupture(l) ? <span className="vp-pill" style={{ textAlign: 'center' }}>—</span> : champPoids(l)}
               </div>
             ))}
           </div>
-        </div>
+        ))
+      )}
+
+      {commandes.length > 0 && (
+        <>
+          <button className="vp-cta" onClick={enregistrer}>Enregistrer les poids &amp; recalculer</button>
+
+          <div className="vp-section" style={{ marginTop: 14 }}>
+            <div className="vp-srow">
+              <div className="vp-h2" style={{ fontSize: 16 }}>Feuille de totaux</div>
+              <div className="vp-h2" style={{ fontSize: 16, color: 'var(--wine)' }}>{eur(totalGroupe)}</div>
+            </div>
+            <div className="vp-sub">Une page par lot de clients, avec le détail et le total de chacun.</div>
+            <div className="vp-grid2" style={{ marginTop: 12 }}>
+              <button className="vp-btn" onClick={imprimer}>Imprimer / PDF</button>
+              <button className="vp-btn green" onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>Copier le récap</button>
+            </div>
+            <div className="vp-sub" style={{ marginTop: 8 }}>
+              Pour un PDF : choisis « Enregistrer au format PDF » dans la liste des imprimantes.
+            </div>
+          </div>
+        </>
       )}
     </>
   );
