@@ -221,6 +221,21 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-gate{max-width:340px;margin:80px auto;text-align:center}
 .vp-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;
   padding:12px 18px;border-radius:12px;font-size:14px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+
+/* deux colonnes produits : en vente / désactivés */
+.vp-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.vp-col-head{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:6px 2px 10px}
+.vp-col-count{background:var(--paper);border:1px solid var(--line);border-radius:999px;
+  padding:1px 8px;font-size:11.5px;letter-spacing:0;font-weight:700}
+.vp-col-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex:0 0 auto}
+.vp-col.off .vp-col-dot{background:var(--line)}
+.vp-col.off .vp-cmd{background:#FCFAF7;opacity:.72}
+.vp-col.off .vp-cmd:hover{opacity:1}
+.vp-col-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 10px;
+  border:1px dashed var(--line);border-radius:12px}
+@media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
+
 @media (max-width:430px){.vp-grid2{grid-template-columns:1fr}}
 `;
 
@@ -305,8 +320,7 @@ export default function App() {
       {toast && <div className="vp-toast">{toast}</div>}
       {view === 'admin' ? (
         <Admin
-          settings={settings} produits={produits} now={now}
-          fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
+          settings={settings} produits={produits} ouvert={ouvert}
           estSemaine={estSemaine}
           reload={loadBase} showToast={showToast}
         />
@@ -585,7 +599,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 /* ============================================================
    ADMIN
 ============================================================ */
-function Admin({ settings, produits, now, fermetureAt, ouvert, estSemaine, reload, showToast }) {
+function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
   const [tab, setTab] = useState('commandes');
@@ -889,12 +903,49 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     );
   }
 
+  const carte = (p) => {
+    const m = MODES[p.mode_vente];
+    const mg = p.prix_patrice > 0 ? Math.round((p.prix_william / p.prix_patrice - 1) * 100) : 0;
+    return (
+      <div className="vp-cmd" key={p.id}>
+        <div className="vp-srow">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
+            {p.photo_url
+              ? <img src={p.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
+              : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700 }}>{p.nom}</div>
+              <div className="vp-sub">
+                {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)} {m.prixUnite}
+                {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
+              </div>
+            </div>
+          </div>
+          <div className={`vp-toggle ${p.disponible ? 'on' : ''}`} onClick={() => toggleDispo(p)} />
+        </div>
+        <div className="vp-grid2" style={{ marginTop: 10 }}>
+          <button className="vp-btn ghost sm" onClick={() => ouvrirEdit(p)}>Modifier</button>
+          <button className="vp-btn ghost sm" onClick={() => supprimer(p)}>Supprimer</button>
+        </div>
+      </div>
+    );
+  };
+
+  const actifs = produitsAffiches.filter((p) => p.disponible);
+  const inactifs = produitsAffiches.filter((p) => !p.disponible);
+
   return (
     <>
       <div className="vp-section vp-srow">
-        <div><div className="vp-h2">Produits</div><div className="vp-sub">{produits.length} au catalogue</div></div>
+        <div>
+          <div className="vp-h2">Produits</div>
+          <div className="vp-sub">
+            {produits.length} au catalogue · {produits.filter((p) => p.disponible).length} en vente
+          </div>
+        </div>
         <button className="vp-btn" onClick={ouvrirNouveau}>+ Ajouter</button>
       </div>
+
       {catsPresentes.length > 1 && (
         <div className="vp-tabs" style={{ paddingTop: 0 }}>
           <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>
@@ -907,35 +958,31 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           ))}
         </div>
       )}
+
       {produitsAffiches.length === 0 ? (
         <div className="vp-empty">Aucun produit. Ajoute les promos de Patrice.</div>
-      ) : produitsAffiches.map((p) => {
-        const m = MODES[p.mode_vente];
-        const mg = p.prix_patrice > 0 ? Math.round((p.prix_william / p.prix_patrice - 1) * 100) : 0;
-        return (
-          <div className="vp-cmd" key={p.id}>
-            <div className="vp-srow">
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
-                {p.photo_url
-                  ? <img src={p.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
-                  : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700 }}>{p.nom}</div>
-                  <div className="vp-sub">
-                    {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)} {m.prixUnite}
-                    {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
-                  </div>
-                </div>
-              </div>
-              <div className={`vp-toggle ${p.disponible ? 'on' : ''}`} onClick={() => toggleDispo(p)} />
+      ) : (
+        <div className="vp-cols">
+          <div className="vp-col">
+            <div className="vp-col-head">
+              <span className="vp-col-dot" />En vente
+              <span className="vp-col-count">{actifs.length}</span>
             </div>
-            <div className="vp-grid2" style={{ marginTop: 10 }}>
-              <button className="vp-btn ghost sm" onClick={() => ouvrirEdit(p)}>Modifier</button>
-              <button className="vp-btn ghost sm" onClick={() => supprimer(p)}>Supprimer</button>
-            </div>
+            {actifs.length === 0
+              ? <div className="vp-col-empty">Aucun produit en vente.</div>
+              : actifs.map(carte)}
           </div>
-        );
-      })}
+          <div className="vp-col off">
+            <div className="vp-col-head">
+              <span className="vp-col-dot" />Désactivés
+              <span className="vp-col-count">{inactifs.length}</span>
+            </div>
+            {inactifs.length === 0
+              ? <div className="vp-col-empty">Rien de désactivé.</div>
+              : inactifs.map(carte)}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1007,6 +1054,15 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
 
   // état local des poids saisis : ligneId -> valeur
   const [poids, setPoids] = useState({});
+
+  // signature = id + poids déjà en base, pour réagir aussi à une MAJ de poids
+  // (et pas seulement à un changement du nombre de commandes)
+  const signature = useMemo(
+    () => commandes
+      .flatMap((c) => (c.lignes || []).map((l) => `${l.id}:${l.poids_reel ?? ''}`))
+      .join('|'),
+    [commandes]
+  );
   useEffect(() => {
     const init = {};
     commandes.forEach((c) => (c.lignes || []).forEach((l) => {
@@ -1014,7 +1070,7 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
     }));
     setPoids((p) => ({ ...init, ...p }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commandes.length]);
+  }, [signature]);
 
   const enregistrer = async () => {
     // 1) maj des lignes pesées
