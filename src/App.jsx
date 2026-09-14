@@ -49,6 +49,14 @@ function fmtDateCourt(d) {
   try { return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); }
   catch { return d; }
 }
+// minuscules sans accents — pour que « boeuf » trouve « bœuf » et « saute » trouve « sauté »
+function normaliser(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/œ/g, 'oe').replace(/æ/g, 'ae')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 async function copier(texte) {
   try {
     await navigator.clipboard.writeText(texte);
@@ -235,6 +243,16 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-col-empty{text-align:center;color:var(--muted);font-size:13px;padding:18px 10px;
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
+
+/* barre de recherche produits */
+.vp-search{position:relative;margin-bottom:12px}
+.vp-search .vp-input{padding-left:40px;padding-right:38px}
+.vp-search-ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);
+  color:var(--muted);pointer-events:none;display:grid;place-items:center}
+.vp-search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  width:26px;height:26px;border-radius:50%;background:var(--paper);border:1px solid var(--line);
+  color:var(--muted);font-size:15px;line-height:1;display:grid;place-items:center}
+.vp-search-clear:active{background:var(--line)}
 
 /* repérage du produit qu'on vient de modifier */
 .vp-cmd.vp-flash{animation:vpflash 1.5s ease-out}
@@ -756,11 +774,18 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
+  const [recherche, setRecherche] = useState('');
   // id du produit vers lequel revenir après fermeture du formulaire
   const [retour, setRetour] = useState(null);
 
   const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => p.categorie === c));
-  const produitsAffiches = filtreCat === 'Tous' ? produits : produits.filter((p) => p.categorie === filtreCat);
+
+  const q = normaliser(recherche.trim());
+  const produitsAffiches = produits.filter((p) => {
+    if (filtreCat !== 'Tous' && p.categorie !== filtreCat) return false;
+    if (!q) return true;
+    return normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q);
+  });
 
   // Replace la carte du produit modifié sous les yeux, une fois la liste
   // réaffichée. La liste revient de Supabase en asynchrone, d'où les essais
@@ -983,10 +1008,31 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         <div>
           <div className="vp-h2">Produits</div>
           <div className="vp-sub">
-            {produits.length} au catalogue · {produits.filter((p) => p.disponible).length} en vente
+            {q || filtreCat !== 'Tous'
+              ? `${produitsAffiches.length} résultat${produitsAffiches.length > 1 ? 's' : ''} sur ${produits.length}`
+              : `${produits.length} au catalogue · ${produits.filter((p) => p.disponible).length} en vente`}
           </div>
         </div>
         <button className="vp-btn" onClick={ouvrirNouveau}>+ Ajouter</button>
+      </div>
+
+      <div className="vp-search">
+        <span className="vp-search-ico">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+          </svg>
+        </span>
+        <input
+          className="vp-input"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Rechercher un produit…"
+          type="search"
+          autoComplete="off"
+        />
+        {recherche && (
+          <button className="vp-search-clear" onClick={() => setRecherche('')} aria-label="Effacer la recherche">×</button>
+        )}
       </div>
 
       {catsPresentes.length > 1 && (
@@ -1003,7 +1049,17 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       )}
 
       {produitsAffiches.length === 0 ? (
-        <div className="vp-empty">Aucun produit. Ajoute les promos de Patrice.</div>
+        <div className="vp-empty">
+          {produits.length === 0
+            ? 'Aucun produit. Ajoute les promos de Patrice.'
+            : q
+              ? <>Aucun produit ne correspond à « {recherche.trim()} ».{' '}
+                  <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => { setRecherche(''); setFiltreCat('Tous'); }}>
+                    Réinitialiser
+                  </button>
+                </>
+              : 'Aucun produit dans cette catégorie.'}
+        </div>
       ) : (
         <div className="vp-cols">
           <div className="vp-col">
