@@ -44,6 +44,33 @@ function sousTotalFinal(l) {
   const poids = l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
   return poids * (Number(l.prix_william) || 0);
 }
+/* ---- variantes (parfums, contenances…) ----
+   Stockées en jsonb sur le produit :
+   [{ id, nom, prix_patrice, prix_william, poids_moyen }]
+   Un champ prix vide = on hérite du prix du produit. */
+function variantesDe(p) {
+  const v = p && p.variantes;
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    try { const x = JSON.parse(v); return Array.isArray(x) ? x : []; } catch { return []; }
+  }
+  return [];
+}
+const vide0 = (x) => x === null || x === undefined || x === '';
+function prixVariante(p, v, champ) {
+  return vide0(v && v[champ]) ? (Number(p[champ]) || 0) : (Number(v[champ]) || 0);
+}
+function poidsVariante(p, v) {
+  return vide0(v && v.poids_moyen) ? (Number(p.poids_moyen) || 0) : (Number(v.poids_moyen) || 0);
+}
+function sousTotalLigne(p, v, q, champ) {
+  return sousTotal(p.mode_vente, q, prixVariante(p, v, champ || 'prix_william'), poidsVariante(p, v));
+}
+// nom affiché d'une ligne de commande, variante comprise
+function nomLigne(l) {
+  return l.variante_nom ? `${l.produit_nom} — ${l.variante_nom}` : l.produit_nom;
+}
+
 function fmtDateCourt(d) {
   if (!d) return '';
   try { return new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); }
@@ -244,6 +271,24 @@ textarea.vp-input{resize:vertical;min-height:64px}
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
 
+/* variantes — sélecteur client */
+.vp-variante{margin-top:6px;width:100%;max-width:230px;padding:7px 30px 7px 10px;
+  border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);
+  font-family:inherit;font-size:14px;font-weight:600;appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A2E2E' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center}
+.vp-variante:focus{outline:none;border-color:var(--wine)}
+
+/* variantes — éditeur admin */
+.vp-varbox{margin-top:18px;padding:14px;border:1px dashed var(--line);border-radius:13px;background:var(--paper)}
+.vp-var{background:#fff;border:1px solid var(--line);border-radius:11px;padding:11px;margin-top:10px}
+.vp-var-tools{display:flex;gap:5px;flex:0 0 auto}
+.vp-var-btn{width:32px;height:32px;border-radius:8px;background:var(--paper);border:1px solid var(--line);
+  color:var(--muted);font-size:15px;font-weight:700;display:grid;place-items:center}
+.vp-var-btn:disabled{opacity:.35}
+.vp-var-btn.del{color:var(--wine)}
+.vp-var-btn:active:not(:disabled){transform:scale(.94)}
+
 /* barre de recherche produits */
 .vp-search{position:relative;margin-bottom:12px}
 .vp-search .vp-input{padding-left:40px;padding-right:38px}
@@ -417,7 +462,8 @@ function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive, estSema
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast }) {
-  const [cart, setCart] = useState({}); // id -> quantite
+  const [cart, setCart] = useState({});   // "produitId|varianteId" -> quantite
+  const [choix, setChoix] = useState({}); // produitId -> varianteId sélectionnée sur la fiche
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
   const [note, setNote] = useState('');
@@ -435,18 +481,32 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   const catsAffichees = filtreCat === 'Tous' ? cats : cats.filter((c) => c === filtreCat);
 
-  const setQty = (p, q) => {
-    const min = 0;
-    const step = 1;
-    let v = Math.max(min, Math.round(q / step) * step);
-    v = Math.round(v * 100) / 100;
-    setCart((c) => { const n = { ...c }; if (v <= 0) delete n[p.id]; else n[p.id] = v; return n; });
+  const cle = (p, v) => `${p.id}|${v ? v.id : ''}`;
+  // variante actuellement sélectionnée sur la fiche produit (la 1re par défaut)
+  const varianteActive = (p) => {
+    const vs = variantesDe(p);
+    if (!vs.length) return null;
+    return vs.find((v) => String(v.id) === String(choix[p.id])) || vs[0];
   };
 
-  const lignes = Object.entries(cart)
-    .map(([id, q]) => { const p = produits.find((x) => x.id === id); return p ? { p, q } : null; })
-    .filter(Boolean);
-  const total = lignes.reduce((s, { p, q }) => s + sousTotal(p.mode_vente, q, p.prix_william, p.poids_moyen), 0);
+  const setQty = (p, v, q) => {
+    const k = cle(p, v);
+    let val = Math.max(0, Math.round(q));
+    setCart((c) => { const n = { ...c }; if (val <= 0) delete n[k]; else n[k] = val; return n; });
+  };
+
+  const lignes = Object.entries(cart).map(([k, q]) => {
+    const sep = k.indexOf('|');
+    const pid = k.slice(0, sep), vid = k.slice(sep + 1);
+    const p = produits.find((x) => String(x.id) === pid);
+    if (!p) return null;
+    const vs = variantesDe(p);
+    const v = vid ? vs.find((x) => String(x.id) === vid) : null;
+    if (vs.length && !v) return null; // variante supprimée entre-temps
+    return { k, p, v, q };
+  }).filter(Boolean);
+
+  const total = lignes.reduce((s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_william'), 0);
   const aDuPese = lignes.some(({ p }) => MODES[p.mode_vente].pese);
 
   const envoyer = async () => {
@@ -455,7 +515,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     setEnvoi(true);
     try {
       const totalPatrice = lignes.reduce(
-        (s, { p, q }) => s + sousTotal(p.mode_vente, q, p.prix_patrice, p.poids_moyen), 0);
+        (s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_patrice'), 0);
       const { data: cmd, error } = await supabase.from('viande_commandes').insert({
         nom_client: nom.trim(), telephone: tel.trim() || null, note: note.trim() || null,
         total_estime: Math.round(total * 100) / 100,
@@ -463,11 +523,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         date_vente: settings.date_vente,
       }).select().single();
       if (error) throw error;
-      const rows = lignes.map(({ p, q }) => ({
+      // on fige les valeurs effectives de la variante dans la ligne :
+      // l'admin, l'export et les pesées n'ont ensuite rien à recalculer
+      const rows = lignes.map(({ p, v, q }) => ({
         commande_id: cmd.id, produit_id: p.id, produit_nom: p.nom, mode_vente: p.mode_vente,
-        emoji: p.emoji, prix_patrice: p.prix_patrice, prix_william: p.prix_william,
-        poids_moyen: p.poids_moyen, quantite: q,
-        sous_total_estime: Math.round(sousTotal(p.mode_vente, q, p.prix_william, p.poids_moyen) * 100) / 100,
+        emoji: p.emoji,
+        variante_id: v ? String(v.id) : null,
+        variante_nom: v ? v.nom : null,
+        prix_patrice: prixVariante(p, v, 'prix_patrice'),
+        prix_william: prixVariante(p, v, 'prix_william'),
+        poids_moyen: p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null,
+        quantite: q,
+        sous_total_estime: Math.round(sousTotalLigne(p, v, q, 'prix_william') * 100) / 100,
       }));
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
       if (e2) throw e2;
@@ -544,7 +611,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             <div className="vp-cat">{cat}</div>
             {dispo.filter((p) => p.categorie === cat).map((p) => {
               const m = MODES[p.mode_vente];
-              const q = cart[p.id] || 0;
+              const vs = variantesDe(p);
+              const v = varianteActive(p);
+              const q = cart[cle(p, v)] || 0;
+              const prix = prixVariante(p, v, 'prix_william');
+              const pm = poidsVariante(p, v);
               return (
                 <div className="vp-prod" key={p.id}>
                   {p.photo_url
@@ -557,18 +628,33 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     <div className="vp-pname">{p.nom}</div>
                     <div className="vp-pmeta">
                       <span className="vp-tag">{m.label}</span>
-                      {p.mode_vente === 'piece_pesee' && p.poids_moyen
-                        ? <span>≈ {num(p.poids_moyen)} kg/pièce</span> : null}
+                      {p.mode_vente === 'piece_pesee' && pm
+                        ? <span>≈ {num(pm)} kg/pièce</span> : null}
                     </div>
+                    {vs.length > 0 && (
+                      <select
+                        className="vp-variante"
+                        value={v ? v.id : ''}
+                        onChange={(e) => setChoix((c) => ({ ...c, [p.id]: e.target.value }))}
+                        aria-label={p.variante_label || 'Option'}
+                      >
+                        {vs.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.nom}
+                            {vide0(o.prix_william) ? '' : ` · ${eur(o.prix_william)} ${m.prixUnite}`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <div style={{ marginTop: 4 }}>
-                      <span className="vp-price">{eur(p.prix_william)} {m.prixUnite}</span>
+                      <span className="vp-price">{eur(prix)} {m.prixUnite}</span>
                     </div>
                   </div>
                   <div className="vp-step">
-                    {q > 0 && <button onClick={() => setQty(p, q - 1)}>−</button>}
+                    {q > 0 && <button onClick={() => setQty(p, v, q - 1)}>−</button>}
                     {q > 0 && <span className="vp-qty">{num(q)}</span>}
-                    {q > 0 && <button onClick={() => setQty(p, q + 1)}>+</button>}
-                    {q <= 0 && <button className="vp-add" onClick={() => setQty(p, 1)}>Ajouter</button>}
+                    {q > 0 && <button onClick={() => setQty(p, v, q + 1)}>+</button>}
+                    {q <= 0 && <button className="vp-add" onClick={() => setQty(p, v, 1)}>Ajouter</button>}
                   </div>
                 </div>
               );
@@ -582,16 +668,20 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <>
           <div className="vp-ticket">
             <div className="vp-th">Ton panier</div>
-            {lignes.map(({ p, q }) => {
+            {lignes.map(({ k, p, v, q }) => {
               const m = MODES[p.mode_vente];
-              const st = sousTotal(p.mode_vente, q, p.prix_william, p.poids_moyen);
+              const prix = prixVariante(p, v, 'prix_william');
+              const st = sousTotalLigne(p, v, q, 'prix_william');
               const detail =
-                p.mode_vente === 'kg' ? `${num(q)} kg × ${eur(p.prix_william)}`
+                p.mode_vente === 'kg' ? `${num(q)} kg × ${eur(prix)}`
                 : p.mode_vente === 'piece_pesee' ? `${num(q)} pièce(s) · prix au poids réel`
-                : `${num(q)} × ${eur(p.prix_william)}`;
+                : `${num(q)} × ${eur(prix)}`;
               return (
-                <div className="vp-line" key={p.id}>
-                  <span className="l">{p.emoji} {p.nom}<small>{detail}</small></span>
+                <div className="vp-line" key={k}>
+                  <span className="l">
+                    {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
+                    <small>{detail}</small>
+                  </span>
                   <span className="r">{m.pese && p.mode_vente === 'piece_pesee' ? '≈ ' : ''}{eur(st)}</span>
                 </div>
               );
@@ -749,7 +839,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
               const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`;
               return (
                 <div className="vp-cmd-l" key={l.id}>
-                  <span>{l.emoji} {l.produit_nom} <span className="vp-pill">{q}</span></span>
+                  <span>{l.emoji} {nomLigne(l)} <span className="vp-pill">{q}</span></span>
                   <span style={{ fontWeight: 700 }}>
                     {l.poids_reel != null ? eur(sousTotalFinal(l)) : (m.pese && l.mode_vente !== 'piece_fixe' ? '≈ ' : '') + eur(l.sous_total_estime)}
                   </span>
@@ -770,7 +860,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1 };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, ordre: produits.length + 1, variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -784,7 +874,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const produitsAffiches = produits.filter((p) => {
     if (filtreCat !== 'Tous' && p.categorie !== filtreCat) return false;
     if (!q) return true;
-    return normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q);
+    if (normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q)) return true;
+    return variantesDe(p).some((v) => normaliser(v.nom).includes(q));
   });
 
   // Replace la carte du produit modifié sous les yeux, une fois la liste
@@ -816,9 +907,45 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   };
   const ouvrirEdit = (p) => {
     setRetour(p.id);
-    setForm({ ...p, prix_patrice: String(p.prix_patrice ?? ''), prix_william: String(p.prix_william ?? ''), poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '', photo_url: p.photo_url || '' });
+    setForm({
+      ...p,
+      prix_patrice: String(p.prix_patrice ?? ''),
+      prix_william: String(p.prix_william ?? ''),
+      poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '',
+      photo_url: p.photo_url || '',
+      variante_label: p.variante_label || '',
+      variantes: variantesDe(p).map((v) => ({
+        id: v.id, nom: v.nom || '',
+        prix_patrice: v.prix_patrice != null ? String(v.prix_patrice) : '',
+        prix_william: v.prix_william != null ? String(v.prix_william) : '',
+        poids_moyen: v.poids_moyen != null ? String(v.poids_moyen) : '',
+      })),
+    });
     window.scrollTo({ top: 0 });
   };
+
+  /* --- édition des variantes --- */
+  const nouvelId = () => `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const ajouterVariante = () => setForm((f) => ({
+    ...f,
+    variante_label: f.variante_label || 'Option',
+    variantes: [...(f.variantes || []), { id: nouvelId(), nom: '', prix_patrice: '', prix_william: '', poids_moyen: '' }],
+  }));
+  const majVariante = (id, champ, val) => setForm((f) => ({
+    ...f,
+    variantes: f.variantes.map((v) => (v.id === id ? { ...v, [champ]: val } : v)),
+  }));
+  const retirerVariante = (id) => setForm((f) => ({
+    ...f, variantes: f.variantes.filter((v) => v.id !== id),
+  }));
+  const deplacerVariante = (id, sens) => setForm((f) => {
+    const arr = [...f.variantes];
+    const i = arr.findIndex((v) => v.id === id);
+    const j = i + sens;
+    if (i < 0 || j < 0 || j >= arr.length) return f;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    return { ...f, variantes: arr };
+  });
 
   const choisirPhoto = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -846,11 +973,25 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
   const enregistrer = async () => {
     if (!form.nom.trim()) { showToast('Nom requis'); return; }
+    const vars = (form.variantes || [])
+      .filter((v) => v.nom.trim())
+      .map((v) => ({
+        id: v.id,
+        nom: v.nom.trim(),
+        prix_patrice: v.prix_patrice === '' ? null : (parseFloat(v.prix_patrice) || 0),
+        prix_william: v.prix_william === '' ? null : (parseFloat(v.prix_william) || 0),
+        poids_moyen: v.poids_moyen === '' ? null : (parseFloat(v.poids_moyen) || 0),
+      }));
+    if ((form.variantes || []).some((v) => !v.nom.trim())) {
+      showToast('Une option sans nom sera ignorée');
+    }
     const payload = {
       nom: form.nom.trim(), categorie: form.categorie, mode_vente: form.mode_vente,
       prix_patrice: parseFloat(form.prix_patrice) || 0, prix_william: parseFloat(form.prix_william) || 0,
       poids_moyen: form.mode_vente === 'piece_pesee' ? (parseFloat(form.poids_moyen) || null) : null,
       emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
+      variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
+      variantes: vars,
     };
     if (form.id) await supabase.from('viande_produits').update(payload).eq('id', form.id);
     else await supabase.from('viande_produits').insert(payload);
@@ -958,6 +1099,68 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         </div>
 
 
+        <div className="vp-varbox">
+          <div className="vp-srow">
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Options</div>
+              <div className="vp-sub">Parfums, contenances… Laisse vide si le produit n'en a pas.</div>
+            </div>
+            <button className="vp-btn ghost sm" onClick={ajouterVariante}>+ Option</button>
+          </div>
+
+          {(form.variantes || []).length > 0 && (
+            <>
+              <div style={{ marginTop: 12 }}>
+                <label className="vp-label">Intitulé du choix (vu par le client)</label>
+                <input className="vp-input" value={form.variante_label}
+                  onChange={(e) => setForm({ ...form, variante_label: e.target.value })}
+                  placeholder="Ex : Parfum, Contenance" />
+              </div>
+
+              <div className="vp-sub" style={{ marginTop: 12 }}>
+                Prix laissé vide = le prix du produit ci-dessus s'applique.
+              </div>
+
+              {form.variantes.map((v, i) => (
+                <div className="vp-var" key={v.id}>
+                  <div className="vp-srow" style={{ alignItems: 'flex-start' }}>
+                    <input className="vp-input" value={v.nom}
+                      onChange={(e) => majVariante(v.id, 'nom', e.target.value)}
+                      placeholder={`Option ${i + 1} — ex : Herbes, 5 L`} />
+                    <div className="vp-var-tools">
+                      <button className="vp-var-btn" onClick={() => deplacerVariante(v.id, -1)} disabled={i === 0} aria-label="Monter">↑</button>
+                      <button className="vp-var-btn" onClick={() => deplacerVariante(v.id, 1)} disabled={i === form.variantes.length - 1} aria-label="Descendre">↓</button>
+                      <button className="vp-var-btn del" onClick={() => retirerVariante(v.id)} aria-label="Retirer">×</button>
+                    </div>
+                  </div>
+                  <div className="vp-grid2" style={{ marginTop: 8 }}>
+                    <div>
+                      <label className="vp-label">Prix Patrice</label>
+                      <input className="vp-input" value={v.prix_patrice} inputMode="decimal"
+                        onChange={(e) => majVariante(v.id, 'prix_patrice', e.target.value)}
+                        placeholder={form.prix_patrice || 'hérité'} />
+                    </div>
+                    <div>
+                      <label className="vp-label">Ton prix</label>
+                      <input className="vp-input" value={v.prix_william} inputMode="decimal"
+                        onChange={(e) => majVariante(v.id, 'prix_william', e.target.value)}
+                        placeholder={form.prix_william || 'hérité'} />
+                    </div>
+                  </div>
+                  {form.mode_vente === 'piece_pesee' && (
+                    <div style={{ marginTop: 8 }}>
+                      <label className="vp-label">Poids moyen (kg)</label>
+                      <input className="vp-input" value={v.poids_moyen} inputMode="decimal"
+                        onChange={(e) => majVariante(v.id, 'poids_moyen', e.target.value)}
+                        placeholder={form.poids_moyen || 'hérité'} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
         <div className="vp-srow" style={{ marginTop: 14 }}>
           <span className="vp-label" style={{ margin: 0 }}>Disponible</span>
           <div className={`vp-toggle ${form.disponible ? 'on' : ''}`} onClick={() => setForm({ ...form, disponible: !form.disponible })} />
@@ -974,6 +1177,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const carte = (p) => {
     const m = MODES[p.mode_vente];
     const mg = p.prix_patrice > 0 ? Math.round((p.prix_william / p.prix_patrice - 1) * 100) : 0;
+    const nbVars = variantesDe(p).length;
     return (
       <div className="vp-cmd" id={`prod-${p.id}`} key={p.id}>
         <div className="vp-srow">
@@ -982,7 +1186,12 @@ function AdminProduits({ produits, settings, reload, showToast }) {
               ? <img src={p.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
               : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 700 }}>{p.nom}</div>
+              <div style={{ fontWeight: 700 }}>
+                {p.nom}
+                {nbVars > 0 && <span className="vp-pill" style={{ marginLeft: 6 }}>
+                  {nbVars} {(p.variante_label || 'option').toLowerCase()}{nbVars > 1 ? 's' : ''}
+                </span>}
+              </div>
               <div className="vp-sub">
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)} {m.prixUnite}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
@@ -1091,9 +1300,10 @@ function AdminExport({ commandes, produits, settings, showToast }) {
   // agrégation par produit
   const agg = {};
   commandes.forEach((c) => (c.lignes || []).forEach((l) => {
-    if (!agg[l.produit_nom]) agg[l.produit_nom] = { nom: l.produit_nom, emoji: l.emoji, mode: l.mode_vente, qte: 0, cout: 0 };
-    agg[l.produit_nom].qte += Number(l.quantite || 0);
-    agg[l.produit_nom].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
+    const k = nomLigne(l);
+    if (!agg[k]) agg[k] = { nom: k, emoji: l.emoji, mode: l.mode_vente, qte: 0, cout: 0 };
+    agg[k].qte += Number(l.quantite || 0);
+    agg[k].cout += sousTotal(l.mode_vente, l.quantite, l.prix_patrice, l.poids_moyen);
   }));
   const lignes = Object.values(agg);
   const coutTotal = lignes.reduce((s, x) => s + x.cout, 0);
@@ -1146,8 +1356,9 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
   const groupes = {};
   commandes.forEach((c) => (c.lignes || []).forEach((l) => {
     if (l.mode_vente === 'piece_fixe') return;
-    if (!groupes[l.produit_nom]) groupes[l.produit_nom] = { nom: l.produit_nom, emoji: l.emoji, lignes: [] };
-    groupes[l.produit_nom].lignes.push({ l, client: c.nom_client });
+    const k = nomLigne(l);
+    if (!groupes[k]) groupes[k] = { nom: k, emoji: l.emoji, lignes: [] };
+    groupes[k].lignes.push({ l, client: c.nom_client });
   }));
   const liste = Object.values(groupes);
 
@@ -1208,12 +1419,13 @@ function AdminPesees({ commandes, settings, reload, showToast }) {
   const noteClient = (c) => {
     let t = `🥩 ${settings.titre} — ${fmtDateCourt(settings.date_vente)}\nNote de ${c.nom_client}\n\n`;
     (c.lignes || []).forEach((l) => {
+      const n = nomLigne(l);
       if (l.mode_vente === 'piece_fixe') {
-        t += `• ${l.produit_nom} : ${num(l.quantite)} × ${eur(l.prix_william)} = ${eur(l.quantite * l.prix_william)}\n`;
+        t += `• ${n} : ${num(l.quantite)} × ${eur(l.prix_william)} = ${eur(l.quantite * l.prix_william)}\n`;
       } else {
         const pr = l.poids_reel;
-        if (pr != null) t += `• ${l.produit_nom} : ${num(pr)} kg × ${eur(l.prix_william)} = ${eur(pr * l.prix_william)}\n`;
-        else t += `• ${l.produit_nom} : (poids à confirmer)\n`;
+        if (pr != null) t += `• ${n} : ${num(pr)} kg × ${eur(l.prix_william)} = ${eur(pr * l.prix_william)}\n`;
+        else t += `• ${n} : (poids à confirmer)\n`;
       }
     });
     const total = (c.lignes || []).reduce((s, l) => s + sousTotalFinal(l), 0);
