@@ -213,12 +213,19 @@ textarea.vp-input{resize:vertical;min-height:64px}
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238A7E76' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 14px center}
 .vp-cat-select:focus{outline:none;border-color:var(--wine)}
-.vp-tabs{display:none}
+/* pills — visibles partout, défilement horizontal sur petit écran */
+.vp-tabs{display:flex;gap:6px;overflow-x:auto;padding:14px 0 10px;justify-content:flex-start;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+.vp-tabs::-webkit-scrollbar{display:none}
+/* …sauf le sélecteur de catégorie client, remplacé par un menu natif sur mobile */
+.vp-cat-nav .vp-tabs{display:none}
 @media (min-width:520px){
-  .vp-cat-select{display:none}
-  .vp-tabs{display:flex;gap:6px;overflow-x:auto;padding:14px 0 10px;justify-content:flex-start}
-  .vp-tabs::-webkit-scrollbar{display:none}
+  .vp-cat-nav .vp-cat-select{display:none}
+  .vp-cat-nav .vp-tabs{display:flex}
 }
+/* navigation principale de l'admin : toujours à portée de pouce */
+.vp-nav{position:sticky;top:0;z-index:6;background:var(--paper);
+  padding-top:12px;margin-bottom:4px;box-shadow:0 6px 10px -8px rgba(36,30,27,.25)}
 .vp-tab{white-space:nowrap;padding:9px 14px;border-radius:999px;font-weight:600;font-size:14px;
   background:#fff;border:1px solid var(--line);color:var(--muted)}
 .vp-tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -777,7 +784,7 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
 
   return (
     <div className="vp-app vp-admin">
-      <div className="vp-tabs">
+      <div className="vp-tabs vp-nav">
         {TABS.map(([k, lbl]) => (
           <button key={k} className={`vp-tab ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{lbl}</button>
         ))}
