@@ -236,6 +236,16 @@ textarea.vp-input{resize:vertical;min-height:64px}
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
 
+/* repérage du produit qu'on vient de modifier */
+.vp-cmd.vp-flash{animation:vpflash 1.5s ease-out}
+@keyframes vpflash{
+  0%{box-shadow:0 0 0 3px rgba(138,46,46,.4);border-color:var(--wine)}
+  100%{box-shadow:0 0 0 0 rgba(138,46,46,0);border-color:var(--line)}
+}
+@media (prefers-reduced-motion:reduce){
+  .vp-cmd.vp-flash{animation:none;border-color:var(--wine)}
+}
+
 @media (max-width:430px){.vp-grid2{grid-template-columns:1fr}}
 `;
 
@@ -746,12 +756,44 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
+  // id du produit vers lequel revenir après fermeture du formulaire
+  const [retour, setRetour] = useState(null);
 
   const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => p.categorie === c));
   const produitsAffiches = filtreCat === 'Tous' ? produits : produits.filter((p) => p.categorie === filtreCat);
 
-  const ouvrirNouveau = () => setForm({ ...vide, ordre: produits.length + 1 });
-  const ouvrirEdit = (p) => setForm({ ...p, prix_patrice: String(p.prix_patrice ?? ''), prix_william: String(p.prix_william ?? ''), poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '', photo_url: p.photo_url || '' });
+  // Replace la carte du produit modifié sous les yeux, une fois la liste
+  // réaffichée. La liste revient de Supabase en asynchrone, d'où les essais
+  // répétés jusqu'à ce que la carte existe dans le DOM.
+  useEffect(() => {
+    if (form || !retour) return;
+    let essais = 0;
+    const t = setInterval(() => {
+      const el = document.getElementById(`prod-${retour}`);
+      if (el) {
+        clearInterval(t);
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.classList.add('vp-flash');
+        setTimeout(() => el.classList.remove('vp-flash'), 1600);
+        setRetour(null);
+      } else if (++essais > 30) {
+        clearInterval(t);
+        setRetour(null);
+      }
+    }, 50);
+    return () => clearInterval(t);
+  }, [form, retour]);
+
+  const ouvrirNouveau = () => {
+    setRetour(null);
+    setForm({ ...vide, ordre: produits.length + 1 });
+    window.scrollTo({ top: 0 });
+  };
+  const ouvrirEdit = (p) => {
+    setRetour(p.id);
+    setForm({ ...p, prix_patrice: String(p.prix_patrice ?? ''), prix_william: String(p.prix_william ?? ''), poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '', photo_url: p.photo_url || '' });
+    window.scrollTo({ top: 0 });
+  };
 
   const choisirPhoto = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -792,10 +834,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const supprimer = async (p) => {
     if (!window.confirm(`Supprimer « ${p.nom} » ?`)) return;
     await supabase.from('viande_produits').delete().eq('id', p.id);
-    reload(); showToast('Produit supprimé');
+    setRetour(null); setForm(null); reload(); showToast('Produit supprimé');
   };
   const toggleDispo = async (p) => {
     await supabase.from('viande_produits').update({ disponible: !p.disponible }).eq('id', p.id);
+    setRetour(p.id); // la carte change de colonne : on la suit
     reload();
   };
 
@@ -907,7 +950,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     const m = MODES[p.mode_vente];
     const mg = p.prix_patrice > 0 ? Math.round((p.prix_william / p.prix_patrice - 1) * 100) : 0;
     return (
-      <div className="vp-cmd" key={p.id}>
+      <div className="vp-cmd" id={`prod-${p.id}`} key={p.id}>
         <div className="vp-srow">
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
             {p.photo_url
