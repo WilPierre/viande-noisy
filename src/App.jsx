@@ -541,6 +541,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [envoi, setEnvoi] = useState(false);
   const [done, setDone] = useState(null);
   const [filtreCat, setFiltreCat] = useState('Tous');
+  const [panierOuvert, setPanierOuvert] = useState(false);
 
   const dispo = produits.filter((p) => p.disponible);
   const cats = CATEGORIES.filter((c) => dispo.some((p) => p.categorie === c));
@@ -610,6 +611,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
       if (e2) throw e2;
       setDone({ nom: nom.trim(), total, aDuPese });
+      setPanierOuvert(false);
       setCart({}); setNom(''); setTel(''); setNote('');
     } catch (e) {
       showToast('Erreur — réessaie');
@@ -740,46 +742,77 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
       {ouvert && lignes.length > 0 && (
         <>
-          <div className="vp-ticket">
-            <div className="vp-th">Ton panier</div>
-            {lignes.map(({ k, p, v, q }) => {
-              const m = MODES[p.mode_vente];
-              const prix = prixVariante(p, v, 'prix_william');
-              const st = sousTotalLigne(p, v, q, 'prix_william');
-              const detail =
-                p.mode_vente === 'kg' ? `${num(q)} kg × ${eur(prix)}`
-                : p.mode_vente === 'piece_pesee' ? `${num(q)} pièce(s) · prix au poids réel`
-                : `${num(q)} × ${eur(prix)}`;
-              return (
-                <div className="vp-line" key={k}>
-                  <span className="l">
-                    {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
-                    <small>{detail}</small>
-                  </span>
-                  <span className="r">{m.pese && p.mode_vente === 'piece_pesee' ? '≈ ' : ''}{eur(st)}</span>
-                </div>
-              );
-            })}
-            <div className="vp-tot"><span>Total estimé</span><span className="r">{eur(total)}</span></div>
-            {aDuPese && <div className="vp-mini">≈ Les montants au kilo sont des estimations. Le prix final sera calculé au poids réel.</div>}
-            <button className="vp-trash" onClick={() => setCart({})}>Vider le panier</button>
-          </div>
+          {panierOuvert && <div className="vp-backdrop" onClick={() => setPanierOuvert(false)} />}
 
-          <div style={{ marginTop: 4 }}>
-            <div className="vp-field">
-              <label className="vp-label">Ton prénom *</label>
-              <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
-            </div>
-            <div className="vp-field">
-              <label className="vp-label">Téléphone (facultatif)</label>
-              <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} placeholder="06 …" inputMode="tel" />
-            </div>
-            <div className="vp-field">
-              <label className="vp-label">Un mot pour la commande (facultatif)</label>
-              <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : bien cuit svp, je passe vers 18h…" />
-            </div>
-            <button className="vp-cta" disabled={envoi} onClick={envoyer}>
-              {envoi ? 'Envoi…' : `Envoyer ma commande · ${eur(total)}`}
+          <div className="vp-dock">
+            {panierOuvert && (
+              <div className="vp-sheet">
+                <div className="vp-sheet-head">
+                  <span className="vp-th" style={{ marginBottom: 0 }}>Ton panier</span>
+                  <button className="vp-sheet-x" onClick={() => setPanierOuvert(false)} aria-label="Fermer le panier">×</button>
+                </div>
+
+                {lignes.map(({ k, p, v, q }) => {
+                  const m = MODES[p.mode_vente];
+                  const prix = prixVariante(p, v, 'prix_william');
+                  const st = sousTotalLigne(p, v, q, 'prix_william');
+                  const detail =
+                    p.mode_vente === 'kg' ? `${num(q)} kg × ${eur(prix)}`
+                    : p.mode_vente === 'piece_pesee' ? `${num(q)} pièce(s) · prix au poids réel`
+                    : `${num(q)} × ${eur(prix)}`;
+                  return (
+                    <div className="vp-sline" key={k}>
+                      <span className="l">
+                        {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
+                        <small>{detail}</small>
+                      </span>
+                      <span className="vp-step">
+                        <button onClick={() => setQty(p, v, q - 1)} aria-label="Retirer un">−</button>
+                        <span className="vp-qty">{num(q)}</span>
+                        <button onClick={() => setQty(p, v, q + 1)} aria-label="Ajouter un">+</button>
+                      </span>
+                      <span className="r">{m.pese && p.mode_vente === 'piece_pesee' ? '≈ ' : ''}{eur(st)}</span>
+                    </div>
+                  );
+                })}
+
+                <div className="vp-tot"><span>Total estimé</span><span className="r">{eur(total)}</span></div>
+                {aDuPese && <div className="vp-mini">≈ Les montants au kilo sont des estimations. Le prix final sera calculé au poids réel.</div>}
+                <button className="vp-trash" onClick={() => setCart({})}>Vider le panier</button>
+
+                <div className="vp-field">
+                  <label className="vp-label">Ton prénom *</label>
+                  <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
+                </div>
+                <div className="vp-field">
+                  <label className="vp-label">Téléphone (facultatif)</label>
+                  <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} placeholder="06 …" inputMode="tel" />
+                </div>
+                <div className="vp-field">
+                  <label className="vp-label">Un mot pour la commande (facultatif)</label>
+                  <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : bien cuit svp, je passe vers 18h…" />
+                </div>
+                <button className="vp-cta" disabled={envoi} onClick={envoyer}>
+                  {envoi ? 'Envoi…' : `Envoyer ma commande · ${eur(total)}`}
+                </button>
+              </div>
+            )}
+
+            <button className="vp-bar" onClick={() => setPanierOuvert((o) => !o)}>
+              <span className="vp-bar-l">
+                <span className="vp-bar-ico">🧺<span className="vp-bar-badge">{lignes.length}</span></span>
+                <span className="vp-bar-txt">
+                  <b>{lignes.length} article{lignes.length > 1 ? 's' : ''}</b>
+                  <small>{panierOuvert ? 'Masquer le panier' : 'Voir et valider'}</small>
+                </span>
+              </span>
+              <span className="vp-bar-r">
+                {aDuPese ? '≈ ' : ''}{eur(total)}
+                <svg className={`vp-bar-chev ${panierOuvert ? 'on' : ''}`} width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                  <path d="M6 15l6-6 6 6" />
+                </svg>
+              </span>
             </button>
           </div>
         </>
