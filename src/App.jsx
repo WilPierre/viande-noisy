@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14d · drapeau SVG';
+const VERSION = '2026-09-14e · catégorie Épicerie';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -26,7 +26,7 @@ const MODES = {
   kg:          { label: 'Au kilo',            court: 'kg',    prixUnite: '€/kg',    suffixe: '/kg',    pese: true,  decimal: true  },
   piece_pesee: { label: 'À la pièce (pesé)',  court: 'pièce', prixUnite: '€/kg',    suffixe: '/kg',    pese: true,  decimal: false },
 };
-const CATEGORIES = ['Viande', 'Charcuterie', 'Crèmerie', 'Autre'];
+const CATEGORIES = ['Viande', 'Charcuterie', 'Crèmerie', 'Épicerie', 'Autre'];
 // Emojis proposés dans l'admin, classés par famille.
 // Tu peux aussi coller n'importe quel autre emoji dans le champ libre.
 const EMOJIS = [
