@@ -95,6 +95,12 @@ function fmtDateCourt(d) {
   catch { return d; }
 }
 
+// échappement pour injecter du texte dans le HTML d'impression
+function esc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 /* ---- impression / PDF ----
    Ouvre une fenêtre propre et déclenche l'impression.
    Le navigateur propose « Enregistrer au format PDF » dans la liste
@@ -126,21 +132,15 @@ function imprimerDocument(titre, corpsHTML) {
     .pied{margin-top:20px;color:#8A7E76;font-size:10.5px;text-align:center}
   `;
   w.document.write(
-    '<!doctype html><html lang="fr"><head><meta charset="utf-8">' +
-    '<title>' + titre + '</title><style>' + style + '</style></head><body>' +
-    corpsHTML +
-    '<scr' + 'ipt>window.onload=function(){window.focus();window.print();}</scr' + 'ipt>' +
-    '</body></html>'
+    `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+     <title>${esc(titre)}</title><style>${style}</style></head>
+     <body>${corpsHTML}</body></html>`
   );
   w.document.close();
+  // laisse le navigateur peindre la page avant d'ouvrir la boîte d'impression
+  setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* onglet fermé */ } }, 350);
   return true;
 }
-// échappement pour injecter du texte dans le HTML d'impression
-function esc(t) {
-  return String(t == null ? '' : t)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 /* ---- DLC ---- */
 function aujourdhuiStr() {
   const d = new Date();
