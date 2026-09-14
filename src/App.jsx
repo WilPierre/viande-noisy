@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14e · catégorie Épicerie';
+const VERSION = '2026-09-14f · virgule décimale';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -44,6 +44,22 @@ const TOUS_EMOJIS = EMOJIS.flatMap((g) => g.liste);
 /* ============================================================
    HELPERS
 ============================================================ */
+// Convertit une saisie en nombre. Accepte la virgule française, les espaces
+// et un éventuel € ou kg collé — parseFloat('12,94') renvoyait 12 et perdait
+// les centimes sans le moindre message.
+function nombre(v) {
+  if (v === null || v === undefined) return NaN;
+  const s = String(v)
+    .replace(/[\s\u00A0\u202F]/g, '')
+    .replace(/[€]/g, '')
+    .replace(/kg$/i, '')
+    .replace(',', '.');
+  if (s === '' || s === '.' || s === '-') return NaN;
+  return parseFloat(s);
+}
+// arrondi monétaire au centime
+const cts = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 const eur = (n) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(n) || 0);
 const num = (n) => (Number(n) || 0).toLocaleString('fr-FR', { maximumFractionDigits: 3 });
@@ -1274,9 +1290,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   };
 
   const appliquerMarge = () => {
-    const base = parseFloat(form.prix_patrice);
+    const base = nombre(form.prix_patrice);
     if (isNaN(base)) return;
-    const w = Math.round(base * (1 + Number(settings.marge_defaut) / 100) * 100) / 100;
+    const w = cts(base * (1 + Number(settings.marge_defaut) / 100));
     setForm((f) => ({ ...f, prix_william: String(w) }));
   };
 
@@ -1295,6 +1311,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
   const enregistrer = async () => {
     if (!form.nom.trim()) { showToast('Nom requis'); return; }
+    if (form.prix_patrice !== '' && isNaN(nombre(form.prix_patrice))) { showToast('Prix Patrice illisible'); return; }
+    if (form.prix_william !== '' && isNaN(nombre(form.prix_william))) { showToast('Ton prix est illisible'); return; }
     if (doublonExact && !window.confirm(
       `« ${form.nom.trim()} » existe déjà au catalogue.\n\nCréer quand même un second produit portant ce nom ?`
     )) return;
@@ -1303,17 +1321,17 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       .map((v) => ({
         id: v.id,
         nom: v.nom.trim(),
-        prix_patrice: v.prix_patrice === '' ? null : (parseFloat(v.prix_patrice) || 0),
-        prix_william: v.prix_william === '' ? null : (parseFloat(v.prix_william) || 0),
-        poids_moyen: v.poids_moyen === '' ? null : (parseFloat(v.poids_moyen) || 0),
+        prix_patrice: v.prix_patrice === '' ? null : cts(nombre(v.prix_patrice) || 0),
+        prix_william: v.prix_william === '' ? null : cts(nombre(v.prix_william) || 0),
+        poids_moyen: v.poids_moyen === '' ? null : (nombre(v.poids_moyen) || 0),
       }));
     if ((form.variantes || []).some((v) => !v.nom.trim())) {
       showToast('Une option sans nom sera ignorée');
     }
     const payload = {
       nom: form.nom.trim(), categorie: form.categorie, mode_vente: form.mode_vente,
-      prix_patrice: parseFloat(form.prix_patrice) || 0, prix_william: parseFloat(form.prix_william) || 0,
-      poids_moyen: form.mode_vente === 'piece_pesee' ? (parseFloat(form.poids_moyen) || null) : null,
+      prix_patrice: cts(nombre(form.prix_patrice) || 0), prix_william: cts(nombre(form.prix_william) || 0),
+      poids_moyen: form.mode_vente === 'piece_pesee' ? (nombre(form.poids_moyen) || null) : null,
       emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
       dlc: form.dlc || null,
       rupture: !!form.rupture,
@@ -1353,7 +1371,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   };
 
   const marge = (() => {
-    const pa = parseFloat(form?.prix_patrice), wi = parseFloat(form?.prix_william);
+    const pa = nombre(form?.prix_patrice), wi = nombre(form?.prix_william);
     if (isNaN(pa) || isNaN(wi) || pa <= 0) return null;
     return { eur: wi - pa, pct: Math.round((wi / pa - 1) * 100) };
   })();
@@ -1853,7 +1871,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     if (estRupture(l)) return 0;
     if (l.mode_vente === 'piece_fixe') return (Number(l.quantite) || 0) * (Number(l.prix_william) || 0);
     const v = poids[l.id];
-    const saisi = (v !== '' && v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : null;
+    const saisi = (v !== '' && v != null && !isNaN(nombre(v))) ? nombre(v) : null;
     const pr = saisi != null ? saisi
       : (l.poids_reel != null ? Number(l.poids_reel)
         : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen));
@@ -1863,7 +1881,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const estEstime = (l) => {
     if (estRupture(l) || l.mode_vente === 'piece_fixe') return false;
     const v = poids[l.id];
-    const saisi = (v !== '' && v != null && !isNaN(parseFloat(v)));
+    const saisi = (v !== '' && v != null && !isNaN(nombre(v)));
     return !saisi && l.poids_reel == null;
   };
   const totalCmd = (c) => (c.lignes || []).reduce((s, l) => s + stLive(l), 0);
@@ -1901,7 +1919,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       if (estRupture(l)) { updates.push({ id: l.id, poids_reel: null, sous_total_final: 0 }); return; }
       const v = poids[l.id];
       if (v === '' || v == null) return;
-      const pr = parseFloat(v);
+      const pr = nombre(v);
       if (isNaN(pr)) return;
       updates.push({ id: l.id, poids_reel: pr, sous_total_final: Math.round(pr * Number(l.prix_william) * 100) / 100 });
     }));
@@ -1928,7 +1946,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       return `• ${n} : ${num(l.quantite)} × ${eur(l.prix_william)} = ${eur(stLive(l))}\n`;
     }
     const v = poids[l.id];
-    const saisi = (v !== '' && v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : l.poids_reel;
+    const saisi = (v !== '' && v != null && !isNaN(nombre(v))) ? nombre(v) : l.poids_reel;
     if (saisi != null) return `• ${n} : ${num(saisi)} kg × ${eur(l.prix_william)} = ${eur(stLive(l))}\n`;
     return `• ${n} : (poids à confirmer)\n`;
   };
@@ -1951,7 +1969,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       const rows = (c.lignes || []).map((l) => {
         const rupt = estRupture(l);
         const v = poids[l.id];
-        const saisi = (v !== '' && v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : l.poids_reel;
+        const saisi = (v !== '' && v != null && !isNaN(nombre(v))) ? nombre(v) : l.poids_reel;
         const detail = rupt ? 'EN RUPTURE — non fourni'
           : l.mode_vente === 'piece_fixe' ? `${num(l.quantite)} × ${eur(l.prix_william)}`
           : saisi != null ? `${num(saisi)} kg × ${eur(l.prix_william)}/kg`
@@ -2129,7 +2147,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       date_vente: todayStr(),
       heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
       vente_active: f.vente_active, message_accueil: f.message_accueil.trim() || null,
-      pin_admin: f.pin_admin.trim() || '0000', marge_defaut: parseFloat(f.marge_defaut) || 0,
+      pin_admin: f.pin_admin.trim() || '0000', marge_defaut: nombre(f.marge_defaut) || 0,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     reload(); showToast('Réglages enregistrés');
