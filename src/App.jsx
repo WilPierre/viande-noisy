@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15e · catégorie rapide, impression par client';
+const VERSION = '2026-09-15f · confirmation visible à chaque ajout';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -505,8 +505,12 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-wline .nm small{display:block;color:var(--muted);font-size:12px}
 .vp-winput{width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;text-align:right;font-variant-numeric:tabular-nums}
 .vp-gate{max-width:340px;margin:80px auto;text-align:center}
-.vp-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;
-  padding:12px 18px;border-radius:12px;font-size:14px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.vp-toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));
+  transform:translateX(-50%);background:var(--ink);color:#fff;max-width:calc(100% - 28px);
+  padding:12px 18px;border-radius:12px;font-size:14px;z-index:50;text-align:center;
+  box-shadow:0 8px 24px rgba(0,0,0,.25);animation:vptoast .2s ease-out}
+@keyframes vptoast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (prefers-reduced-motion:reduce){.vp-toast{animation:none}}
 
 /* deux colonnes produits : en vente / désactivés */
 .vp-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
@@ -536,13 +540,21 @@ textarea.vp-input{resize:vertical;min-height:64px}
 
 .vp-bar{width:100%;background:var(--wine);color:#fff;border-radius:15px;
   padding:13px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;
-  box-shadow:0 10px 30px rgba(36,30,27,.3)}
+  box-shadow:0 10px 30px rgba(36,30,27,.3);
+  animation:vppulse .42s cubic-bezier(.34,1.56,.64,1)}
+@keyframes vppulse{
+  0%{transform:scale(1)}
+  38%{transform:scale(1.05);box-shadow:0 14px 36px rgba(138,46,46,.45)}
+  100%{transform:scale(1)}
+}
+@media (prefers-reduced-motion:reduce){.vp-bar{animation:none}}
 .vp-bar:active{background:var(--wine-d)}
 .vp-bar-l{display:flex;align-items:center;gap:11px;min-width:0}
 .vp-bar-ico{position:relative;font-size:23px;line-height:1;flex:0 0 auto}
-.vp-bar-badge{position:absolute;top:-6px;right:-9px;min-width:19px;height:19px;padding:0 5px;
-  border-radius:999px;background:#fff;color:var(--wine);font-size:11.5px;font-weight:800;
-  display:grid;place-items:center;font-family:'Inter',sans-serif}
+.vp-bar-badge{position:absolute;top:-7px;right:-11px;min-width:22px;height:22px;padding:0 6px;
+  border-radius:999px;background:#fff;color:var(--wine);font-size:12.5px;font-weight:800;
+  display:grid;place-items:center;font-family:'Inter',sans-serif;
+  box-shadow:0 1px 4px rgba(36,30,27,.3)}
 .vp-bar-txt{display:flex;flex-direction:column;line-height:1.25;text-align:left;min-width:0}
 .vp-bar-txt b{font-size:15px;font-weight:800}
 .vp-bar-txt small{font-size:12px;opacity:.82}
@@ -996,8 +1008,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   const setQty = (p, v, q) => {
     const k = cle(p, v);
-    let val = Math.max(0, Math.round(q));
+    const val = Math.max(0, Math.round(q));
     setCart((c) => { const n = { ...c }; if (val <= 0) delete n[k]; else n[k] = val; return n; });
+  };
+
+  // Chaque ajout doit se voir : au 2e produit et aux suivants, la barre du
+  // panier existe déjà et seul un chiffre changeait — trop discret,
+  // surtout sur grand écran où la barre est loin du regard.
+  const [pulse, setPulse] = useState(0);
+  const ajouter = (p, v) => {
+    setQty(p, v, (cart[cle(p, v)] || 0) + 1);
+    setPulse((x) => x + 1);
+    showToast(`${p.nom}${v ? ` — ${v.nom}` : ''} ajouté au panier`);
   };
 
   const lignes = Object.entries(cart).map(([k, q]) => {
@@ -1259,8 +1281,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   <div className="vp-step">
                     {q > 0 && <button onClick={() => setQty(p, v, q - 1)}>−</button>}
                     {q > 0 && <span className="vp-qty">{num(q)}</span>}
-                    {q > 0 && <button onClick={() => setQty(p, v, q + 1)}>+</button>}
-                    {q <= 0 && <button className="vp-add" onClick={() => setQty(p, v, 1)}>Ajouter</button>}
+                    {q > 0 && <button onClick={() => ajouter(p, v)}>+</button>}
+                    {q <= 0 && <button className="vp-add" onClick={() => ajouter(p, v)}>Ajouter</button>}
                   </div>
                 </div>
               );
@@ -1340,7 +1362,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               </div>
             )}
 
-            <button className="vp-bar" onClick={() => setPanierOuvert((o) => !o)}>
+            <button className="vp-bar" key={`bar-${pulse}`} onClick={() => setPanierOuvert((o) => !o)}>
               <span className="vp-bar-l">
                 <span className="vp-bar-ico">🧺<span className="vp-bar-badge">{lignes.length}</span></span>
                 <span className="vp-bar-txt">
