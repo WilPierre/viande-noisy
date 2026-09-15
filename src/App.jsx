@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15h · totaux Patrice sur la feuille de pesées';
+const VERSION = '2026-09-15i · liste simple à imprimer';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -237,7 +237,13 @@ function imprimerDocument(titre, corpsHTML) {
     table{width:100%;border-collapse:collapse}
     /* largeurs déclarées : sans ça, chaque bloc client dimensionne
        ses colonnes d'après son propre contenu et rien ne s'aligne */
-    table.pesee,table.totaux{table-layout:fixed}
+    table.pesee,table.totaux,table.liste{table-layout:fixed}
+    .l-nom{width:40%}
+    .l-tel{width:26%}
+    .l-tot{width:20%}
+    .l-paye{width:14%}
+    table.liste td{padding:8px 7px}
+    table.liste .prod{font-size:13px}
     .c-prod{width:47%}
     .c-qte{width:11%}
     .c-poids{width:24%}
@@ -745,6 +751,15 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-var-btn:disabled{opacity:.35}
 .vp-var-btn.del{color:var(--wine)}
 .vp-var-btn:active:not(:disabled){transform:scale(.94)}
+
+/* liste d'encaissement (pesées) */
+.vp-liste{margin-top:12px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.vp-liste-l{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:10px 13px;font-size:14.5px;border-bottom:1px solid var(--line);background:#fff}
+.vp-liste-l:nth-child(even){background:var(--paper)}
+.vp-liste-l b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.vp-liste-l.tot{border-bottom:none;border-top:2px solid var(--ink);background:#fff;font-weight:800}
+.vp-liste-l.tot b{color:var(--wine)}
 
 /* ligne de résultats de recherche (boutique) */
 .vp-resultats{display:flex;align-items:center;flex-wrap:wrap;gap:2px;
@@ -2484,6 +2499,39 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const totalPatriceCmd = (c) => (c.lignes || []).reduce((s2, l) => s2 + stPatriceLive(l), 0);
   const totalPatriceGroupe = commandes.reduce((s2, c) => s2 + totalPatriceCmd(c), 0);
 
+  // Liste d'encaissement : un nom, un montant, rien d'autre.
+  // C'est la feuille qu'on tient en main pour faire le tour des voisins.
+  const imprimerListe = () => {
+    const rows = commandes.map((c) => `
+      <tr>
+        <td class="prod">${esc(c.nom_client)}</td>
+        <td class="qte gris">${esc(c.telephone || '')}</td>
+        <td class="n tot">${esc(eur(totalCmd(c)))}</td>
+        <td class="c"><span class="saisie"></span></td>
+      </tr>`).join('');
+    const corps = `
+      <div class="tete">
+        <div class="barre"></div>
+        <div>
+          <h1>Liste d'encaissement</h1>
+          <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
+            · ${commandes.length} client(s)</div>
+        </div>
+      </div>
+      <table class="liste">
+        <colgroup><col class="l-nom"><col class="l-tel"><col class="l-tot"><col class="l-paye"></colgroup>
+        <thead><tr>
+          <th>Client</th><th>Téléphone</th><th class="n">À encaisser</th><th class="c">Réglé</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="grand"><span>Total groupe</span><span>${esc(eur(totalGroupe))}</span></div>
+      <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
+    if (!imprimerDocument(`Liste ${settings.date_vente}`, corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
+  };
+
   const imprimer = () => {
     const blocs = commandes.map((c) => {
       const rows = (c.lignes || []).map((l) => {
@@ -2655,9 +2703,29 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
               et rappelle les deux totaux en tête de première page.
             </div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
-              <button className="vp-btn" onClick={imprimer}>Imprimer / PDF</button>
+              <button className="vp-btn" onClick={imprimer}>Détail par client</button>
               <button className="vp-btn green" onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>Copier le récap</button>
             </div>
+          </div>
+
+          <div className="vp-section">
+            <div className="vp-h2" style={{ fontSize: 16 }}>Liste d'encaissement</div>
+            <div className="vp-sub">Un nom, un montant. À imprimer pour faire le tour des voisins.</div>
+            <div className="vp-liste">
+              {commandes.map((c) => (
+                <div className="vp-liste-l" key={c.id}>
+                  <span>{c.nom_client}</span>
+                  <b>{eur(totalCmd(c))}</b>
+                </div>
+              ))}
+              <div className="vp-liste-l tot">
+                <span>Total groupe</span>
+                <b>{eur(totalGroupe)}</b>
+              </div>
+            </div>
+            <button className="vp-btn" style={{ width: '100%', marginTop: 12 }} onClick={imprimerListe}>
+              Imprimer / PDF — liste d'encaissement
+            </button>
             <div className="vp-sub" style={{ marginTop: 8 }}>
               Pour un PDF : choisis « Enregistrer au format PDF » dans la liste des imprimantes.
             </div>
