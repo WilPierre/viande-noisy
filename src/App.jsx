@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15j · questionnaire client';
+const VERSION = '2026-09-15k · comptage réel des articles';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -377,6 +377,10 @@ body{margin:0;background:var(--paper);color:var(--ink);
   -webkit-font-smoothing:antialiased;}
 .vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;position:relative}
 .vp-app.vp-avec-panier{padding-bottom:140px}
+/* la pastille WhatsApp flotte au-dessus du contenu : on réserve
+   de quoi faire défiler le dernier produit au-dessus d'elle */
+.vp-app.vp-avec-wa{padding-bottom:150px}
+.vp-app.vp-avec-panier.vp-avec-wa{padding-bottom:172px}
 .vp-admin-icon{position:absolute;top:18px;right:14px;width:38px;height:38px;border-radius:11px;
   background:#fff;border:1px solid var(--line);color:var(--muted);display:grid;place-items:center;
   box-shadow:var(--shadow);z-index:10}
@@ -1187,6 +1191,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }).filter(Boolean);
 
   const total = lignes.reduce((s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_william'), 0);
+  // Nombre d'articles réel : on additionne les quantités.
+  // Une ligne « au kilo » compte pour 1 (c'est une demande de poids,
+  // pas un nombre de pièces).
+  const nbArticles = lignes.reduce((s, { p, q }) =>
+    s + (p.mode_vente === 'kg' ? 1 : Math.round(Number(q) || 0)), 0);
   const aDuPese = lignes.some(({ p }) => MODES[p.mode_vente].pese);
 
   const envoyer = async () => {
@@ -1310,7 +1319,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }
 
   return (
-    <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''}`}>
+    <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
       <button className="vp-admin-icon" onClick={() => { window.location.hash = 'admin'; }} aria-label="Espace organisateur" title="Espace organisateur">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
@@ -1552,9 +1561,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
             <button className="vp-bar" key={`bar-${pulse}`} onClick={() => setPanierOuvert((o) => !o)}>
               <span className="vp-bar-l">
-                <span className="vp-bar-ico">🧺<span className="vp-bar-badge">{lignes.length}</span></span>
+                <span className="vp-bar-ico">🧺<span className="vp-bar-badge">{nbArticles}</span></span>
                 <span className="vp-bar-txt">
-                  <b>{lignes.length} article{lignes.length > 1 ? 's' : ''}</b>
+                  <b>{nbArticles} article{nbArticles > 1 ? 's' : ''}</b>
                   <small>{panierOuvert ? 'Masquer le panier' : 'Voir et valider'}</small>
                 </span>
               </span>
