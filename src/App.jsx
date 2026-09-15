@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15g · recherche dans la boutique';
+const VERSION = '2026-09-15h · totaux Patrice sur la feuille de pesées';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -237,12 +237,27 @@ function imprimerDocument(titre, corpsHTML) {
     table{width:100%;border-collapse:collapse}
     /* largeurs déclarées : sans ça, chaque bloc client dimensionne
        ses colonnes d'après son propre contenu et rien ne s'aligne */
-    table.pesee{table-layout:fixed}
+    table.pesee,table.totaux{table-layout:fixed}
     .c-prod{width:47%}
     .c-qte{width:11%}
     .c-poids{width:24%}
     .c-prix{width:18%}
+    .t-prod{width:38%}
+    .t-det{width:28%}
+    .t-moi{width:17%}
+    .t-pat{width:17%}
     .prod{word-break:break-word;hyphens:auto}
+    .gris{color:#6b625c}
+    .ligne-tot td{border-top:1.5px solid #241E1B;border-bottom:none;padding-top:7px}
+
+    /* bilan de tête, première page uniquement */
+    .bilan{display:flex;gap:10px;margin-bottom:20px}
+    .bilan-c{flex:1;padding:11px 13px;border:1px solid #E6DED4;border-radius:8px;background:#FBF7F2}
+    .bilan-c.vert{background:#EAF3EC;border-color:#CFE3D5}
+    .bilan-l{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
+      color:#8A7E76;font-weight:700;margin-bottom:3px}
+    .bilan-v{display:block;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+    .bilan-c.vert .bilan-v{color:#3F8A52}
     th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
       color:#8A7E76;font-weight:700;border-bottom:1.5px solid #241E1B;padding:0 7px 4px}
     td{padding:6px 7px;border-bottom:1px solid #EDE5DB;vertical-align:middle}
@@ -2455,6 +2470,20 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     return t;
   };
 
+  // coût Patrice d'une ligne, sur la même base que le prix client
+  const stPatriceLive = (l) => {
+    if (estRupture(l)) return 0;
+    if (l.mode_vente === 'piece_fixe') return (Number(l.quantite) || 0) * (Number(l.prix_patrice) || 0);
+    const v = poids[l.id];
+    const saisi = (v !== '' && v != null && !isNaN(nombre(v))) ? nombre(v) : null;
+    const pr = saisi != null ? saisi
+      : (l.poids_reel != null ? Number(l.poids_reel)
+        : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen));
+    return pr * (Number(l.prix_patrice) || 0);
+  };
+  const totalPatriceCmd = (c) => (c.lignes || []).reduce((s2, l) => s2 + stPatriceLive(l), 0);
+  const totalPatriceGroupe = commandes.reduce((s2, c) => s2 + totalPatriceCmd(c), 0);
+
   const imprimer = () => {
     const blocs = commandes.map((c) => {
       const rows = (c.lignes || []).map((l) => {
@@ -2465,21 +2494,38 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
           : l.mode_vente === 'piece_fixe' ? `${num(l.quantite)} × ${eur(l.prix_william)}`
           : saisi != null ? `${num(saisi)} kg × ${eur(l.prix_william)}/kg`
           : `${num(l.quantite)} ${l.mode_vente === 'kg' ? 'kg' : 'pc'} · poids à confirmer`;
+        const approx = estEstime(l) ? '≈ ' : '';
         return `<tr class="${rupt ? 'rupture' : ''}">
-          <td><span class="nom">${esc(nomLigne(l))}</span></td>
-          <td>${esc(detail)}</td>
-          <td class="n">${rupt ? '—' : (estEstime(l) ? '≈ ' : '') + esc(eur(stLive(l)))}</td>
+          <td class="prod"><span class="nom">${esc(nomLigne(l))}</span></td>
+          <td class="qte">${esc(detail)}</td>
+          <td class="n">${rupt ? '—' : approx + esc(eur(stLive(l)))}</td>
+          <td class="n gris">${rupt ? '—' : approx + esc(eur(stPatriceLive(l)))}</td>
         </tr>`;
       }).join('');
       return `<div class="bloc">
         <h2>${esc(c.nom_client)}</h2>
         <div class="tel">${esc(c.telephone || '')}</div>
-        <table><tbody>${rows}
-          <tr><td class="tot">Total</td><td></td><td class="n tot">${esc(eur(totalCmd(c)))}</td></tr>
-        </tbody></table>
+        <table class="totaux">
+          <colgroup><col class="t-prod"><col class="t-det"><col class="t-moi"><col class="t-pat"></colgroup>
+          <thead><tr>
+            <th>Produit</th>
+            <th>Détail</th>
+            <th class="n">À encaisser</th>
+            <th class="n">Coût Patrice</th>
+          </tr></thead>
+          <tbody>${rows}
+            <tr class="ligne-tot">
+              <td class="tot">Total</td><td></td>
+              <td class="n tot">${esc(eur(totalCmd(c)))}</td>
+              <td class="n tot gris">${esc(eur(totalPatriceCmd(c)))}</td>
+            </tr>
+          </tbody>
+        </table>
         ${c.note ? `<div class="note">« ${esc(c.note)} »</div>` : ''}
       </div>`;
     }).join('');
+
+    const marge = totalGroupe - totalPatriceGroupe;
     const corps = `
       <div class="tete">
         <div class="barre"></div>
@@ -2489,8 +2535,23 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             · ${commandes.length} client(s)</div>
         </div>
       </div>
+
+      <div class="bilan">
+        <div class="bilan-c">
+          <span class="bilan-l">Total à encaisser</span>
+          <span class="bilan-v">${esc(eur(totalGroupe))}</span>
+        </div>
+        <div class="bilan-c">
+          <span class="bilan-l">Total à payer à Patrice</span>
+          <span class="bilan-v">${esc(eur(totalPatriceGroupe))}</span>
+        </div>
+        <div class="bilan-c vert">
+          <span class="bilan-l">Marge</span>
+          <span class="bilan-v">${esc(eur(marge))}</span>
+        </div>
+      </div>
+
       ${blocs}
-      <div class="grand"><span>Total groupe</span><span>${esc(eur(totalGroupe))}</span></div>
       <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
     if (!imprimerDocument(`Totaux ${settings.date_vente}`, corps)) {
       showToast('Autorise les fenêtres pop-up pour imprimer');
@@ -2584,9 +2645,15 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
           <div className="vp-section" style={{ marginTop: 14 }}>
             <div className="vp-srow">
               <div className="vp-h2" style={{ fontSize: 16 }}>Feuille de totaux</div>
-              <div className="vp-h2" style={{ fontSize: 16, color: 'var(--wine)' }}>{eur(totalGroupe)}</div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="vp-h2" style={{ fontSize: 16, color: 'var(--wine)' }}>{eur(totalGroupe)}</div>
+                <div className="vp-marge">marge {eur(totalGroupe - totalPatriceGroupe)}</div>
+              </div>
             </div>
-            <div className="vp-sub">Une page par lot de clients, avec le détail et le total de chacun.</div>
+            <div className="vp-sub">
+              À payer à Patrice : <b>{eur(totalPatriceGroupe)}</b>. L'impression détaille chaque client
+              et rappelle les deux totaux en tête de première page.
+            </div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
               <button className="vp-btn" onClick={imprimer}>Imprimer / PDF</button>
               <button className="vp-btn green" onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>Copier le récap</button>
