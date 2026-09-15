@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15k · comptage réel des articles';
+const VERSION = '2026-09-15l · feuille Patrice épurée';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -200,6 +200,15 @@ function poidsVariante(p, v) {
 function sousTotalLigne(p, v, q, champ) {
   return sousTotal(p.mode_vente, q, prixVariante(p, v, champ || 'prix_william'), poidsVariante(p, v));
 }
+// Retire le poids indicatif en fin de nom — « Ribs de Bœuf (≈2.8kg) »
+// devient « Ribs de Bœuf ». Inutile sur la feuille que Patrice remplit,
+// puisque c'est justement lui qui pèse.
+function sansPoids(nom) {
+  return String(nom || '')
+    .replace(/\s*\(\s*[≈~]?\s*[\d]+[.,]?[\d]*\s*(kg|g)\s*\)\s*$/i, '')
+    .trim();
+}
+
 // nom affiché d'une ligne de commande, variante comprise
 function nomLigne(l) {
   return l.variante_nom ? `${l.produit_nom} — ${l.variante_nom}` : l.produit_nom;
@@ -243,6 +252,7 @@ function imprimerDocument(titre, corpsHTML) {
       border-left:4px solid #8A2E2E;border-radius:7px;page-break-inside:avoid;
       background:#FFFDFB}
     .bloc h2{font-size:14.5px;margin:0;color:#8A2E2E;letter-spacing:-.01em}
+    .bloc h2.maj{text-transform:uppercase;letter-spacing:.04em;font-size:14px;margin-bottom:8px}
     .bloc .tel{color:#6b625c;font-size:11px;margin:2px 0 8px}
 
     table{width:100%;border-collapse:collapse}
@@ -2358,11 +2368,11 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 
   const texte = () => {
     let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n\n`;
-    lignes.filter((x) => !x.rupture).forEach((x) => { t += `• ${x.nom} : ${uniteTxt(x.mode, x.qte)}\n`; });
+    lignes.filter((x) => !x.rupture).forEach((x) => { t += `• ${sansPoids(x.nom)} : ${uniteTxt(x.mode, x.qte)}\n`; });
     const r = lignes.filter((x) => x.rupture);
     if (r.length) {
       t += `\n❌ En rupture (non commandé) :\n`;
-      r.forEach((x) => { t += `• ${x.nom}\n`; });
+      r.forEach((x) => { t += `• ${sansPoids(x.nom)}\n`; });
     }
     t += `\nCoût total estimé (prix Patrice) : ${eur(coutTotal)}`;
     return t;
@@ -2389,15 +2399,14 @@ function AdminExport({ commandes, produits, settings, showToast }) {
         const auKilo = l.mode_vente !== 'piece_fixe';
         const unite = auKilo ? '/kg' : '/pc';
         return `<tr class="${rupt ? 'rupture' : ''}">
-          <td class="prod"><span class="nom">${esc(nomLigne(l))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
+          <td class="prod"><span class="nom">${esc(sansPoids(nomLigne(l)))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
           <td class="qte c">${esc(q)}</td>
           <td class="c">${rupt || !auKilo ? '—' : '<span class="saisie"></span>'}</td>
           <td class="n">${esc(eur(Number(l.prix_patrice)) + unite)}</td>
         </tr>`;
       }).join('');
       return `<div class="bloc">
-        <h2>${esc(c.nom_client)}</h2>
-        <div class="tel">${esc(c.telephone || '')}${c.telephone ? ' · ' : ''}commande de ${esc(new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</div>
+        <h2 class="maj">${esc(c.nom_client)}</h2>
         <table class="pesee">
           <colgroup>
             <col class="c-prod"><col class="c-qte"><col class="c-poids"><col class="c-prix">
@@ -2434,7 +2443,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
   const imprimer = () => {
     const rows = lignes.map((x) => `
       <tr class="${x.rupture ? 'rupture' : ''}">
-        <td><span class="nom">${esc(x.nom)}</span>${x.rupture ? ' — EN RUPTURE' : ''}</td>
+        <td><span class="nom">${esc(sansPoids(x.nom))}</span>${x.rupture ? ' — EN RUPTURE' : ''}</td>
         <td class="n">${esc(uniteTxt(x.mode, x.qte))}</td>
         <td class="n">${x.rupture ? '—' : esc(eur(x.cout))}</td>
       </tr>`).join('');
