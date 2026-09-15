@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15d · catégories illustrées';
+const VERSION = '2026-09-15e · catégorie rapide, impression par client';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -556,6 +556,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-etapes{margin:12px 0 0;padding-left:20px;font-size:13.5px;line-height:1.6;color:var(--ink)}
 .vp-etapes li{margin-bottom:9px}
 .vp-etapes li::marker{color:var(--wine);font-weight:800}
+
+/* menu déroulant rapide sur la carte produit (catégorie) */
+.vp-quick-select{flex:1;min-width:0;padding:7px 28px 7px 9px;border:1px solid var(--line);
+  border-radius:9px;background:#fff;color:var(--ink);font-family:inherit;font-size:14px;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A7E76' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 9px center}
+.vp-quick-select:focus{outline:none;border-color:var(--wine)}
 
 /* bandeau « ta commande est enregistrée » */
 .vp-macmd{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
@@ -1639,6 +1647,13 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     setRetour(null); setForm(null); reload(); showToast('Produit supprimé');
   };
   // modification express de la DLC depuis la liste, sans ouvrir le produit
+  const majCategorie = async (p, val) => {
+    const { error } = await supabase.from('viande_produits').update({ categorie: val }).eq('id', p.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    setRetour(p.id);
+    reload();
+  };
   const majDlc = async (p, val) => {
     const { error } = await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
     const err = messageErreur(error);
@@ -1949,6 +1964,16 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div className={`vp-toggle ${p.disponible ? 'on' : ''}`} onClick={() => toggleDispo(p)} />
         </div>
         <div className="vp-dlc-edit">
+          <label htmlFor={`cat-${p.id}`}>Catégorie</label>
+          <select id={`cat-${p.id}`} className="vp-quick-select"
+            value={catDe(p)} onChange={(e) => majCategorie(p, e.target.value)}>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{iconeCat(c)} {libelleCat(c)}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="vp-dlc-edit">
           <label htmlFor={`dlc-${p.id}`}>DLC</label>
           <input id={`dlc-${p.id}`} className="vp-dlc-input" type="date"
             value={p.dlc || ''} onChange={(e) => majDlc(p, e.target.value)} />
@@ -2101,6 +2126,47 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     a.download = `commande-patrice-${settings.date_vente}.csv`; a.click();
   };
 
+  // Feuille de préparation : une section par client, dans l'ordre d'arrivée.
+  // C'est ce qu'on a en main au moment de répartir les commandes.
+  const imprimerParClient = () => {
+    const blocs = commandes.map((c) => {
+      const rows = (c.lignes || []).map((l) => {
+        const rupt = enRupture.has(String(l.produit_id));
+        const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pièce(s)`;
+        const montant = rupt ? '—'
+          : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(Number(l.sous_total_estime));
+        return `<tr class="${rupt ? 'rupture' : ''}">
+          <td><span class="nom">${esc(nomLigne(l))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
+          <td class="n">${esc(q)}</td>
+          <td class="n">${esc(montant)}</td>
+        </tr>`;
+      }).join('');
+      const totalC = (c.lignes || []).reduce((t, l) =>
+        t + (enRupture.has(String(l.produit_id)) ? 0 : Number(l.sous_total_estime || 0)), 0);
+      return `<div class="bloc">
+        <h2>${esc(c.nom_client)}</h2>
+        <div class="tel">${esc(c.telephone || '')} · commande de ${esc(new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</div>
+        <table><tbody>${rows}
+          <tr><td class="tot">Total estimé</td><td></td><td class="n tot">≈ ${esc(eur(totalC))}</td></tr>
+        </tbody></table>
+        ${c.note ? `<div class="note">« ${esc(c.note)} »</div>` : ''}
+      </div>`;
+    }).join('');
+    const totalTous = commandes.reduce((t, c) =>
+      t + (c.lignes || []).reduce((u, l) =>
+        u + (enRupture.has(String(l.produit_id)) ? 0 : Number(l.sous_total_estime || 0)), 0), 0);
+    const corps = `
+      <h1>Commandes par client</h1>
+      <div class="meta">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))} ·
+        ${commandes.length} client(s)</div>
+      ${blocs}
+      <div class="grand"><span>Total estimé</span><span>≈ ${esc(eur(totalTous))}</span></div>
+      <div class="pied">Montants estimés sur poids moyen — les produits au kilo seront ajustés après pesée.</div>`;
+    if (!imprimerDocument(`Commandes par client ${settings.date_vente}`, corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
+  };
+
   const imprimer = () => {
     const rows = lignes.map((x) => `
       <tr class="${x.rupture ? 'rupture' : ''}">
@@ -2139,13 +2205,21 @@ function AdminExport({ commandes, produits, settings, showToast }) {
         ) : (
           <>
             <div className="vp-pre" style={{ marginTop: 12 }}>{texte()}</div>
-            <div className="vp-grid2" style={{ marginTop: 12 }}>
-              <button className="vp-btn green" onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}>Copier le message</button>
-              <button className="vp-btn" onClick={imprimer}>Imprimer / PDF</button>
+            <button className="vp-cta" style={{ marginTop: 14 }} onClick={imprimerParClient}>
+              Imprimer / PDF — par client
+            </button>
+            <div className="vp-sub" style={{ marginTop: 6 }}>
+              Une section par voisin, avec sa commande, son téléphone et son total. C'est la feuille à avoir en main pour répartir.
+            </div>
+
+            <div className="vp-grid2" style={{ marginTop: 16 }}>
+              <button className="vp-btn green" onClick={async () => { (await copier(texte())) && showToast('Copié — colle dans WhatsApp'); }}>Copier pour Patrice</button>
+              <button className="vp-btn ghost" onClick={imprimer}>Imprimer par produit</button>
             </div>
             <button className="vp-btn ghost" style={{ width: '100%', marginTop: 10 }} onClick={csv}>Télécharger CSV</button>
             <div className="vp-sub" style={{ marginTop: 8 }}>
-              Pour un PDF : choisis « Enregistrer au format PDF » dans la liste des imprimantes.
+              Les quantités cumulées ci-dessus servent à passer commande chez Patrice.
+              Pour obtenir un PDF, choisis « Enregistrer au format PDF » dans la liste des imprimantes.
             </div>
           </>
         )}
