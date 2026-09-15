@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14h · menu collant + panier conservé';
+const VERSION = '2026-09-14i · WhatsApp + alerte mail';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -476,6 +476,13 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-avert b{display:inline}
 .vp-avert b:first-child{display:block;margin-bottom:4px;font-size:13.5px}
 
+/* bouton WhatsApp */
+.vp-wa{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;
+  background:#25D366;color:#fff;border-radius:12px;padding:11px 16px;font-weight:700;
+  font-size:14.5px;text-decoration:none;box-shadow:0 2px 8px rgba(37,211,102,.28)}
+.vp-wa:active{background:#1EBE5B}
+.vp-wa svg{flex:0 0 auto}
+
 /* origine française */
 .vp-flag{margin-right:5px;vertical-align:-0.12em;flex:0 0 auto;
   border-radius:2px;display:inline-block}
@@ -690,6 +697,23 @@ export default function App() {
 }
 
 /* ============================================================
+   BOUTON WHATSAPP
+   Affiché seulement si un lien de groupe est renseigné
+   dans l'onglet Réglages.
+============================================================ */
+function BoutonWhatsApp({ url, libelle }) {
+  if (!url) return null;
+  return (
+    <a className="vp-wa" href={url} target="_blank" rel="noreferrer noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.39a9.86 9.86 0 0 0 4.74 1.21h.01c5.46 0 9.9-4.44 9.9-9.9 0-2.64-1.03-5.13-2.9-7A9.82 9.82 0 0 0 12.04 2zm0 18.15h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.17 8.17 0 0 1-1.25-4.38c0-4.54 3.69-8.23 8.23-8.23 2.2 0 4.26.86 5.82 2.41a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.7 8.24-8.24 8.24zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.87.85-.87 2.07s.89 2.4 1.02 2.56c.12.17 1.75 2.67 4.24 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.08.15-1.18-.06-.11-.22-.17-.47-.29z" />
+      </svg>
+      {libelle}
+    </a>
+  );
+}
+
+/* ============================================================
    DRAPEAU FRANÇAIS
    Dessiné en SVG : l'emoji 🇫🇷 s'affiche « FR » sur Windows,
    qui ne rend pas les indicateurs régionaux.
@@ -883,6 +907,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           <button className="vp-btn ghost" style={{ marginTop: 22 }} onClick={() => setDone(null)}>
             Passer une autre commande
           </button>
+          <div><BoutonWhatsApp url={settings.whatsapp_url} libelle="Rejoindre le groupe WhatsApp" /></div>
         </div>
       </div>
     );
@@ -901,6 +926,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <h1 className="vp-title">{settings.titre}</h1>
         <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} estSemaine={estSemaine} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
+        <BoutonWhatsApp url={settings.whatsapp_url} libelle="Rejoindre le groupe WhatsApp" />
       </div>
 
       {!ouvert ? (
@@ -2165,6 +2191,8 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     message_accueil: settings.message_accueil || '',
     pin_admin: settings.pin_admin,
     marge_defaut: String(settings.marge_defaut),
+    whatsapp_url: settings.whatsapp_url || '',
+    email_alerte: settings.email_alerte || '',
   });
 
   const todayStr = () => {
@@ -2198,6 +2226,8 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
       vente_active: f.vente_active, message_accueil: f.message_accueil.trim() || null,
       pin_admin: f.pin_admin.trim() || '0000', marge_defaut: nombre(f.marge_defaut) || 0,
+      whatsapp_url: f.whatsapp_url.trim() || null,
+      email_alerte: f.email_alerte.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     reload(); showToast('Réglages enregistrés');
@@ -2275,6 +2305,31 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
         </div>
 
         <button className="vp-cta" onClick={sauver}>Enregistrer les réglages</button>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Groupe WhatsApp</div>
+        <div className="vp-sub">Lien d'invitation du groupe. Un bouton apparaît alors sur la boutique et après chaque commande.</div>
+        <input className="vp-input" style={{ marginTop: 10 }} value={f.whatsapp_url}
+          onChange={(e) => setF({ ...f, whatsapp_url: e.target.value })}
+          placeholder="https://chat.whatsapp.com/…" inputMode="url" />
+        {f.whatsapp_url && !/^https:\/\/(chat\.whatsapp\.com|wa\.me)\//.test(f.whatsapp_url.trim()) && (
+          <div className="vp-rupt-note" style={{ marginTop: 8 }}>
+            Lien inhabituel : attendu sous la forme https://chat.whatsapp.com/… (WhatsApp → groupe → Inviter via un lien).
+          </div>
+        )}
+        {f.whatsapp_url && (
+          <a className="vp-wa" href={f.whatsapp_url} target="_blank" rel="noreferrer noopener">Tester le lien</a>
+        )}
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Alerte par mail</div>
+        <div className="vp-sub">Adresse prévenue à chaque nouvelle commande. Nécessite la fonction Supabase décrite dans alerte-mail-installation.md.</div>
+        <input className="vp-input" style={{ marginTop: 10 }} value={f.email_alerte}
+          onChange={(e) => setF({ ...f, email_alerte: e.target.value })}
+          placeholder="ton.adresse@exemple.fr" inputMode="email" type="email" />
+        <div className="vp-sub" style={{ marginTop: 8 }}>Laisse vide pour désactiver les alertes.</div>
       </div>
 
       <div className="vp-section">
