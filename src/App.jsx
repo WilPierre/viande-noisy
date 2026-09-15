@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15i · liste simple à imprimer';
+const VERSION = '2026-09-15j · questionnaire client';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -108,6 +108,17 @@ function messageErreur(error) {
   }
   if (/row-level security|permission/i.test(m)) return 'Écriture refusée par la base (droits).';
   return m.slice(0, 140) || 'Erreur inconnue';
+}
+
+/* ---- sondage : on ne resollicite pas quelqu'un qui a déjà répondu ---- */
+const CLE_SONDAGE = 'viande-noisy:sondage-v1';
+function aDejaRepondu(dateVente) {
+  try { return window.localStorage.getItem(CLE_SONDAGE) === String(dateVente); }
+  catch (e) { return false; }
+}
+function marquerRepondu(dateVente) {
+  try { window.localStorage.setItem(CLE_SONDAGE, String(dateVente)); }
+  catch (e) { /* stockage indisponible */ }
 }
 
 /* ---- commande envoyée, conservée côté client ----
@@ -242,6 +253,10 @@ function imprimerDocument(titre, corpsHTML) {
     .l-tel{width:26%}
     .l-tot{width:20%}
     .l-paye{width:14%}
+    .s-nom{width:22%}
+    .s-date{width:14%}
+    .s-rep{width:64%}
+    table.liste td{word-break:break-word}
     table.liste td{padding:8px 7px}
     table.liste .prod{font-size:13px}
     .c-prod{width:47%}
@@ -752,6 +767,23 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-var-btn.del{color:var(--wine)}
 .vp-var-btn:active:not(:disabled){transform:scale(.94)}
 
+/* réponses au questionnaire (admin) */
+.vp-rep{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff}
+.vp-rep-t{margin:6px 0 4px;font-size:14px;line-height:1.55;white-space:pre-wrap}
+
+/* questionnaire client */
+.vp-sondage{width:100%;display:flex;align-items:center;gap:12px;text-align:left;
+  margin-top:14px;padding:13px 15px;border-radius:14px;
+  background:#F2F6FB;border:1px solid #D4E0EF;color:var(--ink)}
+.vp-sondage b{display:block;font-size:14.5px}
+.vp-sondage small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.vp-sondage-ico{flex:0 0 auto;font-size:20px;line-height:1}
+.vp-sondage-fl{margin-left:auto;color:var(--muted);font-size:22px;line-height:1}
+.vp-sondage.fait{background:var(--green-s);border-color:#CFE3D5;font-size:13.5px;line-height:1.5}
+.vp-sondage.fait .vp-sondage-ico{color:var(--green);font-weight:800}
+.vp-sondage.ouvert{display:block;background:#fff;border-color:var(--line);box-shadow:var(--shadow)}
+.vp-sondage-q{margin:10px 0;font-size:14px;line-height:1.55;color:var(--ink)}
+
 /* liste d'encaissement (pesées) */
 .vp-liste{margin-top:12px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .vp-liste-l{display:flex;justify-content:space-between;align-items:center;gap:12px;
@@ -883,6 +915,81 @@ export default function App() {
         />
       )}
     </>
+  );
+}
+
+/* ============================================================
+   QUESTIONNAIRE CLIENT
+   Affiché sur la boutique quand il est activé dans l'admin.
+============================================================ */
+function Sondage({ settings, showToast }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [reponse, setReponse] = useState('');
+  const [nom, setNom] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+  const [fait, setFait] = useState(() => aDejaRepondu(settings.date_vente));
+
+  if (!settings.sondage_actif) return null;
+
+  const envoyer = async () => {
+    if (reponse.trim().length < 2) { showToast('Écris ta réponse avant d\'envoyer'); return; }
+    setEnvoi(true);
+    try {
+      const { error } = await supabase.from('viande_sondage_reponses').insert({
+        nom: nom.trim() || null,
+        reponse: reponse.trim(),
+        date_vente: settings.date_vente,
+      });
+      if (error) throw error;
+      marquerRepondu(settings.date_vente);
+      setFait(true);
+      setOuvert(false);
+      setReponse(''); setNom('');
+    } catch (e) {
+      showToast('Envoi impossible — réessaie');
+    } finally { setEnvoi(false); }
+  };
+
+  if (fait) {
+    return (
+      <div className="vp-sondage fait">
+        <span className="vp-sondage-ico">✓</span>
+        <div>{settings.sondage_merci || 'Merci de ta réponse !'}</div>
+      </div>
+    );
+  }
+
+  if (!ouvert) {
+    return (
+      <button className="vp-sondage" onClick={() => setOuvert(true)}>
+        <span className="vp-sondage-ico">💬</span>
+        <div>
+          <b>{settings.sondage_titre || 'Ton avis nous intéresse'}</b>
+          <small>Une question, une minute — donne ton avis</small>
+        </div>
+        <span className="vp-sondage-fl">›</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="vp-sondage ouvert">
+      <div className="vp-srow" style={{ alignItems: 'flex-start' }}>
+        <b style={{ fontSize: 15 }}>{settings.sondage_titre || 'Ton avis nous intéresse'}</b>
+        <button className="vp-sheet-x" onClick={() => setOuvert(false)} aria-label="Fermer">×</button>
+      </div>
+      <p className="vp-sondage-q">{settings.sondage_question}</p>
+      <textarea className="vp-input" value={reponse} rows={4}
+        onChange={(e) => setReponse(e.target.value)}
+        placeholder="Écris ici…" />
+      <div className="vp-field">
+        <label className="vp-label">Ton prénom (facultatif)</label>
+        <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
+      </div>
+      <button className="vp-cta" disabled={envoi} onClick={envoyer}>
+        {envoi ? 'Envoi…' : 'Envoyer ma réponse'}
+      </button>
+    </div>
   );
 }
 
@@ -1215,6 +1322,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <h1 className="vp-title">{settings.titre}</h1>
         <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} estSemaine={estSemaine} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
+        <Sondage settings={settings} showToast={showToast} />
       </div>
 
       {maCommande && (
@@ -1523,6 +1631,7 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
     ['produits', 'Produits'],
     ['export', 'Export'],
     ['pesees', 'Pesées'],
+    ['sondage', 'Sondage'],
     ['reglages', 'Réglages'],
   ];
 
@@ -1538,6 +1647,7 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
       {tab === 'produits' && <AdminProduits produits={produits} settings={settings} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settings} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settings} reload={loadCommandes} showToast={showToast} />}
+      {tab === 'sondage' && <AdminSondage settings={settings} reload={reload} showToast={showToast} />}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
       <div className="vp-foot">
@@ -2732,6 +2842,177 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+/* ---------- Admin : Sondage ---------- */
+function AdminSondage({ settings, reload, showToast }) {
+  const [f, setF] = useState({
+    sondage_actif: !!settings.sondage_actif,
+    sondage_titre: settings.sondage_titre || 'Ton avis nous intéresse',
+    sondage_question: settings.sondage_question || '',
+    sondage_merci: settings.sondage_merci || '',
+  });
+  const [reponses, setReponses] = useState([]);
+  const [chargement, setChargement] = useState(true);
+
+  const charger = async () => {
+    const { data, error } = await supabase
+      .from('viande_sondage_reponses')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) { showToast(messageErreur(error)); }
+    setReponses(data || []);
+    setChargement(false);
+  };
+  useEffect(() => {
+    charger();
+    const ch = supabase.channel('viande_sondage')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_sondage_reponses' }, charger)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const basculer = async () => {
+    const nouveau = !f.sondage_actif;
+    setF((x) => ({ ...x, sondage_actif: nouveau }));
+    const { error } = await supabase.from('viande_settings')
+      .update({ sondage_actif: nouveau }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); setF((x) => ({ ...x, sondage_actif: !nouveau })); return; }
+    reload();
+    showToast(nouveau ? 'Questionnaire visible sur la boutique' : 'Questionnaire masqué');
+  };
+
+  const sauver = async () => {
+    const { error } = await supabase.from('viande_settings').update({
+      sondage_titre: f.sondage_titre.trim() || 'Ton avis nous intéresse',
+      sondage_question: f.sondage_question.trim() || null,
+      sondage_merci: f.sondage_merci.trim() || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    reload(); showToast('Questionnaire enregistré');
+  };
+
+  const supprimer = async (r) => {
+    if (!window.confirm('Supprimer cette réponse ?')) return;
+    const { error } = await supabase.from('viande_sondage_reponses').delete().eq('id', r.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    charger(); showToast('Réponse supprimée');
+  };
+
+  const texte = () => {
+    let t = `💬 Réponses au questionnaire (${reponses.length})\n\n`;
+    reponses.forEach((r) => {
+      t += `• ${r.nom || 'Anonyme'} : ${r.reponse}\n`;
+    });
+    return t;
+  };
+
+  const imprimer = () => {
+    const rows = reponses.map((r) => `
+      <tr>
+        <td class="prod">${esc(r.nom || 'Anonyme')}</td>
+        <td class="qte gris">${esc(new Date(r.created_at).toLocaleDateString('fr-FR'))}</td>
+        <td>${esc(r.reponse)}</td>
+      </tr>`).join('');
+    const corps = `
+      <div class="tete">
+        <div class="barre"></div>
+        <div>
+          <h1>Réponses au questionnaire</h1>
+          <div class="meta"><b>${esc(settings.titre)}</b> · ${reponses.length} réponse(s)</div>
+        </div>
+      </div>
+      <div class="bloc"><div class="note">${esc(f.sondage_question)}</div></div>
+      <table class="liste">
+        <colgroup><col class="s-nom"><col class="s-date"><col class="s-rep"></colgroup>
+        <thead><tr><th>Qui</th><th>Date</th><th>Réponse</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
+    if (!imprimerDocument('Questionnaire', corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
+  };
+
+  return (
+    <>
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2">{f.sondage_actif ? '🟢 Questionnaire visible' : '⚪ Questionnaire masqué'}</div>
+            <div className="vp-sub">
+              {f.sondage_actif
+                ? 'Un encart apparaît sous le message d\'accueil de la boutique.'
+                : 'Rien n\'est affiché aux clients pour le moment.'}
+            </div>
+          </div>
+          <div className={`vp-toggle ${f.sondage_actif ? 'on' : ''}`} onClick={basculer} />
+        </div>
+      </div>
+
+      <div className="vp-section">
+        <label className="vp-label">Titre de l'encart</label>
+        <input className="vp-input" value={f.sondage_titre}
+          onChange={(e) => setF({ ...f, sondage_titre: e.target.value })}
+          placeholder="Ex : Ton avis nous intéresse" />
+
+        <div className="vp-field">
+          <label className="vp-label">Question posée</label>
+          <textarea className="vp-input" rows={3} value={f.sondage_question}
+            onChange={(e) => setF({ ...f, sondage_question: e.target.value })}
+            placeholder="Ex : Quels produits supplémentaires aimerais-tu voir ?" />
+        </div>
+
+        <div className="vp-field">
+          <label className="vp-label">Message de remerciement</label>
+          <textarea className="vp-input" rows={2} value={f.sondage_merci}
+            onChange={(e) => setF({ ...f, sondage_merci: e.target.value })}
+            placeholder="Ex : Merci de ta réponse !" />
+        </div>
+
+        <button className="vp-cta" onClick={sauver}>Enregistrer le questionnaire</button>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div className="vp-h2" style={{ fontSize: 16 }}>Réponses</div>
+          <span className="vp-pill">{reponses.length}</span>
+        </div>
+
+        {chargement ? (
+          <div className="vp-empty">Chargement…</div>
+        ) : reponses.length === 0 ? (
+          <div className="vp-empty">Aucune réponse pour l'instant.</div>
+        ) : (
+          <>
+            <div style={{ marginTop: 10 }}>
+              {reponses.map((r) => (
+                <div className="vp-rep" key={r.id}>
+                  <div className="vp-srow" style={{ alignItems: 'baseline' }}>
+                    <b>{r.nom || 'Anonyme'}</b>
+                    <span className="vp-cmd-time">
+                      {new Date(r.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="vp-rep-t">{r.reponse}</p>
+                  <button className="vp-trash" onClick={() => supprimer(r)}>Supprimer</button>
+                </div>
+              ))}
+            </div>
+            <div className="vp-grid2" style={{ marginTop: 12 }}>
+              <button className="vp-btn green" onClick={async () => { (await copier(texte())) && showToast('Réponses copiées'); }}>Copier</button>
+              <button className="vp-btn" onClick={imprimer}>Imprimer / PDF</button>
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }
