@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15l · feuille Patrice épurée';
+const VERSION = '2026-09-15m · feuille Patrice sans commentaires';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2419,7 +2419,6 @@ function AdminExport({ commandes, produits, settings, showToast }) {
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${c.note ? `<div class="note">« ${esc(c.note)} »</div>` : ''}
       </div>`;
     }).join('');
     const corps = `
