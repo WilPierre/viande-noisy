@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15 · catégories viande, WhatsApp flottant, modification de commande';
+const VERSION = '2026-09-15b · erreurs d\'enregistrement visibles';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -86,6 +86,23 @@ function sousTotalFinal(l) {
   const poids = l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
   return poids * (Number(l.prix_william) || 0);
 }
+/* ---- messages d'erreur d'enregistrement ----
+   Supabase renvoie une erreur explicite quand une colonne manque.
+   Sans ce contrôle, l'application affichait « enregistré » alors que
+   rien n'était écrit. */
+function messageErreur(error) {
+  if (!error) return null;
+  const m = String(error.message || error.details || '');
+  if (/schema cache|column .* does not exist|could not find/i.test(m)) {
+    const col = m.match(/'([a-z_]+)'/i);
+    return col
+      ? `Colonne « ${col[1]} » absente en base — lance le fichier SQL de migration.`
+      : 'Colonne absente en base — lance le fichier SQL de migration.';
+  }
+  if (/row-level security|permission/i.test(m)) return 'Écriture refusée par la base (droits).';
+  return m.slice(0, 140) || 'Erreur inconnue';
+}
+
 /* ---- commande envoyée, conservée côté client ----
    Permet au client de revenir modifier ou annuler sa commande
    tant que la boutique est ouverte. */
@@ -1592,8 +1609,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
-    if (form.id) await supabase.from('viande_produits').update(payload).eq('id', form.id);
-    else await supabase.from('viande_produits').insert(payload);
+    const { error } = form.id
+      ? await supabase.from('viande_produits').update(payload).eq('id', form.id)
+      : await supabase.from('viande_produits').insert(payload);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
     setForm(null); reload(); showToast('Produit enregistré');
   };
   const supprimer = async (p) => {
@@ -1603,16 +1623,22 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   };
   // modification express de la DLC depuis la liste, sans ouvrir le produit
   const majDlc = async (p, val) => {
-    await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
+    const { error } = await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
     reload();
   };
   const toggleFr = async (p) => {
-    await supabase.from('viande_produits').update({ origine_fr: !p.origine_fr }).eq('id', p.id);
+    const { error } = await supabase.from('viande_produits').update({ origine_fr: !p.origine_fr }).eq('id', p.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
     setRetour(p.id);
     reload();
   };
   const toggleRupture = async (p) => {
-    await supabase.from('viande_produits').update({ rupture: !p.rupture }).eq('id', p.id);
+    const { error } = await supabase.from('viande_produits').update({ rupture: !p.rupture }).eq('id', p.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
     setRetour(p.id);
     reload();
     showToast(!p.rupture ? 'Marqué en rupture' : 'Rupture levée');
@@ -2399,7 +2425,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
   };
 
   const sauver = async () => {
-    await supabase.from('viande_settings').update({
+    const { error } = await supabase.from('viande_settings').update({
       titre: f.titre.trim() || 'Viande Noisy',
       date_vente: todayStr(),
       heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
@@ -2411,6 +2437,8 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       alerte_wa_cle: f.alerte_wa_cle.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
     reload(); showToast('Réglages enregistrés');
   };
 
@@ -2540,7 +2568,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
             envoyerAlerteWhatsApp(
               { alerte_wa_numero: f.alerte_wa_numero, alerte_wa_cle: f.alerte_wa_cle },
               '🥩 Test Viande Noisy — si tu lis ce message, les alertes fonctionnent.');
-            showToast('Test envoyé — regarde WhatsApp');
+            showToast('Test envoyé — pense à Enregistrer les réglages');
           }}>
           Envoyer un message de test
         </button>
