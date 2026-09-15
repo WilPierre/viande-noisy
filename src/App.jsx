@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15f · confirmation visible à chaque ajout';
+const VERSION = '2026-09-15g · recherche dans la boutique';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -731,8 +731,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-var-btn.del{color:var(--wine)}
 .vp-var-btn:active:not(:disabled){transform:scale(.94)}
 
+/* ligne de résultats de recherche (boutique) */
+.vp-resultats{display:flex;align-items:center;flex-wrap:wrap;gap:2px;
+  margin-top:14px;color:var(--muted);font-size:13.5px}
+
 /* barre de recherche produits */
 .vp-search{position:relative;margin-bottom:12px}
+.vp-cat-nav .vp-search{margin:10px 0 0}
+.vp-cat-nav .vp-search + .vp-cat-select{margin-top:10px}
 .vp-search .vp-input{padding-left:40px;padding-right:38px}
 .vp-search-ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);
   color:var(--muted);pointer-events:none;display:grid;place-items:center}
@@ -973,7 +979,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [reprise, setReprise] = useState(false);
 
   const dispo = produits.filter((p) => p.disponible && !p.rupture);
-  const cats = CATEGORIES.filter((c) => dispo.some((p) => catDe(p) === c));
+
+  // recherche : insensible à la casse et aux accents, sur le nom,
+  // la catégorie et les options (parfums, contenances)
+  const [recherche, setRecherche] = useState('');
+  const q = normaliser(recherche.trim());
+  const visibles = !q ? dispo : dispo.filter((p) =>
+    normaliser(p.nom).includes(q)
+    || normaliser(libelleCat(catDe(p))).includes(q)
+    || variantesDe(p).some((v) => normaliser(v.nom).includes(q)));
+
+  const cats = CATEGORIES.filter((c) => visibles.some((p) => catDe(p) === c));
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -1204,34 +1220,68 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <div className="vp-empty">Aucun produit pour l'instant.</div>
       ) : (
         <>
-          {cats.length > 1 && (
-            <div className="vp-cat-nav">
-              {/* Mobile : menu déroulant natif */}
-              <select
-                className="vp-cat-select"
-                value={filtreCat}
-                onChange={(e) => setFiltreCat(e.target.value)}
-              >
-                <option value="Tous">Tous les produits</option>
-                {cats.map((cat) => (
-                  <option key={cat} value={cat}>{iconeCat(cat)} {libelleCat(cat)}</option>
-                ))}
-              </select>
-              {/* Desktop : pills défilantes */}
-              <div className="vp-tabs">
-                <button className={`vp-tab tout ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tout</button>
-                {cats.map((cat) => (
-                  <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
-                    <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)}
-                  </button>
-                ))}
-              </div>
+          <div className="vp-cat-nav">
+            <div className="vp-search">
+              <span className="vp-search-ico">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+                </svg>
+              </span>
+              <input
+                className="vp-input"
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                placeholder="Rechercher un produit…"
+                type="search"
+                autoComplete="off"
+                aria-label="Rechercher un produit"
+              />
+              {recherche && (
+                <button className="vp-search-clear" onClick={() => setRecherche('')} aria-label="Effacer la recherche">×</button>
+              )}
+            </div>
+
+            {cats.length > 1 && (
+              <>
+                {/* Mobile : menu déroulant natif */}
+                <select
+                  className="vp-cat-select"
+                  value={filtreCat}
+                  onChange={(e) => setFiltreCat(e.target.value)}
+                >
+                  <option value="Tous">Tous les produits</option>
+                  {cats.map((cat) => (
+                    <option key={cat} value={cat}>{iconeCat(cat)} {libelleCat(cat)}</option>
+                  ))}
+                </select>
+                {/* Ordinateur : pastilles */}
+                <div className="vp-tabs">
+                  <button className={`vp-tab tout ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tout</button>
+                  {cats.map((cat) => (
+                    <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
+                      <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {q && (
+            <div className="vp-resultats">
+              {visibles.length === 0
+                ? <>Aucun produit ne correspond à « {recherche.trim()} ».</>
+                : <>{visibles.length} produit{visibles.length > 1 ? 's' : ''} trouvé{visibles.length > 1 ? 's' : ''}</>}
+              <button className="vp-trash" style={{ marginTop: 0, marginLeft: 8 }}
+                onClick={() => { setRecherche(''); setFiltreCat('Tous'); }}>
+                Tout afficher
+              </button>
             </div>
           )}
           {catsAffichees.map((cat) => (
           <div key={cat}>
             <div className="vp-cat"><span className="vp-cat-ico">{iconeCat(cat)}</span>{libelleCat(cat)}</div>
-            {dispo.filter((p) => catDe(p) === cat).map((p) => {
+            {visibles.filter((p) => catDe(p) === cat).map((p) => {
               const m = MODES[p.mode_vente];
               const vs = variantesDe(p);
               const v = varianteActive(p);
