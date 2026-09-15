@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14j · alerte WhatsApp simple';
+const VERSION = '2026-09-15 · catégories viande, WhatsApp flottant, modification de commande';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -26,7 +26,15 @@ const MODES = {
   kg:          { label: 'Au kilo',            court: 'kg',    prixUnite: '€/kg',    suffixe: '/kg',    pese: true,  decimal: true  },
   piece_pesee: { label: 'À la pièce (pesé)',  court: 'pièce', prixUnite: '€/kg',    suffixe: '/kg',    pese: true,  decimal: false },
 };
-const CATEGORIES = ['Viande', 'Charcuterie', 'Crèmerie', 'Épicerie', 'Autre'];
+const CATEGORIES = ['Bœuf', 'Poulet', 'Porc', 'Viande', 'Charcuterie', 'Crèmerie', 'Épicerie', 'Autre'];
+// « Viande » reste pour tout ce qui n'entre pas dans les trois premières
+// (veau, canard, agneau…) — d'où un libellé différent à l'affichage.
+const LIBELLES_CAT = { Viande: 'Autres viandes' };
+const libelleCat = (c) => LIBELLES_CAT[c] || c;
+// Filet de sécurité : un produit rangé dans une catégorie inconnue
+// (ancienne valeur, faute de frappe) reste visible dans « Autre »
+// au lieu de disparaître silencieusement de la boutique.
+const catDe = (p) => (CATEGORIES.includes(p.categorie) ? p.categorie : 'Autre');
 // Emojis proposés dans l'admin, classés par famille.
 // Tu peux aussi coller n'importe quel autre emoji dans le champ libre.
 const EMOJIS = [
@@ -78,6 +86,26 @@ function sousTotalFinal(l) {
   const poids = l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
   return poids * (Number(l.prix_william) || 0);
 }
+/* ---- commande envoyée, conservée côté client ----
+   Permet au client de revenir modifier ou annuler sa commande
+   tant que la boutique est ouverte. */
+const CLE_COMMANDE = 'viande-noisy:commande-v1';
+function lireCommandeStockee(dateVente) {
+  try {
+    const c = JSON.parse(window.localStorage.getItem(CLE_COMMANDE) || 'null');
+    if (c && c.date === dateVente && c.id) return c;
+  } catch (e) { /* stockage indisponible */ }
+  return null;
+}
+function ecrireCommandeStockee(v) {
+  try { window.localStorage.setItem(CLE_COMMANDE, JSON.stringify(v)); }
+  catch (e) { /* on continue sans */ }
+}
+function viderCommandeStockee() {
+  try { window.localStorage.removeItem(CLE_COMMANDE); }
+  catch (e) { /* rien à faire */ }
+}
+
 /* ---- alerte WhatsApp à chaque commande ----
    Passe par CallMeBot, un service gratuit qui n'envoie des messages
    qu'au numéro ayant donné son accord. La clé ne permet donc d'écrire
@@ -497,6 +525,27 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-etapes li{margin-bottom:9px}
 .vp-etapes li::marker{color:var(--wine);font-weight:800}
 
+/* bandeau « ta commande est enregistrée » */
+.vp-macmd{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-top:16px;background:var(--green-s);border:1px solid #CFE3D5;border-radius:14px;padding:13px 15px}
+.vp-macmd.fermee{background:var(--paper);border-color:var(--line)}
+.vp-macmd b{display:block;font-size:14.5px;color:var(--ink)}
+.vp-macmd small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
+.vp-macmd-b{display:flex;gap:8px;flex:0 0 auto}
+
+/* pastille WhatsApp flottante */
+.vp-fab-zone{position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:38;
+  width:100%;max-width:600px;padding:0 14px;
+  padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  display:flex;justify-content:flex-end;pointer-events:none;
+  transition:padding-bottom .22s ease}
+.vp-fab-zone.haut{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+.vp-wa-fab{pointer-events:auto;width:52px;height:52px;border-radius:50%;background:#25D366;
+  color:#fff;display:grid;place-items:center;text-decoration:none;
+  box-shadow:0 6px 18px rgba(37,211,102,.4),0 2px 6px rgba(36,30,27,.2)}
+.vp-wa-fab:active{background:#1EBE5B;transform:scale(.93)}
+@media (prefers-reduced-motion:reduce){.vp-fab-zone{transition:none}}
+
 /* bouton WhatsApp */
 .vp-wa{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;
   background:#25D366;color:#fff;border-radius:12px;padding:11px 16px;font-weight:700;
@@ -722,12 +771,30 @@ export default function App() {
    Affiché seulement si un lien de groupe est renseigné
    dans l'onglet Réglages.
 ============================================================ */
+const CHEMIN_WA = 'M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.39a9.86 9.86 0 0 0 4.74 1.21h.01c5.46 0 9.9-4.44 9.9-9.9 0-2.64-1.03-5.13-2.9-7A9.82 9.82 0 0 0 12.04 2zm0 18.15h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.17 8.17 0 0 1-1.25-4.38c0-4.54 3.69-8.23 8.23-8.23 2.2 0 4.26.86 5.82 2.41a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.7 8.24-8.24 8.24zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.87.85-.87 2.07s.89 2.4 1.02 2.56c.12.17 1.75 2.67 4.24 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.08.15-1.18-.06-.11-.22-.17-.47-.29z';
+
+// Pastille flottante en bas de l'écran, icône seule.
+// « haut » la remonte au-dessus de la barre du panier.
+function PastilleWhatsApp({ url, haut }) {
+  if (!url) return null;
+  return (
+    <div className={`vp-fab-zone ${haut ? 'haut' : ''}`}>
+      <a className="vp-wa-fab" href={url} target="_blank" rel="noreferrer noopener"
+        aria-label="Rejoindre le groupe WhatsApp" title="Rejoindre le groupe WhatsApp">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d={CHEMIN_WA} />
+        </svg>
+      </a>
+    </div>
+  );
+}
+
 function BoutonWhatsApp({ url, libelle }) {
   if (!url) return null;
   return (
     <a className="vp-wa" href={url} target="_blank" rel="noreferrer noopener">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.39a9.86 9.86 0 0 0 4.74 1.21h.01c5.46 0 9.9-4.44 9.9-9.9 0-2.64-1.03-5.13-2.9-7A9.82 9.82 0 0 0 12.04 2zm0 18.15h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.17 8.17 0 0 1-1.25-4.38c0-4.54 3.69-8.23 8.23-8.23 2.2 0 4.26.86 5.82 2.41a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.7 8.24-8.24 8.24zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.87.85-.87 2.07s.89 2.4 1.02 2.56c.12.17 1.75 2.67 4.24 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.08.15-1.18-.06-.11-.22-.17-.47-.29z" />
+        <path d={CHEMIN_WA} />
       </svg>
       {libelle}
     </a>
@@ -818,9 +885,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [done, setDone] = useState(null);
   const [filtreCat, setFiltreCat] = useState('Tous');
   const [panierOuvert, setPanierOuvert] = useState(false);
+  const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
+  const [reprise, setReprise] = useState(false);
 
   const dispo = produits.filter((p) => p.disponible && !p.rupture);
-  const cats = CATEGORIES.filter((c) => dispo.some((p) => p.categorie === c));
+  const cats = CATEGORIES.filter((c) => dispo.some((p) => catDe(p) === c));
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -912,6 +981,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         + `Total estimé : ${eur(total)}`
         + (note.trim() ? `\nNote : ${note.trim()}` : ''));
 
+      // mémorisé pour permettre une modification ultérieure
+      const memo = {
+        date: settings.date_vente, id: cmd.id, nom: nom.trim(),
+        heure: Date.now(), cart, choix, tel: tel.trim(), note: note.trim(),
+      };
+      ecrireCommandeStockee(memo);
+      setMaCommande(memo);
+
       setDone({ nom: nom.trim(), total, aDuPese });
       setPanierOuvert(false);
       viderPanierStocke();
@@ -919,6 +996,44 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     } catch (e) {
       showToast('Erreur — réessaie');
     } finally { setEnvoi(false); }
+  };
+
+  // supprime la commande en base (lignes puis en-tête)
+  const supprimerMaCommande = async (id) => {
+    await supabase.from('viande_commande_lignes').delete().eq('commande_id', id);
+    const { error } = await supabase.from('viande_commandes').delete().eq('id', id);
+    return !error;
+  };
+
+  const reprendreCommande = async () => {
+    if (!maCommande) return;
+    if (!window.confirm(
+      'Reprendre ta commande pour la modifier ?\n\n'
+      + 'Elle est retirée de la liste et remise dans ton panier. '
+      + 'Pense à la renvoyer une fois tes changements faits.'
+    )) return;
+    if (!(await supprimerMaCommande(maCommande.id))) { showToast('Impossible pour le moment'); return; }
+    setCart(maCommande.cart || {});
+    setChoix(maCommande.choix || {});
+    setNom(maCommande.nom || '');
+    setTel(maCommande.tel || '');
+    setNote(maCommande.note || '');
+    viderCommandeStockee();
+    setMaCommande(null);
+    setDone(null);
+    setReprise(true);
+    setPanierOuvert(true);
+    showToast('Commande remise dans ton panier');
+  };
+
+  const annulerCommande = async () => {
+    if (!maCommande) return;
+    if (!window.confirm('Annuler définitivement ta commande ?')) return;
+    if (!(await supprimerMaCommande(maCommande.id))) { showToast('Impossible pour le moment'); return; }
+    viderCommandeStockee();
+    setMaCommande(null);
+    setDone(null);
+    showToast('Commande annulée');
   };
 
   if (done) {
@@ -934,8 +1049,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               au poids réel à la livraison. Tu recevras ta note définitive.</>
             )}
           </p>
-          <button className="vp-btn ghost" style={{ marginTop: 22 }} onClick={() => setDone(null)}>
-            Passer une autre commande
+          <div className="vp-note" style={{ marginTop: 20, textAlign: 'left' }}>
+            Besoin de changer quelque chose ? Reviens sur la boutique&nbsp;:
+            tu pourras modifier ou annuler ta commande tant qu'elle est ouverte.
+          </div>
+          <button className="vp-btn ghost" style={{ marginTop: 16 }} onClick={() => setDone(null)}>
+            Retour à la boutique
           </button>
           <div><BoutonWhatsApp url={settings.whatsapp_url} libelle="Rejoindre le groupe WhatsApp" /></div>
         </div>
@@ -956,8 +1075,34 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <h1 className="vp-title">{settings.titre}</h1>
         <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} estSemaine={estSemaine} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
-        <BoutonWhatsApp url={settings.whatsapp_url} libelle="Rejoindre le groupe WhatsApp" />
       </div>
+
+      {maCommande && (
+        <div className={`vp-macmd ${ouvert ? '' : 'fermee'}`}>
+          <div>
+            <b>Ta commande est enregistrée</b>
+            <small>
+              Envoyée à {new Date(maCommande.heure).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              {ouvert
+                ? ' · modifiable tant que la boutique est ouverte'
+                : ' · les commandes sont closes, contacte-nous sur WhatsApp pour un changement'}
+            </small>
+          </div>
+          {ouvert && (
+            <div className="vp-macmd-b">
+              <button className="vp-btn sm" onClick={reprendreCommande}>Modifier</button>
+              <button className="vp-btn ghost sm" onClick={annulerCommande}>Annuler</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {reprise && !maCommande && lignes.length > 0 && (
+        <div className="vp-rupt-note" style={{ marginTop: 12 }}>
+          Ta commande a été retirée de la liste. Modifie ton panier puis <b>renvoie-la</b>,
+          sinon elle ne sera pas prise en compte.
+        </div>
+      )}
 
       {!ouvert ? (
         <div className="vp-empty">Les commandes sont fermées pour le moment. Reviens à la prochaine promo&nbsp;!</div>
@@ -975,22 +1120,22 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               >
                 <option value="Tous">Tous les produits</option>
                 {cats.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
+                  <option key={cat} value={cat}>{libelleCat(cat)}</option>
                 ))}
               </select>
               {/* Desktop : pills défilantes */}
               <div className="vp-tabs">
                 <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tous</button>
                 {cats.map((cat) => (
-                  <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>{cat}</button>
+                  <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>{libelleCat(cat)}</button>
                 ))}
               </div>
             </div>
           )}
           {catsAffichees.map((cat) => (
           <div key={cat}>
-            <div className="vp-cat">{cat}</div>
-            {dispo.filter((p) => p.categorie === cat).map((p) => {
+            <div className="vp-cat">{libelleCat(cat)}</div>
+            {dispo.filter((p) => catDe(p) === cat).map((p) => {
               const m = MODES[p.mode_vente];
               const vs = variantesDe(p);
               const v = varianteActive(p);
@@ -1050,6 +1195,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           ))}
         </>
       )}
+
+      <PastilleWhatsApp url={settings.whatsapp_url} haut={ouvert && lignes.length > 0} />
 
       <div className="vp-ver">v{VERSION}</div>
 
@@ -1296,11 +1443,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   // id du produit vers lequel revenir après fermeture du formulaire
   const [retour, setRetour] = useState(null);
 
-  const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => p.categorie === c));
+  const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => catDe(p) === c));
 
   const q = normaliser(recherche.trim());
   const produitsAffiches = produits.filter((p) => {
-    if (filtreCat !== 'Tous' && p.categorie !== filtreCat) return false;
+    if (filtreCat !== 'Tous' && catDe(p) !== filtreCat) return false;
     if (!q) return true;
     if (normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q)) return true;
     return variantesDe(p).some((v) => normaliser(v.nom).includes(q));
@@ -1511,7 +1658,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div>
             <label className="vp-label">Catégorie</label>
             <select className="vp-input" value={form.categorie} onChange={(e) => setForm({ ...form, categorie: e.target.value })}>
-              {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+              {CATEGORIES.map((c) => <option key={c} value={c}>{libelleCat(c)}</option>)}
             </select>
           </div>
           <div>
@@ -1822,7 +1969,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           </button>
           {catsPresentes.map((cat) => (
             <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
-              {cat} ({produits.filter((p) => p.categorie === cat).length})
+              {libelleCat(cat)} ({produits.filter((p) => catDe(p) === cat).length})
             </button>
           ))}
         </div>
