@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15c · pastilles de catégories sur plusieurs lignes';
+const VERSION = '2026-09-15d · catégories illustrées';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -31,6 +31,13 @@ const CATEGORIES = ['Bœuf', 'Poulet', 'Porc', 'Viande', 'Charcuterie', 'Crèmer
 // (veau, canard, agneau…) — d'où un libellé différent à l'affichage.
 const LIBELLES_CAT = { Viande: 'Autres viandes' };
 const libelleCat = (c) => LIBELLES_CAT[c] || c;
+// Une icône par catégorie : on repère la bonne pastille à la forme
+// avant même d'avoir lu le mot.
+const ICONES_CAT = {
+  'Bœuf': '🐄', 'Poulet': '🐔', 'Porc': '🐖', 'Viande': '🥩',
+  'Charcuterie': '🌭', 'Crèmerie': '🧀', 'Épicerie': '🫒', 'Autre': '🧺',
+};
+const iconeCat = (c) => ICONES_CAT[c] || '';
 // Filet de sécurité : un produit rangé dans une catégorie inconnue
 // (ancienne valeur, faute de frappe) reste visible dans « Autre »
 // au lieu de disparaître silencieusement de la boutique.
@@ -395,7 +402,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* ===== ADMIN ===== */
 /* navigation catégorie — desktop : pills, mobile : select */
 .vp-cat-nav{position:sticky;top:0;background:var(--paper);z-index:5;
-  padding:10px 0 9px;box-shadow:0 8px 12px -10px rgba(36,30,27,.35)}
+  padding:2px 0 0;border-bottom:1px solid var(--line)}
 .vp-cat-select{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
   background:#fff;color:var(--ink);font-size:15px;font-weight:600;font-family:inherit;
   appearance:none;-webkit-appearance:none;
@@ -404,8 +411,13 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-cat-select:focus{outline:none;border-color:var(--wine)}
 /* pills — jamais de défilement horizontal : une pastille hors écran
    est introuvable, elles passent donc simplement à la ligne. */
-.vp-tabs{display:flex;flex-wrap:wrap;gap:6px;row-gap:6px;
+.vp-tabs{display:flex;flex-wrap:wrap;gap:7px;row-gap:7px;
   padding:14px 0 10px;justify-content:flex-start}
+/* barre de catégories de la boutique : centrée, les lignes s'équilibrent */
+.vp-cat-nav .vp-tabs{justify-content:center;padding:12px 0 11px}
+.vp-tab-ico{margin-right:6px;font-size:15px;line-height:1;vertical-align:-0.06em}
+.vp-cat-ico{margin-right:7px;font-size:15px;vertical-align:-0.06em}
+.vp-tab.tout{font-weight:700}
 /* …sauf le sélecteur de catégorie client, remplacé par un menu natif sur mobile */
 .vp-cat-nav .vp-tabs{display:none}
 @media (min-width:520px){
@@ -421,9 +433,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
   .vp-tabs .vp-tab{flex:1 1 auto;text-align:center;padding:9px 11px;font-size:13.5px}
   .vp-nav{padding-bottom:10px}
 }
-.vp-tab{white-space:nowrap;padding:9px 14px;border-radius:999px;font-weight:600;font-size:14px;
-  background:#fff;border:1px solid var(--line);color:var(--muted)}
-.vp-tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.vp-tab{white-space:nowrap;padding:8px 14px;border-radius:999px;font-weight:600;font-size:13.5px;
+  background:#fff;border:1px solid var(--line);color:#6F635B;
+  transition:background .14s ease,color .14s ease,border-color .14s ease}
+.vp-tab:hover{border-color:#DCCFC0;color:var(--ink)}
+.vp-tab.on{background:var(--wine);color:#fff;border-color:var(--wine);
+  box-shadow:0 2px 8px rgba(138,46,46,.22)}
+.vp-tab.on .vp-tab-ico{filter:brightness(1.12)}
+@media (prefers-reduced-motion:reduce){.vp-tab{transition:none}}
 .vp-section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
 .vp-srow{display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -1135,21 +1152,23 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               >
                 <option value="Tous">Tous les produits</option>
                 {cats.map((cat) => (
-                  <option key={cat} value={cat}>{libelleCat(cat)}</option>
+                  <option key={cat} value={cat}>{iconeCat(cat)} {libelleCat(cat)}</option>
                 ))}
               </select>
               {/* Desktop : pills défilantes */}
               <div className="vp-tabs">
-                <button className={`vp-tab ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tous</button>
+                <button className={`vp-tab tout ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tout</button>
                 {cats.map((cat) => (
-                  <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>{libelleCat(cat)}</button>
+                  <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
+                    <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)}
+                  </button>
                 ))}
               </div>
             </div>
           )}
           {catsAffichees.map((cat) => (
           <div key={cat}>
-            <div className="vp-cat">{libelleCat(cat)}</div>
+            <div className="vp-cat"><span className="vp-cat-ico">{iconeCat(cat)}</span>{libelleCat(cat)}</div>
             {dispo.filter((p) => catDe(p) === cat).map((p) => {
               const m = MODES[p.mode_vente];
               const vs = variantesDe(p);
@@ -1993,7 +2012,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           </button>
           {catsPresentes.map((cat) => (
             <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
-              {libelleCat(cat)} ({produits.filter((p) => catDe(p) === cat).length})
+              <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)} ({produits.filter((p) => catDe(p) === cat).length})
             </button>
           ))}
         </div>
