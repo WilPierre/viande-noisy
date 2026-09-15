@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14i · WhatsApp + alerte mail';
+const VERSION = '2026-09-14j · alerte WhatsApp simple';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -78,6 +78,22 @@ function sousTotalFinal(l) {
   const poids = l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
   return poids * (Number(l.prix_william) || 0);
 }
+/* ---- alerte WhatsApp à chaque commande ----
+   Passe par CallMeBot, un service gratuit qui n'envoie des messages
+   qu'au numéro ayant donné son accord. La clé ne permet donc d'écrire
+   qu'à toi : rien de sensible n'est exposé.
+   Envoi « au mieux » : si ça échoue, la commande passe quand même. */
+function envoyerAlerteWhatsApp(settings, texte) {
+  const tel = (settings.alerte_wa_numero || '').replace(/[^\d+]/g, '');
+  const cle = (settings.alerte_wa_cle || '').trim();
+  if (!tel || !cle) return;
+  const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(tel)}`
+    + `&apikey=${encodeURIComponent(cle)}&text=${encodeURIComponent(texte)}`;
+  try {
+    fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+  } catch (e) { /* alerte non bloquante */ }
+}
+
 /* ---- panier conservé entre deux visites ----
    Un rafraîchissement accidentel ne doit pas vider le panier.
    Le contenu est rangé sous la date de vente : il expire de lui-même
@@ -475,6 +491,11 @@ textarea.vp-input{resize:vertical;min-height:64px}
   border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.55}
 .vp-avert b{display:inline}
 .vp-avert b:first-child{display:block;margin-bottom:4px;font-size:13.5px}
+
+/* liste d'étapes numérotées (réglages) */
+.vp-etapes{margin:12px 0 0;padding-left:20px;font-size:13.5px;line-height:1.6;color:var(--ink)}
+.vp-etapes li{margin-bottom:9px}
+.vp-etapes li::marker{color:var(--wine);font-weight:800}
 
 /* bouton WhatsApp */
 .vp-wa{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;
@@ -882,6 +903,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       }));
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
       if (e2) throw e2;
+      // alerte (ne bloque jamais la commande)
+      const resume = lignes
+        .map(({ p, v, q }) => `• ${p.nom}${v ? ` (${v.nom})` : ''} x${num(q)}`)
+        .join('\n');
+      envoyerAlerteWhatsApp(settings,
+        `🥩 Nouvelle commande\n${nom.trim()} — ${tel.trim()}\n\n${resume}\n\n`
+        + `Total estimé : ${eur(total)}`
+        + (note.trim() ? `\nNote : ${note.trim()}` : ''));
+
       setDone({ nom: nom.trim(), total, aDuPese });
       setPanierOuvert(false);
       viderPanierStocke();
@@ -2193,6 +2223,8 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     marge_defaut: String(settings.marge_defaut),
     whatsapp_url: settings.whatsapp_url || '',
     email_alerte: settings.email_alerte || '',
+    alerte_wa_numero: settings.alerte_wa_numero || '',
+    alerte_wa_cle: settings.alerte_wa_cle || '',
   });
 
   const todayStr = () => {
@@ -2228,6 +2260,8 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       pin_admin: f.pin_admin.trim() || '0000', marge_defaut: nombre(f.marge_defaut) || 0,
       whatsapp_url: f.whatsapp_url.trim() || null,
       email_alerte: f.email_alerte.trim() || null,
+      alerte_wa_numero: f.alerte_wa_numero.trim() || null,
+      alerte_wa_cle: f.alerte_wa_cle.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     reload(); showToast('Réglages enregistrés');
@@ -2324,12 +2358,56 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       </div>
 
       <div className="vp-section">
-        <div className="vp-h2" style={{ fontSize: 16 }}>Alerte par mail</div>
-        <div className="vp-sub">Adresse prévenue à chaque nouvelle commande. Nécessite la fonction Supabase décrite dans alerte-mail-installation.md.</div>
+        <div className="vp-h2" style={{ fontSize: 16 }}>Alerte WhatsApp à chaque commande</div>
+        <div className="vp-sub">Reçois un message WhatsApp dès qu'un voisin commande. Réglage en 3 étapes, une seule fois.</div>
+
+        <ol className="vp-etapes">
+          <li>Enregistre le numéro <b>+34 644 51 95 23</b> dans tes contacts (nom au choix, « Alerte Viande » par exemple).</li>
+          <li>Envoie-lui sur WhatsApp le message exact :<br />
+            <button className="vp-approx" style={{ marginTop: 5 }}
+              onClick={async () => { (await copier('I allow callmebot to send me messages')) && showToast('Message copié'); }}>
+              Copier « I allow callmebot to send me messages »
+            </button>
+          </li>
+          <li>Il répond avec une clé (« your apikey is 123456 »). Recopie ton numéro et cette clé ci-dessous.</li>
+        </ol>
+
+        <div className="vp-grid2" style={{ marginTop: 12 }}>
+          <div>
+            <label className="vp-label">Ton numéro (avec +33)</label>
+            <input className="vp-input" value={f.alerte_wa_numero}
+              onChange={(e) => setF({ ...f, alerte_wa_numero: e.target.value })}
+              placeholder="+33612345678" inputMode="tel" />
+          </div>
+          <div>
+            <label className="vp-label">Clé reçue</label>
+            <input className="vp-input" value={f.alerte_wa_cle}
+              onChange={(e) => setF({ ...f, alerte_wa_cle: e.target.value })}
+              placeholder="123456" inputMode="numeric" />
+          </div>
+        </div>
+
+        <button className="vp-btn green" style={{ width: '100%', marginTop: 12 }}
+          onClick={() => {
+            if (!f.alerte_wa_numero.trim() || !f.alerte_wa_cle.trim()) { showToast('Renseigne le numéro et la clé'); return; }
+            envoyerAlerteWhatsApp(
+              { alerte_wa_numero: f.alerte_wa_numero, alerte_wa_cle: f.alerte_wa_cle },
+              '🥩 Test Viande Noisy — si tu lis ce message, les alertes fonctionnent.');
+            showToast('Test envoyé — regarde WhatsApp');
+          }}>
+          Envoyer un message de test
+        </button>
+        <div className="vp-sub" style={{ marginTop: 8 }}>
+          Pense à <b>Enregistrer les réglages</b> ensuite. Laisse les deux champs vides pour couper les alertes.
+        </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Alerte par mail <span className="vp-pill">optionnel</span></div>
+        <div className="vp-sub">Demande une installation à part (fichier alerte-mail-installation.md). Inutile si les alertes WhatsApp te suffisent.</div>
         <input className="vp-input" style={{ marginTop: 10 }} value={f.email_alerte}
           onChange={(e) => setF({ ...f, email_alerte: e.target.value })}
           placeholder="ton.adresse@exemple.fr" inputMode="email" type="email" />
-        <div className="vp-sub" style={{ marginTop: 8 }}>Laisse vide pour désactiver les alertes.</div>
       </div>
 
       <div className="vp-section">
