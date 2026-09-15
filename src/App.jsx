@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-14g · onglets admin sur 2 lignes';
+const VERSION = '2026-09-14h · menu collant + panier conservé';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -78,6 +78,27 @@ function sousTotalFinal(l) {
   const poids = l.poids_reel != null ? Number(l.poids_reel) : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen);
   return poids * (Number(l.prix_william) || 0);
 }
+/* ---- panier conservé entre deux visites ----
+   Un rafraîchissement accidentel ne doit pas vider le panier.
+   Le contenu est rangé sous la date de vente : il expire de lui-même
+   au démarrage de la vente suivante. */
+const CLE_PANIER = 'viande-noisy:panier-v1';
+function lirePanierStocke(dateVente) {
+  try {
+    const b = JSON.parse(window.localStorage.getItem(CLE_PANIER) || 'null');
+    if (b && b.date === dateVente) return b;
+  } catch (e) { /* stockage indisponible */ }
+  return null;
+}
+function ecrirePanierStocke(v) {
+  try { window.localStorage.setItem(CLE_PANIER, JSON.stringify(v)); }
+  catch (e) { /* navigation privée ou quota : on continue sans sauvegarde */ }
+}
+function viderPanierStocke() {
+  try { window.localStorage.removeItem(CLE_PANIER); }
+  catch (e) { /* rien à faire */ }
+}
+
 /* ---- variantes (parfums, contenances…) ----
    Stockées en jsonb sur le produit :
    [{ id, nom, prix_patrice, prix_william, poids_moyen }]
@@ -212,7 +233,9 @@ const CSS = `
   --radius:16px; --shadow:0 1px 2px rgba(36,30,27,.06),0 6px 18px rgba(36,30,27,.06);
 }
 *{box-sizing:border-box}
-html,body{overflow-x:hidden;max-width:100%}
+/* clip et non hidden : « overflow-x:hidden » sur html/body neutralise
+   le position:sticky de tous les descendants. */
+html,body{overflow-x:clip;max-width:100%}
 body{margin:0;background:var(--paper);color:var(--ink);
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;}
@@ -310,7 +333,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
 
 /* ===== ADMIN ===== */
 /* navigation catégorie — desktop : pills, mobile : select */
-.vp-cat-nav{position:sticky;top:0;background:var(--paper);z-index:5;padding:10px 0}
+.vp-cat-nav{position:sticky;top:0;background:var(--paper);z-index:5;
+  padding:10px 0 9px;box-shadow:0 8px 12px -10px rgba(36,30,27,.35)}
 .vp-cat-select{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
   background:#fff;color:var(--ink);font-size:15px;font-weight:600;font-family:inherit;
   appearance:none;-webkit-appearance:none;
@@ -739,11 +763,12 @@ function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive, estSema
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast }) {
-  const [cart, setCart] = useState({});   // "produitId|varianteId" -> quantite
-  const [choix, setChoix] = useState({}); // produitId -> varianteId sélectionnée sur la fiche
-  const [nom, setNom] = useState('');
-  const [tel, setTel] = useState('');
-  const [note, setNote] = useState('');
+  const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
+  const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
+  const [choix, setChoix] = useState(() => (repris && repris.choix) || {}); // produitId -> variante choisie
+  const [nom, setNom] = useState(() => (repris && repris.nom) || '');
+  const [tel, setTel] = useState(() => (repris && repris.tel) || '');
+  const [note, setNote] = useState(() => (repris && repris.note) || '');
   const [envoi, setEnvoi] = useState(false);
   const [done, setDone] = useState(null);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -758,6 +783,22 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }, [cats.join(',')]);
 
   const catsAffichees = filtreCat === 'Tous' ? cats : cats.filter((c) => c === filtreCat);
+
+  // sauvegarde continue : rafraîchir la page ne perd plus rien
+  useEffect(() => {
+    if (Object.keys(cart).length === 0) { viderPanierStocke(); return; }
+    ecrirePanierStocke({ date: settings.date_vente, cart, choix, nom, tel, note });
+  }, [cart, choix, nom, tel, note, settings.date_vente]);
+
+  // prévient une seule fois que le panier a été retrouvé
+  const [reprisSignale, setReprisSignale] = useState(false);
+  useEffect(() => {
+    if (reprisSignale) return;
+    if (repris && Object.keys(repris.cart || {}).length > 0) {
+      setReprisSignale(true);
+      showToast('Panier retrouvé');
+    }
+  }, [repris, reprisSignale, showToast]);
 
   const cle = (p, v) => `${p.id}|${v ? v.id : ''}`;
   // variante actuellement sélectionnée sur la fiche produit (la 1re par défaut)
@@ -819,7 +860,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       if (e2) throw e2;
       setDone({ nom: nom.trim(), total, aDuPese });
       setPanierOuvert(false);
-      setCart({}); setNom(''); setTel(''); setNote('');
+      viderPanierStocke();
+      setCart({}); setChoix({}); setNom(''); setTel(''); setNote('');
     } catch (e) {
       showToast('Erreur — réessaie');
     } finally { setEnvoi(false); }
