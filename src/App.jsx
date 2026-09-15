@@ -214,27 +214,51 @@ function imprimerDocument(titre, corpsHTML) {
   const w = window.open('', '_blank');
   if (!w) return false;
   const style = `
-    @page{size:A4;margin:14mm}
+    @page{size:A4;margin:12mm 13mm}
     *{box-sizing:border-box}
     body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-      color:#241E1B;margin:0;font-size:12.5px;line-height:1.45}
-    h1{font-size:19px;margin:0 0 2px}
-    .meta{color:#6b625c;font-size:12px;margin-bottom:16px}
-    table{width:100%;border-collapse:collapse;margin-bottom:10px}
-    th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
-      color:#6b625c;border-bottom:1.5px solid #241E1B;padding:0 6px 5px}
-    td{padding:6px;border-bottom:1px solid #e6ded4;vertical-align:top}
-    td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .bloc{margin-bottom:18px;page-break-inside:avoid}
-    .bloc h2{font-size:14px;margin:0 0 2px;padding-bottom:4px;border-bottom:2px solid #241E1B}
-    .bloc .tel{color:#6b625c;font-size:11.5px;margin:3px 0 6px}
+      color:#241E1B;margin:0;font-size:12px;line-height:1.45}
+
+    /* en-tête du document */
+    .tete{display:flex;align-items:flex-start;gap:12px;padding-bottom:12px;
+      border-bottom:2.5px solid #8A2E2E;margin-bottom:18px}
+    .tete .barre{width:5px;align-self:stretch;min-height:38px;background:#8A2E2E;border-radius:3px}
+    h1{font-size:20px;margin:0 0 3px;letter-spacing:-.01em}
+    .meta{color:#6b625c;font-size:11.5px}
+    .meta b{color:#241E1B}
+
+    /* bloc client */
+    .bloc{margin-bottom:15px;padding:11px 12px 9px;border:1px solid #E6DED4;
+      border-left:4px solid #8A2E2E;border-radius:7px;page-break-inside:avoid;
+      background:#FFFDFB}
+    .bloc h2{font-size:14.5px;margin:0;color:#8A2E2E;letter-spacing:-.01em}
+    .bloc .tel{color:#6b625c;font-size:11px;margin:2px 0 8px}
+
+    table{width:100%;border-collapse:collapse}
+    th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
+      color:#8A7E76;font-weight:700;border-bottom:1.5px solid #241E1B;padding:0 7px 4px}
+    td{padding:6px 7px;border-bottom:1px solid #EDE5DB;vertical-align:middle}
+    tbody tr:nth-child(even) td{background:#FBF7F2}
+    tbody tr:last-child td{border-bottom:none}
+    td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+    td.c,th.c{text-align:center}
+    .prod{font-weight:600}
+    .qte{color:#6b625c;white-space:nowrap}
+
+    /* case à remplir à la main */
+    .saisie{display:block;min-width:58px;height:19px;border:1px dashed #B9AB9C;
+      border-radius:4px;background:#fff}
+
     .tot{font-weight:700}
-    .grand{margin-top:14px;padding-top:9px;border-top:2px solid #241E1B;
-      display:flex;justify-content:space-between;font-size:16px;font-weight:700}
-    .rupture{color:#B3261E;font-weight:700}
+    .grand{margin-top:14px;padding:10px 12px;border-radius:7px;background:#F6EFE7;
+      border:1px solid #E6DED4;display:flex;justify-content:space-between;
+      font-size:15px;font-weight:700}
+    .rupture td{color:#B3261E}
     .rupture .nom{text-decoration:line-through}
-    .note{margin-top:4px;font-style:italic;color:#6b625c;font-size:11.5px}
-    .pied{margin-top:20px;color:#8A7E76;font-size:10.5px;text-align:center}
+    .note{margin-top:7px;font-style:italic;color:#6b625c;font-size:11px;
+      padding-left:9px;border-left:2px solid #E6DED4}
+    .pied{margin-top:18px;padding-top:9px;border-top:1px solid #E6DED4;
+      color:#8A7E76;font-size:10px;text-align:center}
   `;
   w.document.write(
     `<!doctype html><html lang="fr"><head><meta charset="utf-8">
@@ -2132,37 +2156,47 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     const blocs = commandes.map((c) => {
       const rows = (c.lignes || []).map((l) => {
         const rupt = enRupture.has(String(l.produit_id));
-        const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pièce(s)`;
-        const montant = rupt ? '—'
-          : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(Number(l.sous_total_estime));
+        const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`;
+        const auKilo = l.mode_vente !== 'piece_fixe';
+        const unite = auKilo ? '/kg' : '/pc';
         return `<tr class="${rupt ? 'rupture' : ''}">
-          <td><span class="nom">${esc(nomLigne(l))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
-          <td class="n">${esc(q)}</td>
-          <td class="n">${esc(montant)}</td>
+          <td class="prod"><span class="nom">${esc(nomLigne(l))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
+          <td class="qte c">${esc(q)}</td>
+          <td class="c">${rupt || !auKilo ? '—' : '<span class="saisie"></span>'}</td>
+          <td class="n">${esc(eur(Number(l.prix_patrice)) + unite)}</td>
+          <td class="n">${esc(eur(Number(l.prix_william)) + unite)}</td>
         </tr>`;
       }).join('');
-      const totalC = (c.lignes || []).reduce((t, l) =>
-        t + (enRupture.has(String(l.produit_id)) ? 0 : Number(l.sous_total_estime || 0)), 0);
       return `<div class="bloc">
         <h2>${esc(c.nom_client)}</h2>
-        <div class="tel">${esc(c.telephone || '')} · commande de ${esc(new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</div>
-        <table><tbody>${rows}
-          <tr><td class="tot">Total estimé</td><td></td><td class="n tot">≈ ${esc(eur(totalC))}</td></tr>
-        </tbody></table>
+        <div class="tel">${esc(c.telephone || '')}${c.telephone ? ' · ' : ''}commande de ${esc(new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</div>
+        <table>
+          <thead><tr>
+            <th>Produit</th>
+            <th class="c">Qté</th>
+            <th class="c">Poids réel (kg)</th>
+            <th class="n">Prix Patrice</th>
+            <th class="n">Mon prix</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
         ${c.note ? `<div class="note">« ${esc(c.note)} »</div>` : ''}
       </div>`;
     }).join('');
-    const totalTous = commandes.reduce((t, c) =>
-      t + (c.lignes || []).reduce((u, l) =>
-        u + (enRupture.has(String(l.produit_id)) ? 0 : Number(l.sous_total_estime || 0)), 0), 0);
     const corps = `
-      <h1>Commandes par client</h1>
-      <div class="meta">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))} ·
-        ${commandes.length} client(s)</div>
+      <div class="tete">
+        <div class="barre"></div>
+        <div>
+          <h1>Feuille de pesée</h1>
+          <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
+            · ${commandes.length} client(s) · à remplir par Patrice</div>
+        </div>
+      </div>
       ${blocs}
-      <div class="grand"><span>Total estimé</span><span>≈ ${esc(eur(totalTous))}</span></div>
-      <div class="pied">Montants estimés sur poids moyen — les produits au kilo seront ajustés après pesée.</div>`;
-    if (!imprimerDocument(`Commandes par client ${settings.date_vente}`, corps)) {
+      <div class="pied">
+        Colonne « Poids réel » à compléter à la pesée. Les lignes à la pièce n'ont pas de poids à saisir.
+      </div>`;
+    if (!imprimerDocument(`Feuille de pesee ${settings.date_vente}`, corps)) {
       showToast('Autorise les fenêtres pop-up pour imprimer');
     }
   };
@@ -2175,9 +2209,14 @@ function AdminExport({ commandes, produits, settings, showToast }) {
         <td class="n">${x.rupture ? '—' : esc(eur(x.cout))}</td>
       </tr>`).join('');
     const corps = `
-      <h1>Commande pour Patrice</h1>
-      <div class="meta">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))} ·
-        ${commandes.length} commande(s) cumulée(s)</div>
+      <div class="tete">
+        <div class="barre"></div>
+        <div>
+          <h1>Commande groupée</h1>
+          <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
+            · quantités cumulées de ${commandes.length} commande(s)</div>
+        </div>
+      </div>
       <table>
         <thead><tr><th>Produit</th><th style="text-align:right">Quantité</th>
           <th style="text-align:right">Coût estimé</th></tr></thead>
@@ -2206,10 +2245,11 @@ function AdminExport({ commandes, produits, settings, showToast }) {
           <>
             <div className="vp-pre" style={{ marginTop: 12 }}>{texte()}</div>
             <button className="vp-cta" style={{ marginTop: 14 }} onClick={imprimerParClient}>
-              Imprimer / PDF — par client
+              Imprimer / PDF — feuille de pesée
             </button>
             <div className="vp-sub" style={{ marginTop: 6 }}>
-              Une section par voisin, avec sa commande, son téléphone et son total. C'est la feuille à avoir en main pour répartir.
+              Une section par client, avec une case vide par ligne au kilo pour que Patrice
+              y note le poids réel. Tu recopies ensuite ces poids dans l'onglet Pesées.
             </div>
 
             <div className="vp-grid2" style={{ marginTop: 16 }}>
@@ -2360,9 +2400,14 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       </div>`;
     }).join('');
     const corps = `
-      <h1>Feuille de totaux</h1>
-      <div class="meta">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))} ·
-        ${commandes.length} client(s)</div>
+      <div class="tete">
+        <div class="barre"></div>
+        <div>
+          <h1>Totaux à encaisser</h1>
+          <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
+            · ${commandes.length} client(s)</div>
+        </div>
+      </div>
       ${blocs}
       <div class="grand"><span>Total groupe</span><span>${esc(eur(totalGroupe))}</span></div>
       <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
