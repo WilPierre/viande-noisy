@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15b · erreurs d\'enregistrement visibles';
+const VERSION = '2026-09-15c · pastilles de catégories sur plusieurs lignes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -402,10 +402,10 @@ textarea.vp-input{resize:vertical;min-height:64px}
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238A7E76' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 14px center}
 .vp-cat-select:focus{outline:none;border-color:var(--wine)}
-/* pills — visibles partout, défilement horizontal sur petit écran */
-.vp-tabs{display:flex;gap:6px;overflow-x:auto;padding:14px 0 10px;justify-content:flex-start;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none}
-.vp-tabs::-webkit-scrollbar{display:none}
+/* pills — jamais de défilement horizontal : une pastille hors écran
+   est introuvable, elles passent donc simplement à la ligne. */
+.vp-tabs{display:flex;flex-wrap:wrap;gap:6px;row-gap:6px;
+  padding:14px 0 10px;justify-content:flex-start}
 /* …sauf le sélecteur de catégorie client, remplacé par un menu natif sur mobile */
 .vp-cat-nav .vp-tabs{display:none}
 @media (min-width:520px){
@@ -416,10 +416,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-nav{position:sticky;top:0;z-index:6;background:var(--paper);
   padding-top:12px;margin-bottom:4px;box-shadow:0 6px 10px -8px rgba(36,30,27,.25)}
 
-/* Sur écran étroit, les onglets passent à la ligne au lieu de défiler :
-   un onglet hors écran sans barre de défilement visible est introuvable. */
+/* Sur écran étroit, les onglets s'étirent pour remplir chaque ligne. */
 @media (max-width:620px){
-  .vp-tabs{flex-wrap:wrap;overflow-x:visible;row-gap:6px}
   .vp-tabs .vp-tab{flex:1 1 auto;text-align:center;padding:9px 11px;font-size:13.5px}
   .vp-nav{padding-bottom:10px}
 }
