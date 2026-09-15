@@ -235,6 +235,14 @@ function imprimerDocument(titre, corpsHTML) {
     .bloc .tel{color:#6b625c;font-size:11px;margin:2px 0 8px}
 
     table{width:100%;border-collapse:collapse}
+    /* largeurs déclarées : sans ça, chaque bloc client dimensionne
+       ses colonnes d'après son propre contenu et rien ne s'aligne */
+    table.pesee{table-layout:fixed}
+    .c-prod{width:47%}
+    .c-qte{width:11%}
+    .c-poids{width:24%}
+    .c-prix{width:18%}
+    .prod{word-break:break-word;hyphens:auto}
     th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
       color:#8A7E76;font-weight:700;border-bottom:1.5px solid #241E1B;padding:0 7px 4px}
     td{padding:6px 7px;border-bottom:1px solid #EDE5DB;vertical-align:middle}
@@ -246,8 +254,8 @@ function imprimerDocument(titre, corpsHTML) {
     .qte{color:#6b625c;white-space:nowrap}
 
     /* case à remplir à la main */
-    .saisie{display:block;min-width:58px;height:19px;border:1px dashed #B9AB9C;
-      border-radius:4px;background:#fff}
+    .saisie{display:block;width:100%;max-width:120px;margin:0 auto;height:20px;
+      border:1px dashed #B9AB9C;border-radius:4px;background:#fff}
 
     .tot{font-weight:700}
     .grand{margin-top:14px;padding:10px 12px;border-radius:7px;background:#F6EFE7;
@@ -2164,19 +2172,20 @@ function AdminExport({ commandes, produits, settings, showToast }) {
           <td class="qte c">${esc(q)}</td>
           <td class="c">${rupt || !auKilo ? '—' : '<span class="saisie"></span>'}</td>
           <td class="n">${esc(eur(Number(l.prix_patrice)) + unite)}</td>
-          <td class="n">${esc(eur(Number(l.prix_william)) + unite)}</td>
         </tr>`;
       }).join('');
       return `<div class="bloc">
         <h2>${esc(c.nom_client)}</h2>
         <div class="tel">${esc(c.telephone || '')}${c.telephone ? ' · ' : ''}commande de ${esc(new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</div>
-        <table>
+        <table class="pesee">
+          <colgroup>
+            <col class="c-prod"><col class="c-qte"><col class="c-poids"><col class="c-prix">
+          </colgroup>
           <thead><tr>
             <th>Produit</th>
             <th class="c">Qté</th>
             <th class="c">Poids réel (kg)</th>
             <th class="n">Prix Patrice</th>
-            <th class="n">Mon prix</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
