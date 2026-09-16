@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-15m · feuille Patrice sans commentaires';
+const VERSION = '2026-09-16 · sélecteur de journée de vente';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -797,6 +797,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-sondage.fait .vp-sondage-ico{color:var(--green);font-weight:800}
 .vp-sondage.ouvert{display:block;background:#fff;border-color:var(--line);box-shadow:var(--shadow)}
 .vp-sondage-q{margin:10px 0;font-size:14px;line-height:1.55;color:var(--ink)}
+
+/* sélecteur de journée de vente (admin) */
+.vp-journee{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 13px;
+  border:1px solid var(--line);border-radius:12px;background:#fff}
+.vp-journee label{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);flex:0 0 auto}
+.vp-journee.passee{background:#FFF8EC;border-color:#F1DFBC}
+.vp-journee.passee label{color:#7A5A20}
 
 /* liste d'encaissement (pesées) */
 .vp-liste{margin-top:12px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -1601,25 +1609,60 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
   const [tab, setTab] = useState('commandes');
   const [commandes, setCommandes] = useState([]);
 
+  // Journée de vente consultée. Par défaut celle en cours, mais on peut
+  // revenir sur une journée passée — c'est indispensable pour saisir les
+  // poids le lendemain, une fois la date de vente passée au jour suivant.
+  const [dateTravail, setDateTravail] = useState(settings.date_vente);
+  const [journees, setJournees] = useState([]);
+  const [bascule, setBascule] = useState(false);
+
+  const chargerJournees = async () => {
+    const { data } = await supabase
+      .from('viande_commandes').select('date_vente')
+      .order('date_vente', { ascending: false });
+    const uniques = [...new Set((data || []).map((r) => r.date_vente).filter(Boolean))];
+    setJournees(uniques);
+    // Si la journée en cours n'a encore aucune commande alors qu'une
+    // journée précédente en a, on s'y place — une seule fois, pour ne
+    // jamais écraser un choix manuel.
+    if (!bascule && uniques.length && !uniques.includes(settings.date_vente)) {
+      setDateTravail(uniques[0]);
+      setBascule(true);
+    }
+  };
+
   const loadCommandes = async () => {
     const { data } = await supabase
       .from('viande_commandes')
       .select('*, lignes:viande_commande_lignes(*)')
-      .eq('date_vente', settings.date_vente)
+      .eq('date_vente', dateTravail)
       .order('created_at', { ascending: true });
     if (data) setCommandes(data);
   };
   useEffect(() => {
     if (!unlocked) return;
+    chargerJournees();
     loadCommandes();
     const ch = supabase.channel('viande_cmd')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commandes' }, loadCommandes)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commandes' }, () => { loadCommandes(); chargerJournees(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commande_lignes' }, loadCommandes)
       .subscribe();
     const poll = setInterval(loadCommandes, 8000);
     return () => { supabase.removeChannel(ch); clearInterval(poll); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unlocked, settings.date_vente]);
+  }, [unlocked, dateTravail, settings.date_vente]);
+
+  // Les onglets travaillent sur la journée choisie, pas sur celle en cours.
+  const settingsJour = useMemo(
+    () => ({ ...settings, date_vente: dateTravail }),
+    [settings, dateTravail]
+  );
+  const fmtJournee = (d) => {
+    try {
+      return new Date(d + 'T00:00:00')
+        .toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+    } catch (e) { return d; }
+  };
 
   const check = () => {
     if (pin === String(settings.pin_admin)) setUnlocked(true);
@@ -1662,10 +1705,32 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
         ))}
       </div>
 
+      {(journees.length > 0 || dateTravail !== settings.date_vente) && (
+        <div className={`vp-journee ${dateTravail !== settings.date_vente ? 'passee' : ''}`}>
+          <label htmlFor="journee">Journée</label>
+          <select id="journee" className="vp-quick-select" value={dateTravail}
+            onChange={(e) => { setDateTravail(e.target.value); setBascule(true); }}>
+            {!journees.includes(settings.date_vente) && (
+              <option value={settings.date_vente}>{fmtJournee(settings.date_vente)} — en cours</option>
+            )}
+            {journees.map((d) => (
+              <option key={d} value={d}>
+                {fmtJournee(d)}{d === settings.date_vente ? ' — en cours' : ''}
+              </option>
+            ))}
+          </select>
+          {dateTravail !== settings.date_vente && (
+            <button className="vp-btn ghost sm" onClick={() => { setDateTravail(settings.date_vente); setBascule(true); }}>
+              Revenir à aujourd'hui
+            </button>
+          )}
+        </div>
+      )}
+
       {tab === 'commandes' && <AdminCommandes commandes={commandes} ouvert={ouvert} reload={loadCommandes} showToast={showToast} />}
-      {tab === 'produits' && <AdminProduits produits={produits} settings={settings} reload={reload} showToast={showToast} />}
-      {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settings} showToast={showToast} />}
-      {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settings} reload={loadCommandes} showToast={showToast} />}
+      {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} reload={reload} showToast={showToast} />}
+      {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settingsJour} showToast={showToast} />}
+      {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
       {tab === 'sondage' && <AdminSondage settings={settings} reload={reload} showToast={showToast} />}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
