@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16b · prix et rupture modifiables aux pesées';
+const VERSION = '2026-09-16c · saisie des prix corrigée';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2658,7 +2658,9 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const liste = Object.values(groupes);
 
   // applique un prix à toutes les lignes d'un même produit
+  const [prixGroupe, setPrixGroupe] = useState({}); // "nom|champ" -> valeur saisie
   const appliquerAuGroupe = (g, champ, val) => {
+    setPrixGroupe((x) => ({ ...x, [`${g.nom}|${champ}`]: val }));
     setEdits((x) => {
       const n = { ...x };
       g.lignes.forEach(({ l }) => { n[l.id] = { ...(n[l.id] || {}), [champ]: val }; });
@@ -2800,12 +2802,16 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     }
   };
 
-  /* ---- bloc de saisie d'une ligne ---- */
-  const LigneSaisie = ({ l, sousTitre }) => {
+  /* ---- bloc de saisie d'une ligne ----
+     Volontairement une fonction qui renvoie du JSX, et NON un composant
+     défini ici : React verrait un nouveau type de composant à chaque
+     rendu, démonterait les champs et le curseur sauterait à chaque
+     caractère tapé. */
+  const ligneSaisie = (l, sousTitre) => {
     const rupt = estRupture(l);
     const auKilo = l.mode_vente !== 'piece_fixe';
     return (
-      <div className={`vp-pl ${rupt ? 'rupt' : ''}`}>
+      <div className={`vp-pl ${rupt ? 'rupt' : ''}`} key={l.id}>
         <div className="vp-pl-h">
           <div className="nm">
             <span className={rupt ? 'vp-barre' : ''}>{sousTitre}</span>
@@ -2877,9 +2883,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
               </div>
             </div>
             <div style={{ marginTop: 10 }}>
-              {(c.lignes || []).map((l) => (
-                <LigneSaisie key={l.id} l={l} sousTitre={`${l.emoji} ${nomLigne(l)}`} />
-              ))}
+              {(c.lignes || []).map((l) => ligneSaisie(l, `${l.emoji} ${nomLigne(l)}`))}
             </div>
             {c.note && <div className="vp-sub" style={{ marginTop: 8, fontStyle: 'italic' }}>« {c.note} »</div>}
             <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
@@ -2895,13 +2899,13 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             <div className="vp-groupe-prix">
               <span>Appliquer à tout le produit</span>
               <input className="vp-winput" inputMode="decimal" placeholder="Patrice"
+                value={prixGroupe[`${g.nom}|pat`] ?? ''}
                 onChange={(e) => appliquerAuGroupe(g, 'pat', e.target.value)} />
               <input className="vp-winput" inputMode="decimal" placeholder="Ton prix"
+                value={prixGroupe[`${g.nom}|wil`] ?? ''}
                 onChange={(e) => appliquerAuGroupe(g, 'wil', e.target.value)} />
             </div>
-            {g.lignes.map(({ l, client }) => (
-              <LigneSaisie key={l.id} l={l} sousTitre={client} />
-            ))}
+            {g.lignes.map(({ l, client }) => ligneSaisie(l, client))}
           </div>
         ))
       )}
