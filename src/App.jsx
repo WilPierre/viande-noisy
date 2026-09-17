@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-17e · retouches du panier';
+const VERSION = '2026-09-18 · jours fériés, urgence, mode sombre';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -117,6 +117,23 @@ function messageErreur(error) {
   }
   if (/row-level security|permission/i.test(m)) return 'Écriture refusée par la base (droits).';
   return m.slice(0, 140) || 'Erreur inconnue';
+}
+
+/* ---- thème clair / sombre ---- */
+const CLE_THEME = 'viande-noisy:theme';
+function lireTheme() {
+  try {
+    const t = window.localStorage.getItem(CLE_THEME);
+    if (t === 'sombre' || t === 'clair') return t;
+  } catch (e) { /* stockage indisponible */ }
+  // à défaut, on suit le réglage du téléphone
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'sombre';
+  } catch (e) { /* rien */ }
+  return 'clair';
+}
+function ecrireTheme(t) {
+  try { window.localStorage.setItem(CLE_THEME, t); } catch (e) { /* rien */ }
 }
 
 /* ---- sondage : on ne resollicite pas quelqu'un qui a déjà répondu ---- */
@@ -338,6 +355,46 @@ function imprimerDocument(titre, corpsHTML) {
   setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* onglet fermé */ } }, 350);
   return true;
 }
+/* ---- jours fériés français ----
+   Calcul local : les fêtes mobiles découlent de Pâques (algorithme de Meeus),
+   inutile d'appeler un service extérieur pour ça. */
+function paques(annee) {
+  const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mois = Math.floor((h + l - 7 * m + 114) / 31);
+  const jour = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(annee, mois - 1, jour);
+}
+function joursFeries(annee) {
+  const p = paques(annee);
+  const dec = (n) => { const d = new Date(p); d.setDate(p.getDate() + n); return d; };
+  const cle = (d) => `${d.getMonth() + 1}-${d.getDate()}`;
+  return {
+    '1-1': 'Jour de l\'an',
+    '5-1': 'Fête du Travail',
+    '5-8': 'Victoire 1945',
+    '7-14': 'Fête nationale',
+    '8-15': 'Assomption',
+    '11-1': 'Toussaint',
+    '11-11': 'Armistice',
+    '12-25': 'Noël',
+    [cle(dec(1))]: 'Lundi de Pâques',
+    [cle(dec(39))]: 'Ascension',
+    [cle(dec(50))]: 'Lundi de Pentecôte',
+  };
+}
+// nom du jour férié, ou null
+function nomJourFerie(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return null;
+  return joursFeries(d.getFullYear())[`${d.getMonth() + 1}-${d.getDate()}`] || null;
+}
+
 /* ---- DLC ---- */
 function aujourdhuiStr() {
   const d = new Date();
@@ -396,12 +453,30 @@ const CSS = `
   --line:#EBE2D7; --wine:#8A2E2E; --wine-d:#6E2222; --amber:#E0A23C;
   --green:#3F8A52; --green-s:#EAF3EC; --red-s:#FBEDED;
   --radius:16px; --shadow:0 1px 2px rgba(36,30,27,.06),0 6px 18px rgba(36,30,27,.06);
+  --blanc:#FFFFFF; --voile:rgba(251,247,242,.92);
 }
+/* Mode sombre : on ne repeint pas la charte, on retourne ses valeurs.
+   Le bordeaux est éclairci pour rester lisible sur fond foncé. */
+[data-theme="sombre"]{
+  --paper:#16130F; --card:#221D18; --ink:#F2EBE3; --muted:#A2958A;
+  --line:#352D25; --wine:#D96A6A; --wine-d:#C25A5A; --amber:#E8B45C;
+  --green:#6FBF83; --green-s:#1D2A20; --red-s:#2E1D1D;
+  --blanc:#221D18; --voile:rgba(22,19,15,.92);
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.34);
+}
+[data-theme="sombre"] .vp-app{background:var(--paper)}
+[data-theme="sombre"] .vp-photo,[data-theme="sombre"] .vp-hero img{filter:brightness(.94)}
+[data-theme="sombre"] .vp-add,[data-theme="sombre"] .vp-cta,
+[data-theme="sombre"] .vp-btn:not(.ghost),[data-theme="sombre"] .vp-bar{color:#1A1512}
+[data-theme="sombre"] .vp-initiale,[data-theme="sombre"] .vp-photo-loupe{color:#1A1512}
+[data-theme="sombre"] .vp-note,[data-theme="sombre"] .vp-avert{
+  background:#2A2115;border-color:#4A3A22;color:#E8CFA0}
+[data-theme="sombre"] .vp-toast{background:#3A322A}
 *{box-sizing:border-box}
 /* clip et non hidden : « overflow-x:hidden » sur html/body neutralise
    le position:sticky de tous les descendants. */
 html,body{overflow-x:clip;max-width:100%}
-body{margin:0;background:var(--paper);color:var(--ink);
+body{margin:0;background:var(--paper);color:var(--ink);transition:background .2s ease;
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;}
 .vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;position:relative;
@@ -424,7 +499,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 /* mini en-tête collant : le compte à rebours ne quitte jamais l'écran */
 .vp-mini{position:sticky;top:0;z-index:20;display:flex;align-items:center;
   justify-content:space-between;gap:12px;margin:0 -14px;padding:11px 16px;
-  background:rgba(251,247,242,.92);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  background:var(--voile);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
   border-bottom:1px solid var(--line)}
 .vp-mini-m{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:800;font-size:15px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -512,7 +587,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 /* form */
 .vp-field{margin-top:12px}
 .vp-label{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:5px;display:block}
-.vp-input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink)}
+.vp-input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--blanc);color:var(--ink)}
 .vp-input:focus{outline:none;border-color:var(--wine)}
 textarea.vp-input{resize:vertical;min-height:64px}
 .vp-cta{width:100%;background:var(--wine);color:#fff;font-weight:800;font-size:16px;
@@ -534,7 +609,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-cat-nav{position:sticky;top:44px;background:var(--paper);z-index:5;
   padding:2px 0 0;border-bottom:1px solid var(--line)}
 .vp-cat-select{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
-  background:#fff;color:var(--ink);font-size:15px;font-weight:600;font-family:inherit;
+  background:var(--blanc);color:var(--ink);font-size:15px;font-weight:600;font-family:inherit;
   appearance:none;-webkit-appearance:none;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238A7E76' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 14px center}
@@ -564,7 +639,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
   .vp-nav{padding-bottom:10px}
 }
 .vp-tab{white-space:nowrap;padding:8px 14px;border-radius:999px;font-weight:600;font-size:13.5px;
-  background:#fff;border:1px solid var(--line);color:#6F635B;
+  background:var(--blanc);border:1px solid var(--line);color:#6F635B;
   transition:background .14s ease,color .14s ease,border-color .14s ease}
 .vp-tab:hover{border-color:#DCCFC0;color:var(--ink)}
 .vp-tab.on{background:var(--wine);color:#fff;border-color:var(--wine);
@@ -584,7 +659,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-pill{display:inline-block;background:var(--paper);border:1px solid var(--line);
   border-radius:7px;padding:2px 8px;font-size:12px;color:var(--muted)}
 .vp-marge{font-size:13px;color:var(--green);font-weight:700}
-.vp-cmd{border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px;background:#fff}
+.vp-cmd{border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px;background:var(--blanc)}
 .vp-cmd-head{display:flex;justify-content:space-between;align-items:baseline}
 .vp-cmd-name{font-weight:800;font-size:15px}
 .vp-cmd-time{color:var(--muted);font-size:12px}
@@ -900,6 +975,28 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-identite b{display:block;font-size:14.5px}
 .vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
 
+/* bascule clair / sombre */
+.vp-theme{width:32px;height:32px;flex:0 0 auto;border-radius:50%;background:var(--blanc);
+  border:1px solid var(--line);font-size:14px;line-height:1;display:grid;place-items:center}
+.vp-theme:active{transform:scale(.9)}
+
+/* boutique fermée */
+.vp-ferme{text-align:center;margin-top:22px;padding:30px 20px;border-radius:16px;
+  background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow)}
+.vp-ferme-ico{font-size:32px;line-height:1}
+.vp-ferme b{display:block;margin-top:10px;font-size:17px}
+.vp-ferme small{display:block;margin-top:7px;color:var(--muted);font-size:13.5px;line-height:1.55}
+.vp-masque{display:none}
+
+/* dernière ligne droite */
+.vp-urgence{display:flex;align-items:center;gap:10px;margin-top:14px;padding:11px 14px;
+  border-radius:12px;background:var(--red-s);border:1px solid #F0CFCF;color:var(--wine);
+  font-size:14px}
+.vp-urgence b{font-weight:800}
+.vp-urgence-ico{font-size:18px;line-height:1;animation:vpbat 1.6s ease-in-out infinite}
+.vp-mini-c.presse{color:var(--wine)}
+@media (prefers-reduced-motion:reduce){.vp-urgence-ico{animation:none}}
+
 /* bandeau de la promo du jour */
 .vp-hero{position:relative;display:block;width:100%;padding:0;margin-top:16px;
   border:none;border-radius:20px;overflow:hidden;aspect-ratio:2.15/1;
@@ -1121,6 +1218,7 @@ export default function App() {
   // Jour de la semaine en temps réel (0=dim, 6=sam)
   const jourSemaine = useMemo(() => new Date(now).getDay(), [now]);
   const estSemaine = jourSemaine >= 1 && jourSemaine <= 5;
+  const ferie = useMemo(() => nomJourFerie(new Date(now)), [now]);
 
   // Horaires calculés sur AUJOURD'HUI (pas sur date_vente stockée)
   const { ouvertureAt, fermetureAt } = useMemo(() => {
@@ -1160,7 +1258,7 @@ export default function App() {
         <Client
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
-          estSemaine={estSemaine} showToast={showToast}
+          estSemaine={estSemaine} ferie={ferie} showToast={showToast}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
       )}
@@ -1857,7 +1955,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
 /* ============================================================
    CLIENT — interface de commande
 ============================================================ */
-function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast,
+function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -1875,6 +1973,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [derniere, setDerniere] = useState(null);  // dernière commande du client
   const [nbVoisins, setNbVoisins] = useState(0);   // commandes du jour
   const [photoZoom, setPhotoZoom] = useState(null); // { url, nom } affiché en grand
+  const [theme, setTheme] = useState(lireTheme);
+  const sombre = theme === 'sombre';
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    return () => document.documentElement.removeAttribute('data-theme');
+  }, [theme]);
+  const basculerTheme = () => {
+    const t = sombre ? 'clair' : 'sombre';
+    setTheme(t);
+    ecrireTheme(t);
+  };
   const [vueCompte, setVueCompte] = useState(false);
   const connecte = !!(session && session.user);
   // session valide mais fiche client absente : inscription à terminer
@@ -1899,6 +2008,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const favorisDispo = visibles.filter((p) => favoris.includes(String(p.id)));
   // produit mis en avant : une promo avec photo, en privilégiant
   // celle qui affiche une vraie remise
+  // moins d'une heure avant la fermeture : on le dit clairement
+  const resteMin = ouvert && fermetureAt ? Math.floor((fermetureAt - now) / 60000) : null;
+  const presse = resteMin != null && resteMin <= 60;
+
   const vedette = enPromo.filter((p) => p.photo_url)
     .sort((a, b) => {
       const ra = a.prix_barre > 0 ? (1 - a.prix_william / a.prix_barre) : 0;
@@ -2292,7 +2405,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
       <div className="vp-mini">
         <span className="vp-mini-m">{settings.titre}</span>
-        <span className={`vp-mini-c ${ouvert ? 'ouv' : 'fer'}`}>
+        <button className="vp-theme" onClick={basculerTheme}
+          aria-label={sombre ? 'Passer en clair' : 'Passer en sombre'}
+          title={sombre ? 'Mode clair' : 'Mode sombre'}>{sombre ? '☀️' : '🌙'}</button>
+        <span className={`vp-mini-c ${!ouvert ? 'fer' : presse ? 'presse' : 'ouv'}`}>
           <span className="vp-dot" />
           {ouvert
             ? (fermetureAt && fermetureAt > now
@@ -2379,7 +2495,19 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       )}
 
       {!ouvert ? (
-        <div className="vp-empty">Les commandes sont fermées pour le moment. Reviens à la prochaine promo&nbsp;!</div>
+        <div className="vp-ferme">
+          <span className="vp-ferme-ico">🕑</span>
+          <b>
+            {ferie ? `Fermé — ${ferie}`
+              : !estSemaine ? 'Fermé le week-end'
+              : 'Commandes fermées pour le moment'}
+          </b>
+          <small>
+            Les commandes et les retraits ont lieu du lundi au vendredi.
+            Ni le week-end, ni les jours fériés.
+          </small>
+          <span className="vp-masque"> Reviens à la prochaine promo&nbsp;!</span>
+        </div>
       ) : dispo.length === 0 ? (
         <div className="vp-empty">Aucun produit pour l'instant.</div>
       ) : (
@@ -2465,6 +2593,16 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 </span>
               </span>
             </button>
+          )}
+
+          {presse && (
+            <div className="vp-urgence">
+              <span className="vp-urgence-ico">⏳</span>
+              <b>
+                {resteMin <= 1 ? 'Dernière minute pour commander'
+                  : `Plus que ${resteMin} minutes pour commander`}
+              </b>
+            </div>
           )}
 
           {nbVoisins >= 2 && !q && (
@@ -3719,8 +3857,46 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     }
   };
 
+  // Message prêt à coller dans le groupe WhatsApp : promos du jour,
+  // heure de fermeture, lien de la boutique.
+  const annonce = () => {
+    const promos = produits.filter((p) => p.disponible && !p.rupture && p.promo);
+    const lien = typeof window !== 'undefined' ? window.location.origin : '';
+    let t = `🥩 ${settings.titre}\n\n`;
+    if (promos.length) {
+      t += `⚡ Les promos du jour :\n`;
+      promos.forEach((p) => {
+        const m = MODES[p.mode_vente];
+        t += `• ${p.nom} — ${eur(p.prix_william)}${m.suffixe}`;
+        if (p.prix_barre > 0 && p.prix_barre > p.prix_william) {
+          t += ` (au lieu de ${eur(p.prix_barre)})`;
+        }
+        t += `\n`;
+      });
+      t += `\n`;
+    }
+    t += `🕒 Commandes jusqu'à ${settings.heure_fermeture}\n`;
+    t += `👉 ${lien}\n\n`;
+    t += `Retrait le lendemain. Pas de commande le week-end ni les jours fériés.`;
+    return t;
+  };
+
   return (
     <>
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 16 }}>Annonce du jour</div>
+            <div className="vp-sub">Message prêt à coller dans le groupe WhatsApp.</div>
+          </div>
+        </div>
+        <div className="vp-pre" style={{ marginTop: 12 }}>{annonce()}</div>
+        <button className="vp-btn green" style={{ width: '100%', marginTop: 12 }}
+          onClick={async () => { (await copier(annonce())) && showToast('Annonce copiée'); }}>
+          Copier l'annonce
+        </button>
+      </div>
+
       <div className="vp-section">
         <div className="vp-h2">Récap pour Patrice</div>
         <div className="vp-sub">Quantités cumulées de toutes les commandes. À envoyer après la fermeture.</div>
