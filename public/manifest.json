@@ -1,0 +1,26 @@
+{
+  "short_name": "Viande Noisy",
+  "name": "Viande Noisy — commandes groupées",
+  "description": "Commandes groupées de viande entre voisins à Noisy-sur-École",
+  "lang": "fr-FR",
+  "icons": [
+    {
+      "src": "logo-mouton.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "logo-mouton.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#8A2E2E",
+  "background_color": "#FBF7F2"
+}
