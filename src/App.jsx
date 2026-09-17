@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-17d · nouvelle identité visuelle';
+const VERSION = '2026-09-17e · retouches du panier';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2607,10 +2607,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     </div>
                     <div className="vp-field">
                       <label className="vp-label">Un mot pour la commande (facultatif)</label>
-                      <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : bien cuit svp, je passe vers 18h…" />
+                      <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : je passe vers 18h…" />
                     </div>
                     <button className="vp-cta" disabled={envoi} onClick={envoyer}>
-                      {envoi ? 'Envoi…' : `Envoyer ma commande · ${eur(total)}`}
+                      {envoi ? 'Envoi…' : `Envoyer ma commande · ${aDuPese ? '≈ ' : ''}${eur(total)}`}
                     </button>
                   </>
                 ) : (
