@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16j · onglet PROMOS toujours affiché';
+const VERSION = '2026-09-16k · mot de passe oublié';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1263,7 +1263,41 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   const [email, setEmail] = useState('');
   const [mdp, setMdp] = useState('');
   const [code, setCode] = useState('');
+  const [mdp2, setMdp2] = useState('');
   const [envoi, setEnvoi] = useState(false);
+
+  // Mot de passe oublié : Supabase envoie un code, on le vérifie,
+  // puis on change le mot de passe de la session ainsi ouverte.
+  const demanderCode = async () => {
+    if (!email.includes('@')) { showToast('Saisis ton adresse e-mail'); return; }
+    setEnvoi(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+      if (error) throw error;
+      setMode('oubli-code');
+      showToast('Code envoyé par mail');
+    } catch (e) {
+      showToast(messageAuth(e));
+    } finally { setEnvoi(false); }
+  };
+
+  const changerMdp = async () => {
+    if (code.trim().length < 6) { showToast('Saisis le code à 6 chiffres'); return; }
+    if (mdp2.length < 6) { showToast('Nouveau mot de passe : 6 caractères minimum'); return; }
+    setEnvoi(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(), token: code.trim(), type: 'recovery',
+      });
+      if (error) throw error;
+      const { error: e2 } = await supabase.auth.updateUser({ password: mdp2 });
+      if (e2) throw e2;
+      showToast('Mot de passe modifié');
+      onFait();
+    } catch (e) {
+      showToast(messageAuth(e));
+    } finally { setEnvoi(false); }
+  };
 
   // Crée la fiche client une fois la session ouverte (les règles d'accès
   // exigent d'être authentifié pour écrire sa propre fiche).
@@ -1342,12 +1376,14 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
       <div className="vp-sheet-head">
         <span className="vp-th" style={{ marginBottom: 0 }}>
           {mode === 'code' ? 'Confirmer mon adresse'
+            : mode === 'oubli' ? 'Mot de passe oublié'
+            : mode === 'oubli-code' ? 'Nouveau mot de passe'
             : mode === 'inscription' ? 'Créer mon compte' : 'Me connecter'}
         </span>
         <button className="vp-sheet-x" onClick={onFermer} aria-label="Fermer">×</button>
       </div>
 
-      {mode !== 'code' && (
+      {(mode === 'inscription' || mode === 'connexion') && (
         <div className="vp-seg">
           <button className={mode === 'connexion' ? 'on' : ''} onClick={() => setMode('connexion')}>
             Se connecter
@@ -1358,7 +1394,51 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
         </div>
       )}
 
-      {mode === 'code' ? (
+      {mode === 'oubli' ? (
+        <>
+          <p className="vp-sondage-q">
+            Saisis l'adresse de ton compte. Tu recevras un code à 6 chiffres
+            pour choisir un nouveau mot de passe.
+          </p>
+          <div className="vp-field">
+            <label className="vp-label">E-mail</label>
+            <input className="vp-input" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="ton.adresse@exemple.fr" inputMode="email" type="email"
+              onKeyDown={(e) => e.key === 'Enter' && demanderCode()} />
+          </div>
+          <button className="vp-cta" disabled={envoi} onClick={demanderCode}>
+            {envoi ? 'Envoi…' : 'Recevoir un code'}
+          </button>
+          <button className="vp-trash" style={{ display: 'block', margin: '14px auto 0' }}
+            onClick={() => setMode('connexion')}>Retour à la connexion</button>
+        </>
+      ) : mode === 'oubli-code' ? (
+        <>
+          <p className="vp-sondage-q">
+            Code envoyé à <b>{email.trim()}</b>. Saisis-le puis choisis ton nouveau
+            mot de passe. Pense à regarder tes indésirables.
+          </p>
+          <div className="vp-field">
+            <label className="vp-label">Code reçu</label>
+            <input className="vp-input" value={code} inputMode="numeric" maxLength={6}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="123456" style={{ textAlign: 'center', letterSpacing: 6, fontSize: 20 }} />
+          </div>
+          <div className="vp-field">
+            <label className="vp-label">Nouveau mot de passe</label>
+            <input className="vp-input" value={mdp2} onChange={(e) => setMdp2(e.target.value)}
+              type="password" placeholder="6 caractères minimum" autoComplete="new-password"
+              onKeyDown={(e) => e.key === 'Enter' && changerMdp()} />
+          </div>
+          <button className="vp-cta" disabled={envoi} onClick={changerMdp}>
+            {envoi ? 'Un instant…' : 'Changer mon mot de passe'}
+          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+            <button className="vp-trash" style={{ marginTop: 0 }} onClick={demanderCode}>Renvoyer le code</button>
+            <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setMode('connexion')}>Annuler</button>
+          </div>
+        </>
+      ) : mode === 'code' ? (
         <>
           <p className="vp-sondage-q">
             Un code à 6 chiffres vient d'être envoyé à <b>{email.trim()}</b>.
@@ -1407,6 +1487,11 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
           autoComplete={mode === 'inscription' ? 'new-password' : 'current-password'}
           onKeyDown={(e) => e.key === 'Enter' && (mode === 'inscription' ? inscrire() : connecter())} />
       </div>
+
+      {mode === 'connexion' && (
+        <button className="vp-trash" style={{ display: 'block', marginTop: 2 }}
+          onClick={() => setMode('oubli')}>Mot de passe oublié ?</button>
+      )}
 
       <button className="vp-cta" disabled={envoi} onClick={mode === 'inscription' ? inscrire : connecter}>
         {envoi ? 'Un instant…' : (mode === 'inscription' ? 'Créer mon compte' : 'Me connecter')}
