@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16g · connexion visible + code de confirmation';
+const VERSION = '2026-09-16h · connexion et inscription distinctes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -823,6 +823,22 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-promo-case input{width:20px;height:20px;flex:0 0 auto;margin:1px 0 0;accent-color:#E0852C}
 .vp-promo-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 
+/* liens connexion / inscription */
+.vp-auth-liens{position:absolute;top:18px;left:14px;display:flex;gap:7px;z-index:10}
+.vp-lien-auth{padding:9px 13px;border-radius:999px;font-size:13px;font-weight:700;
+  background:#fff;border:1px solid var(--line);color:var(--ink);box-shadow:var(--shadow);
+  white-space:nowrap}
+.vp-lien-auth.plein{background:var(--wine);border-color:var(--wine);color:#fff}
+.vp-lien-auth:active{transform:scale(.95)}
+@media (max-width:380px){.vp-lien-auth{padding:9px 11px;font-size:12.5px}}
+
+/* bascule connexion / inscription */
+.vp-seg{display:flex;gap:4px;padding:4px;margin-bottom:6px;border-radius:12px;
+  background:var(--paper);border:1px solid var(--line)}
+.vp-seg button{flex:1;padding:9px 8px;border-radius:9px;background:transparent;
+  color:var(--muted);font-size:13.5px;font-weight:700}
+.vp-seg button.on{background:#fff;color:var(--wine);box-shadow:0 1px 3px rgba(36,30,27,.12)}
+
 /* compte client */
 .vp-compte-pill{position:absolute;top:18px;left:14px;height:38px;max-width:46%;
   display:flex;align-items:center;gap:8px;padding:0 13px 0 6px;border-radius:999px;
@@ -1229,8 +1245,8 @@ function messageAuth(e) {
   return 'Impossible pour le moment — réessaie.';
 }
 
-function EcranAuth({ onFait, onFermer, showToast }) {
-  const [mode, setMode] = useState('inscription');
+function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
+  const [mode, setMode] = useState(modeInitial || 'inscription');
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
   const [email, setEmail] = useState('');
@@ -1320,6 +1336,17 @@ function EcranAuth({ onFait, onFermer, showToast }) {
         <button className="vp-sheet-x" onClick={onFermer} aria-label="Fermer">×</button>
       </div>
 
+      {mode !== 'code' && (
+        <div className="vp-seg">
+          <button className={mode === 'connexion' ? 'on' : ''} onClick={() => setMode('connexion')}>
+            Se connecter
+          </button>
+          <button className={mode === 'inscription' ? 'on' : ''} onClick={() => setMode('inscription')}>
+            Créer un compte
+          </button>
+        </div>
+      )}
+
       {mode === 'code' ? (
         <>
           <p className="vp-sondage-q">
@@ -1374,10 +1401,11 @@ function EcranAuth({ onFait, onFermer, showToast }) {
         {envoi ? 'Un instant…' : (mode === 'inscription' ? 'Créer mon compte' : 'Me connecter')}
       </button>
 
-      <button className="vp-trash" style={{ display: 'block', margin: '14px auto 0' }}
-        onClick={() => setMode(mode === 'inscription' ? 'connexion' : 'inscription')}>
-        {mode === 'inscription' ? "J'ai déjà un compte" : "Créer un compte"}
-      </button>
+      <div className="vp-sub" style={{ textAlign: 'center', marginTop: 14 }}>
+        {mode === 'inscription'
+          ? <>Déjà inscrit ? <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setMode('connexion')}>Se connecter</button></>
+          : <>Pas encore de compte ? <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setMode('inscription')}>En créer un</button></>}
+      </div>
       </>
       )}
     </div>
@@ -1581,6 +1609,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [filtreCat, setFiltreCat] = useState('Tous');
   const [panierOuvert, setPanierOuvert] = useState(false);
   const [authOuvert, setAuthOuvert] = useState(false);
+  const [modeAuth, setModeAuth] = useState('inscription');
   const [vueCompte, setVueCompte] = useState(false);
   const connecte = !!(session && session.user);
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
@@ -1670,7 +1699,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const aDuPese = lignes.some(({ p }) => MODES[p.mode_vente].pese);
 
   const envoyer = async () => {
-    if (!connecte || !profil) { showToast('Connecte-toi pour commander'); setAuthOuvert(true); return; }
+    if (!connecte || !profil) { showToast('Connecte-toi pour commander'); setModeAuth('connexion'); setAuthOuvert(true); return; }
     if (lignes.length === 0) { showToast('Ton panier est vide'); return; }
     setEnvoi(true);
     try {
@@ -1798,23 +1827,21 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   return (
     <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
-      <button className={`vp-compte-pill ${connecte && profil ? 'on' : ''}`}
-        onClick={() => (connecte && profil ? setVueCompte(true) : setAuthOuvert(true))}
-        aria-label={connecte && profil ? 'Mon compte' : 'Me connecter'}>
-        {connecte && profil ? (
-          <>
-            <span className="vp-initiale">{(profil.nom || '?').trim().charAt(0).toUpperCase()}</span>
-            <span className="vp-compte-nom">{profil.nom}</span>
-          </>
-        ) : (
-          <>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
-            </svg>
-            <span className="vp-compte-nom">Se connecter</span>
-          </>
-        )}
-      </button>
+      {connecte && profil ? (
+        <button className="vp-compte-pill on" onClick={() => setVueCompte(true)} aria-label="Mon compte">
+          <span className="vp-initiale">{(profil.nom || '?').trim().charAt(0).toUpperCase()}</span>
+          <span className="vp-compte-nom">{profil.nom}</span>
+        </button>
+      ) : (
+        <div className="vp-auth-liens">
+          <button className="vp-lien-auth" onClick={() => { setModeAuth('connexion'); setAuthOuvert(true); }}>
+            Se connecter
+          </button>
+          <button className="vp-lien-auth plein" onClick={() => { setModeAuth('inscription'); setAuthOuvert(true); }}>
+            S'inscrire
+          </button>
+        </div>
+      )}
       <button className="vp-admin-icon" onClick={() => { window.location.hash = 'admin'; }} aria-label="Espace organisateur" title="Espace organisateur">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
@@ -1833,7 +1860,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <>
           <div className="vp-backdrop" onClick={() => setAuthOuvert(false)} />
           <div className="vp-dock">
-            <EcranAuth showToast={showToast}
+            <EcranAuth showToast={showToast} modeInitial={modeAuth}
               onFermer={() => setAuthOuvert(false)}
               onFait={() => { setAuthOuvert(false); setPanierOuvert(true); }} />
           </div>
@@ -2081,9 +2108,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       Un compte est nécessaire pour commander. Il te permet de retrouver
                       tes commandes et tes produits habituels.
                     </div>
-                    <button className="vp-cta" onClick={() => { setPanierOuvert(false); setAuthOuvert(true); }}>
-                      Créer mon compte ou me connecter
-                    </button>
+                    <div className="vp-grid2" style={{ marginTop: 14 }}>
+                      <button className="vp-btn ghost" onClick={() => { setPanierOuvert(false); setModeAuth('connexion'); setAuthOuvert(true); }}>
+                        Se connecter
+                      </button>
+                      <button className="vp-btn" onClick={() => { setPanierOuvert(false); setModeAuth('inscription'); setAuthOuvert(true); }}>
+                        S'inscrire
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
