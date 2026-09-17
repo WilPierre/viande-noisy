@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16i · rattrapage des profils incomplets';
+const VERSION = '2026-09-16j · onglet PROMOS toujours affiché';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -856,6 +856,12 @@ textarea.vp-input{resize:vertical;min-height:64px}
   margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}
 .vp-identite b{display:block;font-size:14.5px}
 .vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+
+/* rubrique promos vide */
+.vp-promo-vide{text-align:center;margin-top:20px;padding:26px 18px;border-radius:14px;
+  background:#FFF8EC;border:1px dashed #F0D9AE}
+.vp-promo-vide b{display:block;margin-top:8px;font-size:15px;color:#7A5A20}
+.vp-promo-vide small{display:block;margin-top:4px;color:var(--muted);font-size:13px}
 
 /* onglet et badge PROMOS */
 .vp-tab-promo{background:linear-gradient(135deg,#F0B429,#E0852C);border-color:#D3791F;
@@ -1994,38 +2000,36 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               )}
             </div>
 
-            {cats.length > 1 && (
-              <>
-                {/* Mobile : menu déroulant natif */}
-                <select
-                  className="vp-cat-select"
-                  value={filtreCat}
-                  onChange={(e) => setFiltreCat(e.target.value)}
-                >
-                  <option value="Tous">Tous les produits</option>
-                  {enPromo.length > 0 && <option value="PROMOS">⚡ PROMOS ({enPromo.length})</option>}
-                  {cats.map((cat) => (
-                    <option key={cat} value={cat}>{iconeCat(cat)} {libelleCat(cat)}</option>
-                  ))}
-                </select>
-                {/* Ordinateur : pastilles */}
-                <div className="vp-tabs">
-                  <button className={`vp-tab tout ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tout</button>
-                {enPromo.length > 0 && (
-                  <button className={`vp-tab vp-tab-promo ${filtreCat === 'PROMOS' ? 'on' : ''}`}
-                    onClick={() => setFiltreCat('PROMOS')}>
-                    <span className="vp-eclair">⚡</span>PROMOS
-                    <span className="vp-tab-nb">{enPromo.length}</span>
-                  </button>
-                )}
-                  {cats.map((cat) => (
-                    <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
-                      <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            {/* Mobile : menu déroulant natif.
+                PROMOS y figure toujours, même vide — c'est une rubrique
+                de la boutique, pas un filtre qui va et vient. */}
+            <select
+              className="vp-cat-select"
+              value={filtreCat}
+              onChange={(e) => setFiltreCat(e.target.value)}
+            >
+              <option value="Tous">Tous les produits</option>
+              <option value="PROMOS">⚡ PROMOS{enPromo.length > 0 ? ` (${enPromo.length})` : ''}</option>
+              {cats.map((cat) => (
+                <option key={cat} value={cat}>{iconeCat(cat)} {libelleCat(cat)}</option>
+              ))}
+            </select>
+
+            {/* Ordinateur : pastilles */}
+            <div className="vp-tabs">
+              <button className={`vp-tab tout ${filtreCat === 'Tous' ? 'on' : ''}`}
+                onClick={() => setFiltreCat('Tous')}>Tout</button>
+              <button className={`vp-tab vp-tab-promo ${filtreCat === 'PROMOS' ? 'on' : ''}`}
+                onClick={() => setFiltreCat('PROMOS')}>
+                <span className="vp-eclair">⚡</span>PROMOS
+                {enPromo.length > 0 && <span className="vp-tab-nb">{enPromo.length}</span>}
+              </button>
+              {cats.map((cat) => (
+                <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
+                  <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)}
+                </button>
+              ))}
+            </div>
           </div>
 
           {q && (
@@ -2039,6 +2043,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               </button>
             </div>
           )}
+          {filtreCat === 'PROMOS' && source.length === 0 && (
+            <div className="vp-promo-vide">
+              <span className="vp-eclair" style={{ fontSize: 24 }}>⚡</span>
+              <b>Aucune promo en ce moment</b>
+              <small>Reviens vite, Patrice en propose régulièrement.</small>
+              <button className="vp-btn ghost sm" style={{ marginTop: 12 }} onClick={() => setFiltreCat('Tous')}>
+                Voir tous les produits
+              </button>
+            </div>
+          )}
+
           {catsAffichees.map((cat) => (
           <div key={cat}>
             <div className="vp-cat"><span className="vp-cat-ico">{iconeCat(cat)}</span>{libelleCat(cat)}</div>
