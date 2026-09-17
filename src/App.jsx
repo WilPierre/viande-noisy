@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-18b · jours fériés, urgence, mode sombre';
+const VERSION = '2026-09-18c · salutation du soir, bascule de thème explicite';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -117,6 +117,12 @@ function messageErreur(error) {
   }
   if (/row-level security|permission/i.test(m)) return 'Écriture refusée par la base (droits).';
   return m.slice(0, 140) || 'Erreur inconnue';
+}
+
+// « Bonsoir » à partir de 17h30, « Bonjour » avant.
+function salutation(t) {
+  const d = t ? new Date(t) : new Date();
+  return (d.getHours() * 60 + d.getMinutes()) >= 1050 ? 'Bonsoir' : 'Bonjour';
 }
 
 /* ---- thème clair / sombre ---- */
@@ -498,7 +504,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
   background:var(--voile);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
   border-bottom:1px solid var(--line)}
 .vp-mini-m{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:800;font-size:15px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vp-mini-c{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;
   font-size:12px;font-weight:700;white-space:nowrap}
 .vp-mini-c.ouv{color:var(--green)}
@@ -971,10 +977,15 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-identite b{display:block;font-size:14.5px}
 .vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
 
-/* bascule clair / sombre */
-.vp-theme{width:32px;height:32px;flex:0 0 auto;border-radius:50%;background:var(--blanc);
-  border:1px solid var(--line);font-size:14px;line-height:1;display:grid;place-items:center}
-.vp-theme:active{transform:scale(.9)}
+/* bascule clair / sombre — l'icône seule ne se comprenait pas,
+   le mot visé accompagne donc toujours le pictogramme */
+.vp-theme{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;height:30px;
+  padding:0 11px 0 9px;border-radius:999px;background:var(--blanc);
+  border:1px solid var(--line);color:var(--muted)}
+.vp-theme-ico{font-size:13px;line-height:1}
+.vp-theme-txt{font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.vp-theme:active{transform:scale(.94)}
+@media (max-width:340px){.vp-theme-txt{display:none}.vp-theme{padding:0 9px}}
 
 /* boutique fermée */
 .vp-ferme{text-align:center;margin-top:22px;padding:30px 20px;border-radius:16px;
@@ -1857,7 +1868,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
       <div className="vp-section">
         <div className="vp-srow">
           <div>
-            <div className="vp-h2">Bonjour {profil && profil.nom}</div>
+            <div className="vp-h2">{salutation()} {profil && profil.nom}</div>
             <div className="vp-sub">{profil && profil.email}</div>
           </div>
           {!edition && <button className="vp-btn ghost sm" onClick={() => setEdition(true)}>Modifier</button>}
@@ -2402,8 +2413,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       <div className="vp-mini">
         <span className="vp-mini-m">{settings.titre}</span>
         <button className="vp-theme" onClick={basculerTheme}
-          aria-label={sombre ? 'Passer en clair' : 'Passer en sombre'}
-          title={sombre ? 'Mode clair' : 'Mode sombre'}>{sombre ? '☀️' : '🌙'}</button>
+          aria-label={sombre ? 'Passer en mode jour' : 'Passer en mode nuit'}
+          title={sombre ? 'Passer en mode jour' : 'Passer en mode nuit'}>
+          <span className="vp-theme-ico">{sombre ? '☀️' : '🌙'}</span>
+          <span className="vp-theme-txt">{sombre ? 'Jour' : 'Nuit'}</span>
+        </button>
         <span className={`vp-mini-c ${!ouvert ? 'fer' : presse ? 'presse' : 'ouv'}`}>
           <span className="vp-dot" />
           {ouvert
@@ -2773,7 +2787,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   <b>{nbArticles} article{nbArticles > 1 ? 's' : ''}</b>
                   <small>
                     {connecte && profil
-                      ? `Bonjour ${profil.nom} · ${panierOuvert ? 'masquer' : 'voir et valider'}`
+                      ? `${salutation(now)} ${profil.nom} · ${panierOuvert ? 'masquer' : 'voir et valider'}`
                       : (panierOuvert ? 'Masquer le panier' : 'Connexion requise pour valider')}
                   </small>
                 </span>
