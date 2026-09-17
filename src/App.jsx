@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16e · PROMOS + feuille de totaux revue';
+const VERSION = '2026-09-16f · zone membre';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -823,6 +823,20 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-promo-case input{width:20px;height:20px;flex:0 0 auto;margin:1px 0 0;accent-color:#E0852C}
 .vp-promo-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 
+/* compte client */
+.vp-compte-icon{position:absolute;top:18px;left:14px;width:38px;height:38px;border-radius:11px;
+  background:#fff;border:1px solid var(--line);color:var(--muted);display:grid;place-items:center;
+  box-shadow:var(--shadow);z-index:10}
+.vp-compte-icon:active{transform:scale(.94);color:var(--wine)}
+.vp-initiale{width:26px;height:26px;border-radius:50%;background:var(--wine);color:#fff;
+  display:grid;place-items:center;font-size:13.5px;font-weight:800}
+.vp-compte-tete{display:flex;justify-content:space-between;gap:10px;padding:18px 0 14px}
+.vp-auth{max-height:82vh}
+.vp-identite{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}
+.vp-identite b{display:block;font-size:14.5px}
+.vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+
 /* onglet et badge PROMOS */
 .vp-tab-promo{background:linear-gradient(135deg,#F0B429,#E0852C);border-color:#D3791F;
   color:#fff;font-weight:800;letter-spacing:.02em;
@@ -909,8 +923,28 @@ export default function App() {
   const [produits, setProduits] = useState([]);
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState('');
+  const [session, setSession] = useState(null);
+  const [profil, setProfil] = useState(null);
 
   const showToast = (t) => { setToast(t); setTimeout(() => setToast(''), 2200); };
+
+  // session du client + sa fiche
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s || null));
+    return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
+  const chargerProfil = async () => {
+    const uid = session && session.user && session.user.id;
+    if (!uid) { setProfil(null); return; }
+    const { data } = await supabase.from('viande_clients').select('*').eq('id', uid).single();
+    setProfil(data || null);
+  };
+  useEffect(() => { chargerProfil();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   // horloge (countdown)
   useEffect(() => {
@@ -988,6 +1022,7 @@ export default function App() {
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} showToast={showToast}
+          session={session} profil={profil} chargerProfil={chargerProfil}
         />
       )}
     </>
@@ -1175,9 +1210,301 @@ function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive, estSema
 }
 
 /* ============================================================
+   COMPTE CLIENT — inscription, connexion, espace personnel
+============================================================ */
+function messageAuth(e) {
+  const m = String((e && e.message) || '').toLowerCase();
+  if (m.includes('invalid login')) return 'E-mail ou mot de passe incorrect.';
+  if (m.includes('already registered') || m.includes('already been registered')) {
+    return 'Cette adresse a déjà un compte — utilise « J\'ai déjà un compte ».';
+  }
+  if (m.includes('password')) return 'Mot de passe trop court (6 caractères minimum).';
+  if (m.includes('email')) return 'Adresse e-mail invalide.';
+  if (m.includes('rate limit') || m.includes('too many')) return 'Trop de tentatives — réessaie dans un moment.';
+  return 'Impossible pour le moment — réessaie.';
+}
+
+function EcranAuth({ onFait, onFermer, showToast }) {
+  const [mode, setMode] = useState('inscription');
+  const [nom, setNom] = useState('');
+  const [tel, setTel] = useState('');
+  const [email, setEmail] = useState('');
+  const [mdp, setMdp] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+
+  const inscrire = async () => {
+    if (!nom.trim()) { showToast('Indique ton prénom'); return; }
+    if (tel.replace(/\D/g, '').length < 10) { showToast('Numéro de téléphone obligatoire'); return; }
+    if (!email.includes('@')) { showToast('Adresse e-mail invalide'); return; }
+    if (mdp.length < 6) { showToast('Mot de passe : 6 caractères minimum'); return; }
+    setEnvoi(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: mdp });
+      if (error) throw error;
+      const uid = data.user && data.user.id;
+      if (uid) {
+        const { error: e2 } = await supabase.from('viande_clients').insert({
+          id: uid, nom: nom.trim(), telephone: tel.trim(), email: email.trim(),
+        });
+        if (e2) { showToast(messageErreur(e2)); }
+      }
+      showToast('Compte créé — bienvenue !');
+      onFait();
+    } catch (e) {
+      showToast(messageAuth(e));
+    } finally { setEnvoi(false); }
+  };
+
+  const connecter = async () => {
+    if (!email.includes('@') || !mdp) { showToast('Renseigne ton e-mail et ton mot de passe'); return; }
+    setEnvoi(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: mdp });
+      if (error) throw error;
+      showToast('Te voilà connecté');
+      onFait();
+    } catch (e) {
+      showToast(messageAuth(e));
+    } finally { setEnvoi(false); }
+  };
+
+  return (
+    <div className="vp-sheet vp-auth">
+      <div className="vp-sheet-head">
+        <span className="vp-th" style={{ marginBottom: 0 }}>
+          {mode === 'inscription' ? 'Créer mon compte' : 'Me connecter'}
+        </span>
+        <button className="vp-sheet-x" onClick={onFermer} aria-label="Fermer">×</button>
+      </div>
+
+      {mode === 'inscription' && (
+        <>
+          <div className="vp-field">
+            <label className="vp-label">Ton prénom *</label>
+            <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
+          </div>
+          <div className="vp-field">
+            <label className="vp-label">Téléphone *</label>
+            <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)}
+              placeholder="06 12 34 56 78" inputMode="tel" />
+            <div className="vp-sub" style={{ marginTop: 4 }}>
+              Indispensable pour te joindre en cas de rupture ou d'ajustement de poids.
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="vp-field">
+        <label className="vp-label">E-mail *</label>
+        <input className="vp-input" value={email} onChange={(e) => setEmail(e.target.value)}
+          placeholder="ton.adresse@exemple.fr" inputMode="email" type="email" autoComplete="email" />
+      </div>
+      <div className="vp-field">
+        <label className="vp-label">Mot de passe *</label>
+        <input className="vp-input" value={mdp} onChange={(e) => setMdp(e.target.value)}
+          type="password" placeholder="6 caractères minimum"
+          autoComplete={mode === 'inscription' ? 'new-password' : 'current-password'}
+          onKeyDown={(e) => e.key === 'Enter' && (mode === 'inscription' ? inscrire() : connecter())} />
+      </div>
+
+      <button className="vp-cta" disabled={envoi} onClick={mode === 'inscription' ? inscrire : connecter}>
+        {envoi ? 'Un instant…' : (mode === 'inscription' ? 'Créer mon compte' : 'Me connecter')}
+      </button>
+
+      <button className="vp-trash" style={{ display: 'block', margin: '14px auto 0' }}
+        onClick={() => setMode(mode === 'inscription' ? 'connexion' : 'inscription')}>
+        {mode === 'inscription' ? "J'ai déjà un compte" : "Créer un compte"}
+      </button>
+    </div>
+  );
+}
+
+function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
+  const [commandes, setCommandes] = useState([]);
+  const [chargement, setChargement] = useState(true);
+  const [edition, setEdition] = useState(false);
+  const [nom, setNom] = useState((profil && profil.nom) || '');
+  const [tel, setTel] = useState((profil && profil.telephone) || '');
+
+  useEffect(() => {
+    const charger = async () => {
+      if (!profil) { setChargement(false); return; }
+      const { data } = await supabase
+        .from('viande_commandes')
+        .select('*, lignes:viande_commande_lignes(*)')
+        .eq('user_id', profil.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setCommandes(data || []);
+      setChargement(false);
+    };
+    charger();
+  }, [profil]);
+
+  const enregistrer = async () => {
+    if (!nom.trim()) { showToast('Le prénom ne peut pas être vide'); return; }
+    if (tel.replace(/\D/g, '').length < 10) { showToast('Numéro de téléphone invalide'); return; }
+    const { error } = await supabase.from('viande_clients')
+      .update({ nom: nom.trim(), telephone: tel.trim() }).eq('id', profil.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    await chargerProfil();
+    setEdition(false);
+    showToast('Coordonnées mises à jour');
+  };
+
+  const deconnecter = async () => {
+    await supabase.auth.signOut();
+    onFermer();
+  };
+
+  // produits favoris : les plus souvent commandés
+  const favoris = (() => {
+    const c = {};
+    commandes.forEach((cmd) => (cmd.lignes || []).forEach((l) => {
+      const k = nomLigne(l);
+      if (!c[k]) c[k] = { nom: k, emoji: l.emoji, fois: 0 };
+      c[k].fois += 1;
+    }));
+    return Object.values(c).sort((a, b) => b.fois - a.fois).slice(0, 5);
+  })();
+
+  const derniere = commandes[0];
+  const totalDe = (c) => (c.total_final != null ? Number(c.total_final) : Number(c.total_estime || 0));
+
+  const imprimerFacture = (c) => {
+    const rows = (c.lignes || []).map((l) => {
+      const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pièce(s)`;
+      const montant = l.sous_total_final != null ? eur(l.sous_total_final)
+        : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime);
+      return `<tr>
+        <td class="prod">${esc(nomLigne(l))}</td>
+        <td class="qte">${esc(q)}</td>
+        <td class="n">${esc(montant)}</td>
+      </tr>`;
+    }).join('');
+    const corps = `
+      <div class="tete mince"><div class="barre"></div><div>
+        <h1>Ma commande</h1>
+        <div class="meta"><b>${esc(settings.titre)}</b> —
+          ${esc(new Date(c.created_at).toLocaleDateString('fr-FR'))} · ${esc(c.nom_client)}</div>
+      </div></div>
+      <table class="liste">
+        <colgroup><col class="s-nom"><col class="s-date"><col class="l-tot"></colgroup>
+        <thead><tr><th>Produit</th><th>Quantité</th><th class="n">Montant</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="grand"><span>Total</span><span>${esc(eur(totalDe(c)))}</span></div>
+      ${c.total_final == null ? '<div class="pied">Montant estimé — les produits au kilo seront ajustés après pesée.</div>' : ''}`;
+    if (!imprimerDocument('Ma commande', corps)) showToast('Autorise les fenêtres pop-up');
+  };
+
+  return (
+    <div className="vp-app">
+      <div className="vp-compte-tete">
+        <button className="vp-btn ghost sm" onClick={onFermer}>← Boutique</button>
+        <button className="vp-btn ghost sm" onClick={deconnecter}>Se déconnecter</button>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2">Bonjour {profil && profil.nom}</div>
+            <div className="vp-sub">{profil && profil.email}</div>
+          </div>
+          {!edition && <button className="vp-btn ghost sm" onClick={() => setEdition(true)}>Modifier</button>}
+        </div>
+
+        {edition ? (
+          <>
+            <div className="vp-field">
+              <label className="vp-label">Prénom</label>
+              <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} />
+            </div>
+            <div className="vp-field">
+              <label className="vp-label">Téléphone</label>
+              <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" />
+            </div>
+            <div className="vp-grid2" style={{ marginTop: 12 }}>
+              <button className="vp-btn ghost" onClick={() => { setEdition(false); setNom(profil.nom); setTel(profil.telephone); }}>Annuler</button>
+              <button className="vp-btn" onClick={enregistrer}>Enregistrer</button>
+            </div>
+          </>
+        ) : (
+          <div className="vp-sub" style={{ marginTop: 6 }}>{profil && profil.telephone}</div>
+        )}
+      </div>
+
+      {chargement ? (
+        <div className="vp-empty">Chargement…</div>
+      ) : commandes.length === 0 ? (
+        <div className="vp-empty">Tu n'as pas encore passé de commande.</div>
+      ) : (
+        <>
+          <div className="vp-section">
+            <div className="vp-srow">
+              <div className="vp-h2" style={{ fontSize: 16 }}>Ma dernière commande</div>
+              <span className="vp-cmd-time">{new Date(derniere.created_at).toLocaleDateString('fr-FR')}</span>
+            </div>
+            {(derniere.lignes || []).map((l) => (
+              <div className="vp-cmd-l" key={l.id}>
+                <span>{l.emoji} {nomLigne(l)} <span className="vp-pill">
+                  {l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`}
+                </span></span>
+                <span style={{ fontWeight: 700 }}>
+                  {l.sous_total_final != null ? eur(l.sous_total_final)
+                    : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime)}
+                </span>
+              </div>
+            ))}
+            <div className="vp-tot" style={{ fontSize: 16 }}>
+              <span>Total</span>
+              <span className="r">{derniere.total_final == null ? '≈ ' : ''}{eur(totalDe(derniere))}</span>
+            </div>
+            {derniere.total_final == null && (
+              <div className="vp-mini">Montant estimé — il sera ajusté après la pesée.</div>
+            )}
+            <button className="vp-btn ghost sm" style={{ marginTop: 10 }} onClick={() => imprimerFacture(derniere)}>
+              Imprimer / PDF
+            </button>
+          </div>
+
+          {favoris.length > 0 && (
+            <div className="vp-section">
+              <div className="vp-h2" style={{ fontSize: 16 }}>Mes produits préférés</div>
+              <div className="vp-sub">Ce que tu commandes le plus souvent.</div>
+              <div className="vp-liste" style={{ marginTop: 10 }}>
+                {favoris.map((f) => (
+                  <div className="vp-liste-l" key={f.nom}>
+                    <span>{f.emoji} {f.nom}</span>
+                    <b>{f.fois}×</b>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="vp-section">
+            <div className="vp-h2" style={{ fontSize: 16 }}>Mes commandes</div>
+            {commandes.map((c) => (
+              <div className="vp-liste-l" key={c.id} style={{ border: 'none', borderBottom: '1px dotted var(--line)' }}>
+                <span>{new Date(c.created_at).toLocaleDateString('fr-FR')}
+                  {' '}<span className="vp-pill">{(c.lignes || []).length} produit(s)</span></span>
+                <b>{c.total_final == null ? '≈ ' : ''}{eur(totalDe(c))}</b>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    CLIENT — interface de commande
 ============================================================ */
-function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast }) {
+function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast,
+  session, profil, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
   const [choix, setChoix] = useState(() => (repris && repris.choix) || {}); // produitId -> variante choisie
@@ -1188,6 +1515,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [done, setDone] = useState(null);
   const [filtreCat, setFiltreCat] = useState('Tous');
   const [panierOuvert, setPanierOuvert] = useState(false);
+  const [authOuvert, setAuthOuvert] = useState(false);
+  const [vueCompte, setVueCompte] = useState(false);
+  const connecte = !!(session && session.user);
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
   const [reprise, setReprise] = useState(false);
 
@@ -1275,15 +1605,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const aDuPese = lignes.some(({ p }) => MODES[p.mode_vente].pese);
 
   const envoyer = async () => {
-    if (!nom.trim()) { showToast('Indique ton prénom'); return; }
-    if (tel.replace(/\D/g, '').length < 10) { showToast('Ton numéro de téléphone est obligatoire'); return; }
+    if (!connecte || !profil) { showToast('Connecte-toi pour commander'); setAuthOuvert(true); return; }
     if (lignes.length === 0) { showToast('Ton panier est vide'); return; }
     setEnvoi(true);
     try {
       const totalPatrice = lignes.reduce(
         (s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_patrice'), 0);
       const { data: cmd, error } = await supabase.from('viande_commandes').insert({
-        nom_client: nom.trim(), telephone: tel.trim(), note: note.trim() || null,
+        user_id: session.user.id,
+        nom_client: profil.nom, telephone: profil.telephone, note: note.trim() || null,
         total_estime: Math.round(total * 100) / 100,
         total_patrice: Math.round(totalPatrice * 100) / 100,
         date_vente: settings.date_vente,
@@ -1309,19 +1639,19 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         .map(({ p, v, q }) => `• ${p.nom}${v ? ` (${v.nom})` : ''} x${num(q)}`)
         .join('\n');
       envoyerAlerteWhatsApp(settings,
-        `🥩 Nouvelle commande\n${nom.trim()} — ${tel.trim()}\n\n${resume}\n\n`
+        `🥩 Nouvelle commande\n${profil.nom} — ${profil.telephone}\n\n${resume}\n\n`
         + `Total estimé : ${eur(total)}`
         + (note.trim() ? `\nNote : ${note.trim()}` : ''));
 
       // mémorisé pour permettre une modification ultérieure
       const memo = {
-        date: settings.date_vente, id: cmd.id, nom: nom.trim(),
-        heure: Date.now(), cart, choix, tel: tel.trim(), note: note.trim(),
+        date: settings.date_vente, id: cmd.id, nom: profil.nom,
+        heure: Date.now(), cart, choix, tel: profil.telephone, note: note.trim(),
       };
       ecrireCommandeStockee(memo);
       setMaCommande(memo);
 
-      setDone({ nom: nom.trim(), total, aDuPese });
+      setDone({ nom: profil.nom, total, aDuPese });
       setPanierOuvert(false);
       viderPanierStocke();
       setCart({}); setChoix({}); setNom(''); setTel(''); setNote('');
@@ -1394,8 +1724,25 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     );
   }
 
+  if (vueCompte && connecte && profil) {
+    return (
+      <MonCompte settings={settings} profil={profil} chargerProfil={chargerProfil}
+        onFermer={() => setVueCompte(false)} showToast={showToast} />
+    );
+  }
+
   return (
     <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
+      <button className="vp-compte-icon"
+        onClick={() => (connecte && profil ? setVueCompte(true) : setAuthOuvert(true))}
+        aria-label={connecte ? 'Mon compte' : 'Me connecter'}
+        title={connecte ? 'Mon compte' : 'Me connecter'}>
+        {connecte && profil
+          ? <span className="vp-initiale">{(profil.nom || '?').trim().charAt(0).toUpperCase()}</span>
+          : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+            </svg>}
+      </button>
       <button className="vp-admin-icon" onClick={() => { window.location.hash = 'admin'; }} aria-label="Espace organisateur" title="Espace organisateur">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
@@ -1409,6 +1756,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
         <Sondage settings={settings} showToast={showToast} />
       </div>
+
+      {authOuvert && (
+        <>
+          <div className="vp-backdrop" onClick={() => setAuthOuvert(false)} />
+          <div className="vp-dock">
+            <EcranAuth showToast={showToast}
+              onFermer={() => setAuthOuvert(false)}
+              onFait={() => { setAuthOuvert(false); setPanierOuvert(true); }} />
+          </div>
+        </>
+      )}
 
       {maCommande && (
         <div className={`vp-macmd ${ouvert ? '' : 'fermee'}`}>
@@ -1625,22 +1983,37 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 )}
                 <button className="vp-trash" onClick={() => setCart({})}>Vider le panier</button>
 
-                <div className="vp-field">
-                  <label className="vp-label">Ton prénom *</label>
-                  <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
-                </div>
-                <div className="vp-field">
-                  <label className="vp-label">Téléphone *</label>
-                  <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} placeholder="06 12 34 56 78" inputMode="tel" />
-                  <div className="vp-sub" style={{ marginTop: 4 }}>Nécessaire pour te prévenir en cas de rupture ou d'ajustement de poids.</div>
-                </div>
-                <div className="vp-field">
-                  <label className="vp-label">Un mot pour la commande (facultatif)</label>
-                  <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : bien cuit svp, je passe vers 18h…" />
-                </div>
-                <button className="vp-cta" disabled={envoi} onClick={envoyer}>
-                  {envoi ? 'Envoi…' : `Envoyer ma commande · ${eur(total)}`}
-                </button>
+                {connecte && profil ? (
+                  <>
+                    <div className="vp-identite">
+                      <div>
+                        <b>{profil.nom}</b>
+                        <small>{profil.telephone}</small>
+                      </div>
+                      <button className="vp-trash" style={{ marginTop: 0 }}
+                        onClick={() => { setPanierOuvert(false); setVueCompte(true); }}>
+                        Mon compte
+                      </button>
+                    </div>
+                    <div className="vp-field">
+                      <label className="vp-label">Un mot pour la commande (facultatif)</label>
+                      <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : bien cuit svp, je passe vers 18h…" />
+                    </div>
+                    <button className="vp-cta" disabled={envoi} onClick={envoyer}>
+                      {envoi ? 'Envoi…' : `Envoyer ma commande · ${eur(total)}`}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="vp-note" style={{ textAlign: 'left' }}>
+                      Un compte est nécessaire pour commander. Il te permet de retrouver
+                      tes commandes et tes produits habituels.
+                    </div>
+                    <button className="vp-cta" onClick={() => { setPanierOuvert(false); setAuthOuvert(true); }}>
+                      Créer mon compte ou me connecter
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
