@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16h · connexion et inscription distinctes';
+const VERSION = '2026-09-16i · rattrapage des profils incomplets';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -945,6 +945,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [session, setSession] = useState(null);
   const [profil, setProfil] = useState(null);
+  const [profilCharge, setProfilCharge] = useState(false);
 
   const showToast = (t) => { setToast(t); setTimeout(() => setToast(''), 2200); };
 
@@ -958,9 +959,13 @@ export default function App() {
 
   const chargerProfil = async () => {
     const uid = session && session.user && session.user.id;
-    if (!uid) { setProfil(null); return; }
-    const { data } = await supabase.from('viande_clients').select('*').eq('id', uid).single();
+    if (!uid) { setProfil(null); setProfilCharge(true); return; }
+    setProfilCharge(false);
+    // maybeSingle : l'absence de fiche est un cas normal (inscription
+    // interrompue), pas une erreur à remonter
+    const { data } = await supabase.from('viande_clients').select('*').eq('id', uid).maybeSingle();
     setProfil(data || null);
+    setProfilCharge(true);
   };
   useEffect(() => { chargerProfil();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1042,7 +1047,7 @@ export default function App() {
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} showToast={showToast}
-          session={session} profil={profil} chargerProfil={chargerProfil}
+          session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
       )}
     </>
@@ -1412,6 +1417,63 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   );
 }
 
+/* Session ouverte mais aucune fiche client : cas d'une inscription
+   interrompue (confirmation par mail, fermeture de l'onglet…).
+   On récupère prénom et téléphone plutôt que de traiter la personne
+   comme un visiteur non connecté. */
+function EcranProfilManquant({ session, chargerProfil, showToast }) {
+  const [nom, setNom] = useState('');
+  const [tel, setTel] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+
+  const valider = async () => {
+    if (!nom.trim()) { showToast('Indique ton prénom'); return; }
+    if (tel.replace(/\D/g, '').length < 10) { showToast('Numéro de téléphone obligatoire'); return; }
+    setEnvoi(true);
+    try {
+      const { error } = await supabase.from('viande_clients').upsert({
+        id: session.user.id,
+        nom: nom.trim(),
+        telephone: tel.trim(),
+        email: session.user.email || null,
+      });
+      const err = messageErreur(error);
+      if (err) { showToast(err); return; }
+      await chargerProfil();
+      showToast('Compte finalisé — bienvenue !');
+    } finally { setEnvoi(false); }
+  };
+
+  return (
+    <div className="vp-sheet">
+      <div className="vp-sheet-head">
+        <span className="vp-th" style={{ marginBottom: 0 }}>Terminer mon inscription</span>
+      </div>
+      <p className="vp-sondage-q">
+        Ton compte <b>{session.user.email}</b> est bien actif. Il manque juste
+        deux informations pour pouvoir commander.
+      </p>
+      <div className="vp-field">
+        <label className="vp-label">Ton prénom *</label>
+        <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
+      </div>
+      <div className="vp-field">
+        <label className="vp-label">Téléphone *</label>
+        <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)}
+          placeholder="06 12 34 56 78" inputMode="tel"
+          onKeyDown={(e) => e.key === 'Enter' && valider()} />
+      </div>
+      <button className="vp-cta" disabled={envoi} onClick={valider}>
+        {envoi ? 'Un instant…' : 'Valider'}
+      </button>
+      <button className="vp-trash" style={{ display: 'block', margin: '14px auto 0' }}
+        onClick={() => supabase.auth.signOut()}>
+        Me déconnecter
+      </button>
+    </div>
+  );
+}
+
 function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const [commandes, setCommandes] = useState([]);
   const [chargement, setChargement] = useState(true);
@@ -1597,7 +1659,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, showToast,
-  session, profil, chargerProfil }) {
+  session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
   const [choix, setChoix] = useState(() => (repris && repris.choix) || {}); // produitId -> variante choisie
@@ -1612,6 +1674,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [modeAuth, setModeAuth] = useState('inscription');
   const [vueCompte, setVueCompte] = useState(false);
   const connecte = !!(session && session.user);
+  // session valide mais fiche client absente : inscription à terminer
+  const profilManquant = connecte && profilCharge && !profil;
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
   const [reprise, setReprise] = useState(false);
 
@@ -1856,7 +1920,16 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <Sondage settings={settings} showToast={showToast} />
       </div>
 
-      {authOuvert && (
+      {profilManquant && (
+        <>
+          <div className="vp-backdrop" />
+          <div className="vp-dock">
+            <EcranProfilManquant session={session} chargerProfil={chargerProfil} showToast={showToast} />
+          </div>
+        </>
+      )}
+
+      {authOuvert && !profilManquant && (
         <>
           <div className="vp-backdrop" onClick={() => setAuthOuvert(false)} />
           <div className="vp-dock">
