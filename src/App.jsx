@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16f · zone membre';
+const VERSION = '2026-09-16g · connexion visible + code de confirmation';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -406,7 +406,7 @@ button{font-family:inherit;cursor:pointer;border:none}
 input,select,textarea{font-family:inherit;font-size:16px}
 
 /* header */
-.vp-head{padding:22px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
+.vp-head{padding:66px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
 .vp-logo{width:84px;height:auto;margin-bottom:10px}
 .vp-title{font-size:30px;font-weight:800;line-height:1.05;margin-top:4px}
 .vp-status{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:8px 14px;
@@ -824,11 +824,15 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-promo-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 
 /* compte client */
-.vp-compte-icon{position:absolute;top:18px;left:14px;width:38px;height:38px;border-radius:11px;
-  background:#fff;border:1px solid var(--line);color:var(--muted);display:grid;place-items:center;
-  box-shadow:var(--shadow);z-index:10}
-.vp-compte-icon:active{transform:scale(.94);color:var(--wine)}
-.vp-initiale{width:26px;height:26px;border-radius:50%;background:var(--wine);color:#fff;
+.vp-compte-pill{position:absolute;top:18px;left:14px;height:38px;max-width:46%;
+  display:flex;align-items:center;gap:8px;padding:0 13px 0 6px;border-radius:999px;
+  background:#fff;border:1px solid var(--line);color:var(--muted);
+  box-shadow:var(--shadow);z-index:10;font-size:13.5px;font-weight:700}
+.vp-compte-pill svg{margin-left:6px;flex:0 0 auto}
+.vp-compte-pill.on{border-color:#CFE3D5;background:var(--green-s);color:var(--ink)}
+.vp-compte-pill:active{transform:scale(.96)}
+.vp-compte-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vp-initiale{width:28px;height:28px;flex:0 0 auto;border-radius:50%;background:var(--wine);color:#fff;
   display:grid;place-items:center;font-size:13.5px;font-weight:800}
 .vp-compte-tete{display:flex;justify-content:space-between;gap:10px;padding:18px 0 14px}
 .vp-auth{max-height:82vh}
@@ -1221,6 +1225,7 @@ function messageAuth(e) {
   if (m.includes('password')) return 'Mot de passe trop court (6 caractères minimum).';
   if (m.includes('email')) return 'Adresse e-mail invalide.';
   if (m.includes('rate limit') || m.includes('too many')) return 'Trop de tentatives — réessaie dans un moment.';
+  if (m.includes('token') || m.includes('otp') || m.includes('expired')) return 'Code incorrect ou expiré — demande un nouveau code.';
   return 'Impossible pour le moment — réessaie.';
 }
 
@@ -1230,7 +1235,42 @@ function EcranAuth({ onFait, onFermer, showToast }) {
   const [tel, setTel] = useState('');
   const [email, setEmail] = useState('');
   const [mdp, setMdp] = useState('');
+  const [code, setCode] = useState('');
   const [envoi, setEnvoi] = useState(false);
+
+  // Crée la fiche client une fois la session ouverte (les règles d'accès
+  // exigent d'être authentifié pour écrire sa propre fiche).
+  const creerFiche = async (uid) => {
+    const { error } = await supabase.from('viande_clients').upsert({
+      id: uid, nom: nom.trim(), telephone: tel.trim(), email: email.trim(),
+    });
+    if (error) showToast(messageErreur(error));
+  };
+
+  const verifierCode = async () => {
+    if (code.trim().length < 6) { showToast('Saisis le code à 6 chiffres reçu par mail'); return; }
+    setEnvoi(true);
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(), token: code.trim(), type: 'signup',
+      });
+      if (error) throw error;
+      const uid = data.user && data.user.id;
+      if (uid) await creerFiche(uid);
+      showToast('Compte confirmé — bienvenue !');
+      onFait();
+    } catch (e) {
+      showToast(messageAuth(e));
+    } finally { setEnvoi(false); }
+  };
+
+  const renvoyerCode = async () => {
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() });
+      if (error) throw error;
+      showToast('Nouveau code envoyé');
+    } catch (e) { showToast(messageAuth(e)); }
+  };
 
   const inscrire = async () => {
     if (!nom.trim()) { showToast('Indique ton prénom'); return; }
@@ -1241,13 +1281,15 @@ function EcranAuth({ onFait, onFermer, showToast }) {
     try {
       const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: mdp });
       if (error) throw error;
-      const uid = data.user && data.user.id;
-      if (uid) {
-        const { error: e2 } = await supabase.from('viande_clients').insert({
-          id: uid, nom: nom.trim(), telephone: tel.trim(), email: email.trim(),
-        });
-        if (e2) { showToast(messageErreur(e2)); }
+      // Si la confirmation par mail est activée dans Supabase, aucune session
+      // n'est ouverte : on demande le code reçu. Sinon, on entre directement.
+      if (!data.session) {
+        setMode('code');
+        showToast('Code envoyé par mail');
+        return;
       }
+      const uid = data.user && data.user.id;
+      if (uid) await creerFiche(uid);
       showToast('Compte créé — bienvenue !');
       onFait();
     } catch (e) {
@@ -1272,11 +1314,32 @@ function EcranAuth({ onFait, onFermer, showToast }) {
     <div className="vp-sheet vp-auth">
       <div className="vp-sheet-head">
         <span className="vp-th" style={{ marginBottom: 0 }}>
-          {mode === 'inscription' ? 'Créer mon compte' : 'Me connecter'}
+          {mode === 'code' ? 'Confirmer mon adresse'
+            : mode === 'inscription' ? 'Créer mon compte' : 'Me connecter'}
         </span>
         <button className="vp-sheet-x" onClick={onFermer} aria-label="Fermer">×</button>
       </div>
 
+      {mode === 'code' ? (
+        <>
+          <p className="vp-sondage-q">
+            Un code à 6 chiffres vient d'être envoyé à <b>{email.trim()}</b>.
+            Saisis-le pour activer ton compte. Pense à regarder tes indésirables.
+          </p>
+          <input className="vp-input" value={code} inputMode="numeric" maxLength={6}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            placeholder="123456" style={{ textAlign: 'center', letterSpacing: 6, fontSize: 20 }}
+            onKeyDown={(e) => e.key === 'Enter' && verifierCode()} />
+          <button className="vp-cta" disabled={envoi} onClick={verifierCode}>
+            {envoi ? 'Vérification…' : 'Activer mon compte'}
+          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+            <button className="vp-trash" style={{ marginTop: 0 }} onClick={renvoyerCode}>Renvoyer le code</button>
+            <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setMode('inscription')}>Corriger mon adresse</button>
+          </div>
+        </>
+      ) : (
+      <>
       {mode === 'inscription' && (
         <>
           <div className="vp-field">
@@ -1315,6 +1378,8 @@ function EcranAuth({ onFait, onFermer, showToast }) {
         onClick={() => setMode(mode === 'inscription' ? 'connexion' : 'inscription')}>
         {mode === 'inscription' ? "J'ai déjà un compte" : "Créer un compte"}
       </button>
+      </>
+      )}
     </div>
   );
 }
@@ -1733,15 +1798,22 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   return (
     <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
-      <button className="vp-compte-icon"
+      <button className={`vp-compte-pill ${connecte && profil ? 'on' : ''}`}
         onClick={() => (connecte && profil ? setVueCompte(true) : setAuthOuvert(true))}
-        aria-label={connecte ? 'Mon compte' : 'Me connecter'}
-        title={connecte ? 'Mon compte' : 'Me connecter'}>
-        {connecte && profil
-          ? <span className="vp-initiale">{(profil.nom || '?').trim().charAt(0).toUpperCase()}</span>
-          : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        aria-label={connecte && profil ? 'Mon compte' : 'Me connecter'}>
+        {connecte && profil ? (
+          <>
+            <span className="vp-initiale">{(profil.nom || '?').trim().charAt(0).toUpperCase()}</span>
+            <span className="vp-compte-nom">{profil.nom}</span>
+          </>
+        ) : (
+          <>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
-            </svg>}
+            </svg>
+            <span className="vp-compte-nom">Se connecter</span>
+          </>
+        )}
       </button>
       <button className="vp-admin-icon" onClick={() => { window.location.hash = 'admin'; }} aria-label="Espace organisateur" title="Espace organisateur">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2022,7 +2094,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 <span className="vp-bar-ico">🧺<span className="vp-bar-badge">{nbArticles}</span></span>
                 <span className="vp-bar-txt">
                   <b>{nbArticles} article{nbArticles > 1 ? 's' : ''}</b>
-                  <small>{panierOuvert ? 'Masquer le panier' : 'Voir et valider'}</small>
+                  <small>
+                    {connecte && profil
+                      ? `Bonjour ${profil.nom} · ${panierOuvert ? 'masquer' : 'voir et valider'}`
+                      : (panierOuvert ? 'Masquer le panier' : 'Connexion requise pour valider')}
+                  </small>
                 </span>
               </span>
               <span className="vp-bar-r">
