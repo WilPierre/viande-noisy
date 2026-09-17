@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#FBF7F2" />
     <title>Viande Noisy</title>
+    <meta name="description" content="Commandes groupées de viande entre voisins à Noisy-sur-École." />
+
+    <!-- Installation sur l'écran d'accueil -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <link rel="icon" href="%PUBLIC_URL%/logo-mouton.png" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo-mouton.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Viande Noisy" />
+
+    <!-- Polices -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -15,5 +26,14 @@
   <body>
     <noscript>Active JavaScript pour utiliser l'application.</noscript>
     <div id="root"></div>
+
+    <!-- Service worker : rend la boutique installable. Ne met rien en cache. -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('%PUBLIC_URL%/sw.js').catch(function () {});
+        });
+      }
+    </script>
   </body>
 </html>
