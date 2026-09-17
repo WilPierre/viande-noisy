@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-17 · favoris, rappel de commande, nouveautés';
+const VERSION = '2026-09-17b · photos agrandissables';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -29,7 +29,9 @@ const MODES = {
 const CATEGORIES = ['Bœuf', 'Poulet', 'Porc', 'Viande', 'Charcuterie', 'Crèmerie', 'Épicerie', 'Autre'];
 // « Viande » reste pour tout ce qui n'entre pas dans les trois premières
 // (veau, canard, agneau…) — d'où un libellé différent à l'affichage.
-const LIBELLES_CAT = { Viande: 'Autres viandes' };
+// Libellés d'affichage : la valeur stockée en base ne change pas,
+// seul le mot vu par le client est adapté.
+const LIBELLES_CAT = { Viande: 'Autres viandes', Autre: 'Divers' };
 const libelleCat = (c) => LIBELLES_CAT[c] || c;
 // Une icône par catégorie : on repère la bonne pastille à la forme
 // avant même d'avoir lu le mot.
@@ -431,16 +433,30 @@ input,select,textarea{font-family:inherit;font-size:16px}
   padding:14px;display:flex;gap:13px;align-items:center;margin-bottom:10px;box-shadow:var(--shadow)}
 .vp-emoji{font-size:34px;line-height:1;width:60px;height:60px;display:grid;place-items:center;
   background:var(--paper);border-radius:14px;flex:0 0 auto}
-.vp-photo-wrap{position:relative;flex:0 0 auto}
+.vp-photo-wrap{position:relative;flex:0 0 auto;padding:0;background:none;border:none;
+  border-radius:14px;line-height:0;cursor:zoom-in}
 .vp-photo{width:60px;height:60px;border-radius:14px;object-fit:cover;display:block;border:1px solid var(--line)}
-.vp-photo-zoom{position:absolute;left:0;top:68px;width:230px;height:230px;border-radius:16px;
-  object-fit:cover;border:3px solid #fff;box-shadow:0 14px 34px rgba(36,30,27,.28);
-  opacity:0;transform:translateY(-6px);pointer-events:none;
-  transition:opacity .15s ease,transform .15s ease;z-index:30}
+.vp-photo-loupe{position:absolute;right:-4px;bottom:-4px;width:21px;height:21px;border-radius:50%;
+  background:var(--wine);color:#fff;display:grid;place-items:center;
+  border:2px solid var(--card);box-shadow:0 1px 4px rgba(36,30,27,.28)}
+.vp-photo-wrap:active .vp-photo{transform:scale(.95);transition:transform .1s ease}
 @media (hover:hover) and (pointer:fine){
-  .vp-photo-wrap:hover .vp-photo{transform:scale(1.05);transition:transform .15s ease}
-  .vp-photo-wrap:hover .vp-photo-zoom{opacity:1;transform:translateY(0)}
+  .vp-photo-wrap:hover .vp-photo{transform:scale(1.06);transition:transform .15s ease}
 }
+
+/* visionneuse plein écran, mobile et ordinateur */
+.vp-visionneuse{position:fixed;inset:0;z-index:60;background:rgba(20,16,14,.93);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  padding:22px;cursor:zoom-out;animation:vpfade .16s ease}
+.vp-visionneuse img{max-width:min(94vw,720px);max-height:78vh;width:auto;height:auto;
+  border-radius:14px;object-fit:contain;box-shadow:0 18px 50px rgba(0,0,0,.5);cursor:default}
+.vp-visionneuse-nom{color:#fff;font-size:15px;font-weight:700;text-align:center;
+  max-width:90vw;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.vp-visionneuse-x{position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:50%;
+  background:rgba(255,255,255,.16);color:#fff;font-size:26px;line-height:1;
+  display:grid;place-items:center;backdrop-filter:blur(4px)}
+.vp-visionneuse-x:active{background:rgba(255,255,255,.3)}
+@media (prefers-reduced-motion:reduce){.vp-visionneuse{animation:none}}
 .vp-pinfo{flex:1;min-width:0}
 .vp-pname{font-weight:700;font-size:16px}
 .vp-pmeta{color:var(--muted);font-size:13px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
@@ -1146,7 +1162,7 @@ function Sondage({ settings, showToast }) {
         <span className="vp-sondage-ico">💬</span>
         <div>
           <b>{settings.sondage_titre || 'Ton avis nous intéresse'}</b>
-          <small>Une question, une minute — donne ton avis</small>
+          <small>Tu cherches un produit en particulier ?</small>
         </div>
         <span className="vp-sondage-fl">›</span>
       </button>
@@ -1805,6 +1821,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [favoris, setFavoris] = useState([]);      // ids de produits
   const [derniere, setDerniere] = useState(null);  // dernière commande du client
   const [nbVoisins, setNbVoisins] = useState(0);   // commandes du jour
+  const [photoZoom, setPhotoZoom] = useState(null); // { url, nom } affiché en grand
   const [vueCompte, setVueCompte] = useState(false);
   const connecte = !!(session && session.user);
   // session valide mais fiche client absente : inscription à terminer
@@ -1864,6 +1881,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     charger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connecte, session]);
+
+  useEffect(() => {
+    if (!photoZoom) return;
+    const onTouche = (e) => { if (e.key === 'Escape') setPhotoZoom(null); };
+    window.addEventListener('keydown', onTouche);
+    return () => window.removeEventListener('keydown', onTouche);
+  }, [photoZoom]);
 
   const estFavori = (p) => favoris.includes(String(p.id));
   const basculerFavori = async (p) => {
@@ -2117,10 +2141,16 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     {estFavori(p) ? '★' : '☆'}
                   </button>
                   {p.photo_url
-                    ? <div className="vp-photo-wrap">
+                    ? <button className="vp-photo-wrap"
+                        onClick={() => setPhotoZoom({ url: p.photo_url, nom: p.nom })}
+                        aria-label={`Agrandir la photo de ${p.nom}`}>
                         <img src={p.photo_url} alt={p.nom} className="vp-photo" />
-                        <img src={p.photo_url} alt="" className="vp-photo-zoom" />
-                      </div>
+                        <span className="vp-photo-loupe">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                            <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+                          </svg>
+                        </span>
+                      </button>
                     : <div className="vp-emoji">{p.emoji}</div>}
                   <div className="vp-pinfo">
                     <div className="vp-pname">
@@ -2352,8 +2382,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           {filtreCat === 'PROMOS' && source.length === 0 && (
             <div className="vp-promo-vide">
               <span className="vp-eclair" style={{ fontSize: 24 }}>⚡</span>
-              <b>Aucune promo en ce moment</b>
-              <small>Reviens vite, Patrice en propose régulièrement.</small>
+              <b>Oups, il n'y a rien à voir pour le moment</b>
               <button className="vp-btn ghost sm" style={{ marginTop: 12 }} onClick={() => setFiltreCat('Tous')}>
                 Voir tous les produits
               </button>
@@ -2367,6 +2396,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           </div>
           ))}
         </>
+      )}
+
+      {photoZoom && (
+        <div className="vp-visionneuse" onClick={() => setPhotoZoom(null)} role="dialog" aria-modal="true">
+          <button className="vp-visionneuse-x" onClick={() => setPhotoZoom(null)} aria-label="Fermer">×</button>
+          <img src={photoZoom.url} alt={photoZoom.nom} onClick={(e) => e.stopPropagation()} />
+          <div className="vp-visionneuse-nom">{photoZoom.nom}</div>
+        </div>
       )}
 
       <PastilleWhatsApp url={settings.whatsapp_url} haut={ouvert && lignes.length > 0} />
