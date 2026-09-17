@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-16c · saisie des prix corrigée';
+const VERSION = '2026-09-16e · PROMOS + feuille de totaux revue';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -282,7 +282,12 @@ function imprimerDocument(titre, corpsHTML) {
     .ligne-tot td{border-top:1.5px solid #241E1B;border-bottom:none;padding-top:7px}
 
     /* bilan de tête, première page uniquement */
+    .tete.mince{padding-bottom:8px;margin-bottom:12px}
+    .tete.mince h1{font-size:16px}
+    .tete.mince .barre{min-height:26px;width:4px}
+    .tete.mince .meta{font-size:11px}
     .bilan{display:flex;gap:10px;margin-bottom:20px}
+    .bilan.final{margin:16px 0 0;page-break-inside:avoid;break-inside:avoid}
     .bilan-c{flex:1;padding:11px 13px;border:1px solid #E6DED4;border-radius:8px;background:#FBF7F2}
     .bilan-c.vert{background:#EAF3EC;border-color:#CFE3D5}
     .bilan-l{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
@@ -806,6 +811,33 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-journee.passee{background:#FFF8EC;border-color:#F1DFBC}
 .vp-journee.passee label{color:#7A5A20}
 
+/* promo — commandes admin */
+.vp-promo-btn{flex:0 0 auto;width:34px;height:30px;border-radius:8px;background:var(--paper);
+  border:1px solid var(--line);font-size:14px;line-height:1;display:grid;place-items:center;
+  filter:grayscale(1);opacity:.45}
+.vp-promo-btn.on{filter:none;opacity:1;background:#FFF4E0;border-color:#E0A23C}
+.vp-promo-btn:active{transform:scale(.94)}
+.vp-promo-case{display:flex;gap:11px;align-items:flex-start;margin-top:12px;padding:12px;
+  border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}
+.vp-promo-case.on{background:#FFF4E0;border-color:#F0D9AE}
+.vp-promo-case input{width:20px;height:20px;flex:0 0 auto;margin:1px 0 0;accent-color:#E0852C}
+.vp-promo-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
+
+/* onglet et badge PROMOS */
+.vp-tab-promo{background:linear-gradient(135deg,#F0B429,#E0852C);border-color:#D3791F;
+  color:#fff;font-weight:800;letter-spacing:.02em;
+  box-shadow:0 2px 8px rgba(224,133,44,.32)}
+.vp-tab-promo:hover{border-color:#C26C18;color:#fff}
+.vp-tab-promo.on{background:linear-gradient(135deg,#E0852C,#C2521A);border-color:#A8440F;
+  box-shadow:0 3px 12px rgba(194,82,26,.45)}
+.vp-tab-nb{margin-left:6px;background:rgba(255,255,255,.28);border-radius:999px;
+  padding:1px 7px;font-size:11.5px;font-weight:800}
+.vp-eclair{margin-right:5px;font-size:13px;vertical-align:-0.05em}
+.vp-badge-promo{display:inline-flex;align-items:center;margin-left:7px;padding:1px 8px;
+  border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;
+  background:linear-gradient(135deg,#F0B429,#E0852C);vertical-align:0.08em}
+.vp-badge-promo .vp-eclair{margin-right:3px;font-size:11px}
+
 /* ligne de saisie des pesées */
 .vp-pl{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:10px;background:#fff}
 .vp-pl.rupt{background:#FDF6F6;border-color:#F0CFCF}
@@ -1171,13 +1203,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     || variantesDe(p).some((v) => normaliser(v.nom).includes(q)));
 
   const cats = CATEGORIES.filter((c) => visibles.some((p) => catDe(p) === c));
+  const enPromo = visibles.filter((p) => p.promo);
+  const source = filtreCat === 'PROMOS' ? enPromo : visibles;
 
   useEffect(() => {
-    if (filtreCat !== 'Tous' && !cats.includes(filtreCat)) setFiltreCat('Tous');
+    if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cats.join(',')]);
 
-  const catsAffichees = filtreCat === 'Tous' ? cats : cats.filter((c) => c === filtreCat);
+  const catsAffichees = (filtreCat === 'Tous' || filtreCat === 'PROMOS')
+    ? CATEGORIES.filter((c) => source.some((p) => catDe(p) === c))
+    : cats.filter((c) => c === filtreCat);
 
   // sauvegarde continue : rafraîchir la page ne perd plus rien
   useEffect(() => {
@@ -1437,6 +1473,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   onChange={(e) => setFiltreCat(e.target.value)}
                 >
                   <option value="Tous">Tous les produits</option>
+                  {enPromo.length > 0 && <option value="PROMOS">⚡ PROMOS ({enPromo.length})</option>}
                   {cats.map((cat) => (
                     <option key={cat} value={cat}>{iconeCat(cat)} {libelleCat(cat)}</option>
                   ))}
@@ -1444,6 +1481,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 {/* Ordinateur : pastilles */}
                 <div className="vp-tabs">
                   <button className={`vp-tab tout ${filtreCat === 'Tous' ? 'on' : ''}`} onClick={() => setFiltreCat('Tous')}>Tout</button>
+                {enPromo.length > 0 && (
+                  <button className={`vp-tab vp-tab-promo ${filtreCat === 'PROMOS' ? 'on' : ''}`}
+                    onClick={() => setFiltreCat('PROMOS')}>
+                    <span className="vp-eclair">⚡</span>PROMOS
+                    <span className="vp-tab-nb">{enPromo.length}</span>
+                  </button>
+                )}
                   {cats.map((cat) => (
                     <button key={cat} className={`vp-tab ${filtreCat === cat ? 'on' : ''}`} onClick={() => setFiltreCat(cat)}>
                       <span className="vp-tab-ico">{iconeCat(cat)}</span>{libelleCat(cat)}
@@ -1468,7 +1512,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           {catsAffichees.map((cat) => (
           <div key={cat}>
             <div className="vp-cat"><span className="vp-cat-ico">{iconeCat(cat)}</span>{libelleCat(cat)}</div>
-            {visibles.filter((p) => catDe(p) === cat).map((p) => {
+            {source.filter((p) => catDe(p) === cat).map((p) => {
               const m = MODES[p.mode_vente];
               const vs = variantesDe(p);
               const v = varianteActive(p);
@@ -1487,6 +1531,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     <div className="vp-pname">
                       {p.origine_fr && <DrapeauFR taille={14} />}
                       {p.nom}
+                      {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
                     </div>
                     <div className="vp-pmeta">
                       <span className="vp-tag">{m.label}</span>
@@ -1827,7 +1872,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, origine_fr: false, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, origine_fr: false, promo: false, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -1883,6 +1928,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       dlc: p.dlc || '',
       rupture: !!p.rupture,
       origine_fr: !!p.origine_fr,
+      promo: !!p.promo,
       variante_label: p.variante_label || '',
       variantes: variantesDe(p).map((v) => ({
         id: v.id, nom: v.nom || '',
@@ -1981,6 +2027,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       dlc: form.dlc || null,
       rupture: !!form.rupture,
       origine_fr: !!form.origine_fr,
+      promo: !!form.promo,
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
@@ -2008,6 +2055,13 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     const { error } = await supabase.from('viande_produits').update({ dlc: val || null }).eq('id', p.id);
     const err = messageErreur(error);
     if (err) { showToast(err); return; }
+    reload();
+  };
+  const togglePromo = async (p) => {
+    const { error } = await supabase.from('viande_produits').update({ promo: !p.promo }).eq('id', p.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    setRetour(p.id);
     reload();
   };
   const toggleFr = async (p) => {
@@ -2253,6 +2307,15 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div className={`vp-toggle ${form.disponible ? 'on' : ''}`} onClick={() => setForm({ ...form, disponible: !form.disponible })} />
         </div>
 
+        <label className={`vp-promo-case ${form.promo ? 'on' : ''}`}>
+          <input type="checkbox" checked={!!form.promo}
+            onChange={(e) => setForm({ ...form, promo: e.target.checked })} />
+          <span>
+            <b>⚡ Mettre en avant dans PROMOS</b>
+            <small>Le produit apparaît dans l'onglet PROMOS de la boutique, avec un badge sur sa fiche.</small>
+          </span>
+        </label>
+
         <label className={`vp-fr-case ${form.origine_fr ? 'on' : ''}`}>
           <input type="checkbox" checked={!!form.origine_fr}
             onChange={(e) => setForm({ ...form, origine_fr: e.target.checked })} />
@@ -2303,8 +2366,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)}{m.suffixe}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
-              {(dlc || p.rupture) && (
+              {(dlc || p.rupture || p.promo) && (
                 <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
                   {p.rupture && <span className="vp-rupt-pill">EN RUPTURE</span>}
                   {dlc && <span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span>}
                 </div>
@@ -2328,6 +2392,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <input id={`dlc-${p.id}`} className="vp-dlc-input" type="date"
             value={p.dlc || ''} onChange={(e) => majDlc(p, e.target.value)} />
           {p.dlc && <button className="vp-dlc-x" onClick={() => majDlc(p, '')} aria-label="Effacer la DLC">×</button>}
+          <button className={`vp-promo-btn ${p.promo ? 'on' : ''}`} onClick={() => togglePromo(p)}
+            title={p.promo ? 'Retirer des promos' : 'Mettre en promo'}>⚡</button>
           <button className={`vp-fr-btn ${p.origine_fr ? 'on' : ''}`} onClick={() => toggleFr(p)}
             title={p.origine_fr ? 'Retirer l\'origine française' : 'Marquer comme produit français'}>
             <DrapeauFR taille={13} />
@@ -2763,21 +2829,21 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         return `<tr class="${rupt ? 'rupture' : ''}">
           <td class="prod"><span class="nom">${esc(nomLigne(l))}</span></td>
           <td class="qte">${esc(detail)}</td>
-          <td class="n">${rupt ? '—' : approx + esc(eur(stLive(l)))}</td>
           <td class="n gris">${rupt ? '—' : approx + esc(eur(stPatriceLive(l)))}</td>
+          <td class="n">${rupt ? '—' : approx + esc(eur(stLive(l)))}</td>
         </tr>`;
       }).join('');
       return `<div class="bloc">
         <h2>${esc(c.nom_client)}</h2>
         <div class="tel">${esc(c.telephone || '')}</div>
         <table class="totaux">
-          <colgroup><col class="t-prod"><col class="t-det"><col class="t-moi"><col class="t-pat"></colgroup>
-          <thead><tr><th>Produit</th><th>Détail</th><th class="n">À encaisser</th><th class="n">Coût Patrice</th></tr></thead>
+          <colgroup><col class="t-prod"><col class="t-det"><col class="t-pat"><col class="t-moi"></colgroup>
+          <thead><tr><th>Produit</th><th>Détail</th><th class="n">Coût Patrice</th><th class="n">À encaisser</th></tr></thead>
           <tbody>${rows}
             <tr class="ligne-tot">
               <td class="tot">Total</td><td></td>
-              <td class="n tot">${esc(eur(totalCmd(c)))}</td>
               <td class="n tot gris">${esc(eur(totalPatriceCmd(c)))}</td>
+              <td class="n tot">${esc(eur(totalCmd(c)))}</td>
             </tr>
           </tbody>
         </table>
@@ -2785,17 +2851,17 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       </div>`;
     }).join('');
     const corps = `
-      <div class="tete"><div class="barre"></div><div>
+      <div class="tete mince"><div class="barre"></div><div>
         <h1>Totaux à encaisser</h1>
         <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
           · ${commandes.length} client(s)</div>
       </div></div>
-      <div class="bilan">
-        <div class="bilan-c"><span class="bilan-l">Total à encaisser</span><span class="bilan-v">${esc(eur(totalGroupe))}</span></div>
+      ${blocs}
+      <div class="bilan final">
         <div class="bilan-c"><span class="bilan-l">Total à payer à Patrice</span><span class="bilan-v">${esc(eur(totalPatriceGroupe))}</span></div>
+        <div class="bilan-c"><span class="bilan-l">Total à encaisser</span><span class="bilan-v">${esc(eur(totalGroupe))}</span></div>
         <div class="bilan-c vert"><span class="bilan-l">Marge</span><span class="bilan-v">${esc(eur(totalGroupe - totalPatriceGroupe))}</span></div>
       </div>
-      ${blocs}
       <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
     if (!imprimerDocument(`Totaux ${settings.date_vente}`, corps)) {
       showToast('Autorise les fenêtres pop-up pour imprimer');
