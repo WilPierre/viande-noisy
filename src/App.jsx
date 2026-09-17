@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-18 · jours fériés, urgence, mode sombre';
+const VERSION = '2026-09-18b · jours fériés, urgence, mode sombre';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -443,11 +443,7 @@ async function copier(texte) {
    STYLES
 ============================================================ */
 const CSS = `
-/* Les polices étaient déclarées mais jamais chargées : la boutique
-   s'affichait dans la police système. L'import doit rester la toute
-   première règle de la feuille. */
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Inter:wght@400;500;600;700;800&display=swap');
-
+/* Les polices sont chargées par public/index.html. */
 :root{
   --paper:#FBF7F2; --card:#FFFFFF; --ink:#241E1B; --muted:#8A7E76;
   --line:#EBE2D7; --wine:#8A2E2E; --wine-d:#6E2222; --amber:#E0A23C;
