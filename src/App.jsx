@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-17c · prix barré, rappels, relance';
+const VERSION = '2026-09-17d · nouvelle identité visuelle';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -386,6 +386,11 @@ async function copier(texte) {
    STYLES
 ============================================================ */
 const CSS = `
+/* Les polices étaient déclarées mais jamais chargées : la boutique
+   s'affichait dans la police système. L'import doit rester la toute
+   première règle de la feuille. */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root{
   --paper:#FBF7F2; --card:#FFFFFF; --ink:#241E1B; --muted:#8A7E76;
   --line:#EBE2D7; --wine:#8A2E2E; --wine-d:#6E2222; --amber:#E0A23C;
@@ -399,13 +404,14 @@ html,body{overflow-x:clip;max-width:100%}
 body{margin:0;background:var(--paper);color:var(--ink);
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;}
-.vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;position:relative}
+.vp-app{max-width:600px;margin:0 auto;padding:0 14px 120px;position:relative;
+  background:radial-gradient(1200px 400px at 50% -80px,#FFF6E9 0%,var(--paper) 62%)}
 .vp-app.vp-avec-panier{padding-bottom:140px}
 /* la pastille WhatsApp flotte au-dessus du contenu : on réserve
    de quoi faire défiler le dernier produit au-dessus d'elle */
 .vp-app.vp-avec-wa{padding-bottom:150px}
 .vp-app.vp-avec-panier.vp-avec-wa{padding-bottom:172px}
-.vp-admin-icon{position:absolute;top:18px;right:14px;width:38px;height:38px;border-radius:11px;
+.vp-admin-icon{position:absolute;top:56px;right:14px;width:38px;height:38px;border-radius:11px;
   background:#fff;border:1px solid var(--line);color:var(--muted);display:grid;place-items:center;
   box-shadow:var(--shadow);z-index:10}
 .vp-admin-icon:active{transform:scale(.94);color:var(--wine)}
@@ -415,7 +421,19 @@ button{font-family:inherit;cursor:pointer;border:none}
 input,select,textarea{font-family:inherit;font-size:16px}
 
 /* header */
-.vp-head{padding:66px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
+/* mini en-tête collant : le compte à rebours ne quitte jamais l'écran */
+.vp-mini{position:sticky;top:0;z-index:20;display:flex;align-items:center;
+  justify-content:space-between;gap:12px;margin:0 -14px;padding:11px 16px;
+  background:rgba(251,247,242,.92);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line)}
+.vp-mini-m{font-family:'Bricolage Grotesque','Inter',sans-serif;font-weight:800;font-size:15px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vp-mini-c{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;
+  font-size:12px;font-weight:700;white-space:nowrap}
+.vp-mini-c.ouv{color:var(--green)}
+.vp-mini-c.fer{color:var(--wine)}
+
+.vp-head{padding:60px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
 .vp-logo{width:84px;height:auto;margin-bottom:10px}
 .vp-title{font-size:30px;font-weight:800;line-height:1.05;margin-top:4px}
 .vp-status{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:8px 14px;
@@ -427,15 +445,17 @@ input,select,textarea{font-family:inherit;font-size:16px}
   padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;text-align:center;width:100%}
 
 /* catégorie + produit */
-.vp-cat{font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--muted);margin:24px 4px 10px}
+.vp-cat{display:flex;align-items:center;gap:12px;font-size:13px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:24px 4px 10px}
+.vp-cat::after{content:'';flex:1;height:1px;
+  background:linear-gradient(to right,var(--line),transparent)}
 .vp-prod{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:14px;display:flex;gap:13px;align-items:center;margin-bottom:10px;box-shadow:var(--shadow)}
-.vp-emoji{font-size:34px;line-height:1;width:60px;height:60px;display:grid;place-items:center;
+.vp-emoji{font-size:36px;line-height:1;width:72px;height:72px;display:grid;place-items:center;
   background:var(--paper);border-radius:14px;flex:0 0 auto}
 .vp-photo-wrap{position:relative;flex:0 0 auto;padding:0;background:none;border:none;
   border-radius:14px;line-height:0;cursor:zoom-in}
-.vp-photo{width:60px;height:60px;border-radius:14px;object-fit:cover;display:block;border:1px solid var(--line)}
+.vp-photo{width:72px;height:72px;border-radius:14px;object-fit:cover;display:block;border:1px solid var(--line)}
 .vp-photo-loupe{position:absolute;right:-4px;bottom:-4px;width:21px;height:21px;border-radius:50%;
   background:var(--wine);color:#fff;display:grid;place-items:center;
   border:2px solid var(--card);box-shadow:0 1px 4px rgba(36,30,27,.28)}
@@ -511,7 +531,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 
 /* ===== ADMIN ===== */
 /* navigation catégorie — desktop : pills, mobile : select */
-.vp-cat-nav{position:sticky;top:0;background:var(--paper);z-index:5;
+.vp-cat-nav{position:sticky;top:44px;background:var(--paper);z-index:5;
   padding:2px 0 0;border-bottom:1px solid var(--line)}
 .vp-cat-select{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
   background:#fff;color:var(--ink);font-size:15px;font-weight:600;font-family:inherit;
@@ -847,7 +867,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-promo-case small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 
 /* liens connexion / inscription */
-.vp-auth-liens{position:absolute;top:18px;left:14px;display:flex;gap:7px;z-index:10}
+.vp-auth-liens{position:absolute;top:56px;left:14px;display:flex;gap:7px;z-index:10}
 .vp-lien-auth{padding:9px 13px;border-radius:999px;font-size:13px;font-weight:700;
   background:#fff;border:1px solid var(--line);color:var(--ink);box-shadow:var(--shadow);
   white-space:nowrap}
@@ -863,7 +883,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-seg button.on{background:#fff;color:var(--wine);box-shadow:0 1px 3px rgba(36,30,27,.12)}
 
 /* compte client */
-.vp-compte-pill{position:absolute;top:18px;left:14px;height:38px;max-width:46%;
+.vp-compte-pill{position:absolute;top:56px;left:14px;height:38px;max-width:46%;
   display:flex;align-items:center;gap:8px;padding:0 13px 0 6px;border-radius:999px;
   background:#fff;border:1px solid var(--line);color:var(--muted);
   box-shadow:var(--shadow);z-index:10;font-size:13.5px;font-weight:700}
@@ -879,6 +899,23 @@ textarea.vp-input{resize:vertical;min-height:64px}
   margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}
 .vp-identite b{display:block;font-size:14.5px}
 .vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+
+/* bandeau de la promo du jour */
+.vp-hero{position:relative;display:block;width:100%;padding:0;margin-top:16px;
+  border:none;border-radius:20px;overflow:hidden;aspect-ratio:2.15/1;
+  box-shadow:0 10px 30px rgba(36,30,27,.16);cursor:pointer}
+.vp-hero img{width:100%;height:100%;object-fit:cover;display:block}
+.vp-hero .voile{position:absolute;inset:0;
+  background:linear-gradient(to top,rgba(20,14,12,.88) 0%,rgba(20,14,12,.25) 52%,transparent 78%)}
+.vp-hero .txt{position:absolute;left:0;right:0;bottom:0;padding:15px 18px;color:#fff;text-align:left}
+.vp-hero .eti{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:999px;
+  background:linear-gradient(135deg,#F0B429,#E0852C);font-size:11px;font-weight:800;letter-spacing:.06em}
+.vp-hero h2{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:23px;margin-top:9px;
+  text-shadow:0 2px 12px rgba(0,0,0,.4);line-height:1.15}
+.vp-hero .lp{display:flex;align-items:baseline;gap:9px;margin-top:6px}
+.vp-hero .lp .ba{text-decoration:line-through;opacity:.7;font-size:15px}
+.vp-hero .lp .ac{font-size:21px;font-weight:800}
+@media (max-width:380px){.vp-hero h2{font-size:20px}}
 
 /* prix barré */
 .vp-prix-barre{margin-right:7px;color:var(--muted);text-decoration:line-through;
@@ -1860,6 +1897,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const enPromo = visibles.filter((p) => p.promo);
   const source = filtreCat === 'PROMOS' ? enPromo : visibles;
   const favorisDispo = visibles.filter((p) => favoris.includes(String(p.id)));
+  // produit mis en avant : une promo avec photo, en privilégiant
+  // celle qui affiche une vraie remise
+  const vedette = enPromo.filter((p) => p.photo_url)
+    .sort((a, b) => {
+      const ra = a.prix_barre > 0 ? (1 - a.prix_william / a.prix_barre) : 0;
+      const rb = b.prix_barre > 0 ? (1 - b.prix_william / b.prix_barre) : 0;
+      return rb - ra;
+    })[0] || null;
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -2245,6 +2290,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   return (
     <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
+      <div className="vp-mini">
+        <span className="vp-mini-m">{settings.titre}</span>
+        <span className={`vp-mini-c ${ouvert ? 'ouv' : 'fer'}`}>
+          <span className="vp-dot" />
+          {ouvert
+            ? (fermetureAt && fermetureAt > now
+                ? `Fermeture ${new Date(fermetureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                : 'Ouvert')
+            : 'Fermé'}
+        </span>
+      </div>
+
       {connecte && profil ? (
         <button className="vp-compte-pill on" onClick={() => setVueCompte(true)} aria-label="Mon compte">
           <span className="vp-initiale">{(profil.nom || '?').trim().charAt(0).toUpperCase()}</span>
@@ -2390,6 +2447,24 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 Tout afficher
               </button>
             </div>
+          )}
+
+          {vedette && !q && filtreCat === 'Tous' && (
+            <button className="vp-hero" onClick={() => setFiltreCat('PROMOS')}
+              aria-label={`Voir les promos — ${vedette.nom}`}>
+              <img src={vedette.photo_url} alt="" />
+              <span className="voile" />
+              <span className="txt">
+                <span className="eti"><span className="vp-eclair">⚡</span>LA PROMO DU JOUR</span>
+                <h2>{vedette.nom}</h2>
+                <span className="lp">
+                  {vedette.prix_barre > 0 && vedette.prix_barre > vedette.prix_william && (
+                    <span className="ba">{eur(vedette.prix_barre)}</span>
+                  )}
+                  <span className="ac">{eur(vedette.prix_william)}{MODES[vedette.mode_vente].suffixe}</span>
+                </span>
+              </span>
+            </button>
           )}
 
           {nbVoisins >= 2 && !q && (
