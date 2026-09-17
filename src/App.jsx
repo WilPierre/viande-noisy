@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-17b · photos agrandissables';
+const VERSION = '2026-09-17c · prix barré, rappels, relance';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -879,6 +879,22 @@ textarea.vp-input{resize:vertical;min-height:64px}
   margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}
 .vp-identite b{display:block;font-size:14.5px}
 .vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+
+/* prix barré */
+.vp-prix-barre{margin-right:7px;color:var(--muted);text-decoration:line-through;
+  font-size:13.5px;font-weight:600}
+.vp-remise{display:inline-block;margin-right:7px;padding:1px 7px;border-radius:6px;
+  background:var(--red-s);color:var(--wine);font-size:11.5px;font-weight:800}
+
+/* rappel des produits habituels */
+.vp-oublis{margin-top:14px;padding:12px 13px;border-radius:12px;
+  background:var(--paper);border:1px dashed var(--line)}
+.vp-oublis > b{display:block;font-size:13px;margin-bottom:8px;color:var(--ink)}
+.vp-oubli-l{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:7px 0;border-top:1px dotted var(--line);font-size:14px}
+.vp-oubli-l .l{min-width:0}
+.vp-oubli-l .l small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+.vp-oubli-l .vp-add{padding:7px 12px;font-size:13px}
 
 /* étoile favori */
 .vp-etoile{position:absolute;top:8px;right:9px;width:30px;height:30px;border-radius:50%;
@@ -1906,15 +1922,25 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     }
   };
 
-  // dernière commande, pour la reprise en un geste
+  // historique du client : dernière commande + habitudes d'achat
+  const [habitudes, setHabitudes] = useState([]); // [{produit_id, fois}]
   useEffect(() => {
     const charger = async () => {
-      if (!connecte) { setDerniere(null); return; }
+      if (!connecte) { setDerniere(null); setHabitudes([]); return; }
       const { data } = await supabase.from('viande_commandes')
         .select('*, lignes:viande_commande_lignes(*)')
         .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false }).limit(1);
-      setDerniere((data && data[0]) || null);
+        .order('created_at', { ascending: false }).limit(10);
+      const liste = data || [];
+      setDerniere(liste[0] || null);
+      const compte = {};
+      liste.forEach((c) => (c.lignes || []).forEach((l) => {
+        const k = String(l.produit_id);
+        compte[k] = (compte[k] || 0) + 1;
+      }));
+      setHabitudes(Object.entries(compte)
+        .map(([produit_id, fois]) => ({ produit_id, fois }))
+        .sort((a, b) => b.fois - a.fois));
     };
     charger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1941,6 +1967,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     if (!vs.length) return null;
     return vs.find((v) => String(v.id) === String(choix[p.id])) || vs[0];
   };
+
+  // produits commandés au moins deux fois et absents du panier du jour
+  const oublis = habitudes
+    .filter((h) => h.fois >= 2)
+    .map((h) => dispo.find((p) => String(p.id) === h.produit_id))
+    .filter((p) => p && !Object.keys(cart).some((k) => k.startsWith(`${p.id}|`)))
+    .slice(0, 3);
 
   // remet au panier les produits de la dernière commande encore disponibles
   const reprendreDerniere = () => {
@@ -2183,6 +2216,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       </select>
                     )}
                     <div style={{ marginTop: 4 }}>
+                      {p.prix_barre > 0 && p.prix_barre > prix && (
+                        <>
+                          <span className="vp-prix-barre">{eur(p.prix_barre)}</span>
+                          <span className="vp-remise">
+                            −{Math.round((1 - prix / Number(p.prix_barre)) * 100)}%
+                          </span>
+                        </>
+                      )}
                       <span className="vp-price">{eur(prix)}{m.suffixe}</span>
                     </div>
                   </div>
@@ -2446,6 +2487,26 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   );
                 })}
 
+                {oublis.length > 0 && (
+                  <div className="vp-oublis">
+                    <b>Tu prends ça d'habitude</b>
+                    {oublis.map((p) => {
+                      const vs = variantesDe(p);
+                      const v = vs.length ? vs[0] : null;
+                      const m = MODES[p.mode_vente];
+                      return (
+                        <div className="vp-oubli-l" key={p.id}>
+                          <span className="l">
+                            {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
+                            <small>{eur(prixVariante(p, v, 'prix_william'))}{m.suffixe}</small>
+                          </span>
+                          <button className="vp-add" onClick={() => ajouter(p, v)}>Ajouter</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div className="vp-tot"><span>Total estimé</span><span className="r">{aDuPese ? '≈ ' : ''}{eur(total)}</span></div>
                 {aDuPese && (
                   <div className="vp-avert">
@@ -2671,11 +2732,103 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
   const total = commandes.reduce((s, c) => s + Number(c.total_estime || 0), 0);
   const marge = commandes.reduce((s, c) => s + (Number(c.total_estime || 0) - Number(c.total_patrice || 0)), 0);
 
+  // Voisins inscrits qui n'ont pas commandé sur cette journée.
+  // L'oubli est la première cause de non-commande : un rappel ciblé
+  // à 18 h vaut mieux qu'un message de plus dans le groupe.
+  const [absents, setAbsents] = useState([]);
+  const [voirAbsents, setVoirAbsents] = useState(false);
+
+  useEffect(() => {
+    const charger = async () => {
+      const { data: clients } = await supabase.from('viande_clients')
+        .select('id, nom, telephone, bloque');
+      const { data: histo } = await supabase.from('viande_commandes')
+        .select('user_id, created_at');
+      const dejaLa = new Set(commandes.map((c) => String(c.user_id)));
+      const derniereFois = {};
+      (histo || []).forEach((h) => {
+        if (!h.user_id) return;
+        const k = String(h.user_id);
+        const t = new Date(h.created_at).getTime();
+        if (!derniereFois[k] || t > derniereFois[k]) derniereFois[k] = t;
+      });
+      const liste = (clients || [])
+        .filter((c) => !c.bloque && !dejaLa.has(String(c.id)))
+        .map((c) => {
+          const t = derniereFois[String(c.id)];
+          return {
+            ...c,
+            dernier: t || null,
+            jours: t ? Math.floor((Date.now() - t) / 86400000) : null,
+          };
+        })
+        .sort((a, b) => {
+          if (a.dernier && b.dernier) return a.dernier - b.dernier; // les plus anciens d'abord
+          if (a.dernier) return -1;
+          return b.dernier ? 1 : 0;
+        });
+      setAbsents(liste);
+    };
+    charger();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commandes]);
+
+  const texteRelance = () => {
+    let t = '📣 À relancer\n\n';
+    absents.forEach((a) => {
+      t += `${a.nom} — ${a.telephone}`;
+      t += a.jours === null ? ' (jamais commandé)\n' : ` (dernière fois il y a ${a.jours} j)\n`;
+    });
+    return t;
+  };
+
   const suppr = async (c) => {
     if (!window.confirm(`Supprimer la commande de ${c.nom_client} ?`)) return;
     await supabase.from('viande_commandes').delete().eq('id', c.id);
     showToast('Commande supprimée'); reload();
   };
+
+  const blocRelance = absents.length === 0 ? null : (
+    <div className="vp-section" style={{ marginTop: 14 }}>
+      <div className="vp-srow">
+        <div>
+          <div className="vp-h2" style={{ fontSize: 16 }}>
+            {absents.length} voisin(s) sans commande
+          </div>
+          <div className="vp-sub">Inscrits qui n'ont rien commandé sur cette journée.</div>
+        </div>
+        <button className="vp-btn ghost sm" onClick={() => setVoirAbsents(!voirAbsents)}>
+          {voirAbsents ? 'Masquer' : 'Voir'}
+        </button>
+      </div>
+
+      {voirAbsents && (
+        <>
+          <div className="vp-liste" style={{ marginTop: 12 }}>
+            {absents.map((a) => (
+              <div className="vp-liste-l" key={a.id}>
+                <span>
+                  {a.nom}
+                  <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                    {a.telephone}
+                  </small>
+                </span>
+                <b style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>
+                  {a.jours === null ? 'jamais commandé'
+                    : a.jours === 0 ? "dernière fois aujourd'hui"
+                    : `il y a ${a.jours} j`}
+                </b>
+              </div>
+            ))}
+          </div>
+          <button className="vp-btn green" style={{ width: '100%', marginTop: 12 }}
+            onClick={async () => { (await copier(texteRelance())) && showToast('Liste copiée'); }}>
+            Copier la liste pour WhatsApp
+          </button>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -2724,13 +2877,15 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
           </div>
         ))
       )}
+
+      {blocRelance}
     </>
   );
 }
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, origine_fr: false, promo: false, ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, origine_fr: false, promo: false, prix_barre: '', ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -2787,6 +2942,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       rupture: !!p.rupture,
       origine_fr: !!p.origine_fr,
       promo: !!p.promo,
+      prix_barre: p.prix_barre != null ? String(p.prix_barre) : '',
       variante_label: p.variante_label || '',
       variantes: variantesDe(p).map((v) => ({
         id: v.id, nom: v.nom || '',
@@ -2886,6 +3042,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       rupture: !!form.rupture,
       origine_fr: !!form.origine_fr,
       promo: !!form.promo,
+      prix_barre: form.prix_barre === '' ? null : cts(nombre(form.prix_barre) || 0),
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
@@ -3008,6 +3165,15 @@ function AdminProduits({ produits, settings, reload, showToast }) {
               onChange={(e) => setForm({ ...form, prix_william: e.target.value })} placeholder="0.00" />
           </div>
         </div>
+        <div style={{ marginTop: 12 }}>
+          <label className="vp-label">Prix barré (facultatif)</label>
+          <input className="vp-input" value={form.prix_barre} inputMode="decimal"
+            onChange={(e) => setForm({ ...form, prix_barre: e.target.value })} placeholder="Ex : 19.99" />
+          <div className="vp-sub" style={{ marginTop: 4 }}>
+            Ancien prix, affiché barré à côté du prix actuel. Laisse vide pour ne rien afficher.
+          </div>
+        </div>
+
         <div className="vp-srow" style={{ marginTop: 8 }}>
           <button className="vp-btn ghost sm" onClick={appliquerMarge}>+{settings.marge_defaut}% sur le prix Patrice</button>
           {marge && <span className="vp-marge">marge {eur(marge.eur)} ({marge.pct}%)</span>}
