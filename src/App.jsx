@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-18c · salutation du soir, bascule de thème explicite';
+const VERSION = '2026-09-18d · vignettes générées';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -40,6 +40,24 @@ const ICONES_CAT = {
   'Charcuterie': '🌭', 'Crèmerie': '🧀', 'Épicerie': '🫒', 'Autre': '🧺',
 };
 const iconeCat = (c) => ICONES_CAT[c] || '';
+
+/* Vignette de remplacement pour un produit sans photo.
+   Pas de photo piochée sur internet : sur ce catalogue, « merlan de
+   bœuf » ramènerait un poisson et « araignée de bœuf » un insecte.
+   On dessine donc une tuile, teintée selon la catégorie. */
+const TEINTES_CAT = {
+  'Bœuf':        ['#8A2E2E', '#C25A4A'],
+  'Poulet':      ['#C98A2B', '#E8BB68'],
+  'Porc':        ['#B85C6B', '#E0A0A8'],
+  'Viande':      ['#7A3A2E', '#B8705A'],
+  'Charcuterie': ['#7B2D3C', '#B85C6B'],
+  'Crèmerie':    ['#C9A227', '#EBD68A'],
+  'Épicerie':    ['#4E6B34', '#9BB06A'],
+  'Autre':       ['#6B5B4E', '#A89685'],
+};
+function teintesDe(p) {
+  return TEINTES_CAT[catDe(p)] || TEINTES_CAT.Autre;
+}
 // un produit ajouté depuis moins de 5 jours porte le badge « Nouveau »
 function estNouveau(p) {
   if (!p || !p.created_at) return false;
@@ -976,6 +994,18 @@ textarea.vp-input{resize:vertical;min-height:64px}
   margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}
 .vp-identite b{display:block;font-size:14.5px}
 .vp-identite small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+
+/* vignette générée, pour les produits sans photo */
+.vp-tuile-sm{width:36px;height:36px;border-radius:9px}
+.vp-tuile-sm .vp-tuile-e{font-size:18px}
+.vp-tab-photo{border-style:dashed}
+.vp-tab-photo.on{background:var(--ink);color:#fff;border-color:var(--ink);border-style:solid}
+.vp-tuile{position:relative;width:72px;height:72px;flex:0 0 auto;border-radius:14px;
+  overflow:hidden;display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.vp-tuile-f{position:absolute;inset:0;
+  background:repeating-linear-gradient(115deg,rgba(255,255,255,.14) 0 9px,transparent 9px 20px)}
+.vp-tuile-e{position:relative;font-size:34px;line-height:1;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.28))}
 
 /* bascule clair / sombre — l'icône seule ne se comprenait pas,
    le mot visé accompagne donc toujours le pictogramme */
@@ -2349,7 +2379,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                           </svg>
                         </span>
                       </button>
-                    : <div className="vp-emoji">{p.emoji}</div>}
+                    : <div className="vp-tuile" style={{
+                        background: `linear-gradient(135deg, ${teintesDe(p)[0]} 0%, ${teintesDe(p)[1]} 100%)`,
+                      }}>
+                        <span className="vp-tuile-f" />
+                        <span className="vp-tuile-e">{p.emoji}</span>
+                      </div>}
                   <div className="vp-pinfo">
                     <div className="vp-pname">
                       {p.origine_fr && <DrapeauFR taille={14} />}
@@ -3118,8 +3153,12 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
   const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => catDe(p) === c));
 
+  const [sansPhoto, setSansPhoto] = useState(false);
+  const nbSansPhoto = produits.filter((p) => !p.photo_url).length;
+
   const q = normaliser(recherche.trim());
   const produitsAffiches = produits.filter((p) => {
+    if (sansPhoto && p.photo_url) return false;
     if (filtreCat !== 'Tous' && catDe(p) !== filtreCat) return false;
     if (!q) return true;
     if (normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q)) return true;
@@ -3600,7 +3639,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
             {p.photo_url
               ? <img src={p.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
-              : <span style={{ fontSize: 24 }}>{p.emoji}</span>}
+              : <span className="vp-tuile vp-tuile-sm" style={{
+                  background: `linear-gradient(135deg, ${teintesDe(p)[0]} 0%, ${teintesDe(p)[1]} 100%)`,
+                }}>
+                  <span className="vp-tuile-e">{p.emoji}</span>
+                </span>}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700 }}>
                 {p.origine_fr && <DrapeauFR />}
@@ -3692,6 +3735,13 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <button className="vp-search-clear" onClick={() => setRecherche('')} aria-label="Effacer la recherche">×</button>
         )}
       </div>
+
+      {nbSansPhoto > 0 && (
+        <button className={`vp-tab vp-tab-photo ${sansPhoto ? 'on' : ''}`}
+          style={{ marginBottom: 10 }} onClick={() => setSansPhoto(!sansPhoto)}>
+          📷 Sans photo ({nbSansPhoto})
+        </button>
+      )}
 
       {catsPresentes.length > 1 && (
         <div className="vp-tabs" style={{ paddingTop: 0 }}>
