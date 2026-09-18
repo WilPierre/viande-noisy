@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19 · ouverture du dimanche au jeudi';
+const VERSION = '2026-09-19b · ouverture exceptionnelle';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1327,6 +1327,9 @@ export default function App() {
 
   // jour ouvrable au sens du retrait du lendemain
   const jourOuvert = useMemo(() => jourCommandable(new Date(now)), [now]);
+  // ouverture exceptionnelle, valable pour la seule journée choisie
+  const forcee = !!settings
+    && settings.ouverture_forcee_le === aujourdhuiStr();
   const prochaineAt = useMemo(
     () => (settings ? prochaineOuverture(now, settings.heure_ouverture, settings.heure_fermeture) : null),
     [now, settings],
@@ -1336,9 +1339,11 @@ export default function App() {
   //   - semaine : vente_active=true ET dans les horaires (auto)
   //   - weekend : vente_active=true ET dans les horaires (manuel requis)
   const ouvert = !!settings?.vente_active
-    && jourOuvert
-    && (!ouvertureAt || now >= ouvertureAt)
-    && (!fermetureAt || now < fermetureAt);
+    && (forcee || (
+      jourOuvert
+      && (!ouvertureAt || now >= ouvertureAt)
+      && (!fermetureAt || now < fermetureAt)
+    ));
 
   if (!supabase) return <SetupScreen />;
   if (!settings) return <div className="vp-app"><div className="vp-empty">Chargement…</div></div>;
@@ -1358,7 +1363,7 @@ export default function App() {
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
-          showToast={showToast}
+          forcee={forcee} showToast={showToast}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
       )}
@@ -1515,7 +1520,14 @@ function SetupScreen() {
 /* ============================================================
    COUNTDOWN
 ============================================================ */
-function Countdown({ fermetureAt, now, ouvert, venteActive, prochaineAt }) {
+function Countdown({ fermetureAt, now, ouvert, venteActive, prochaineAt, forcee }) {
+  if (forcee && ouvert) {
+    return (
+      <span className="vp-status vp-open">
+        <span className="vp-dot" />Ouvert exceptionnellement aujourd'hui
+      </span>
+    );
+  }
   if (!venteActive) {
     return (
       <span className="vp-status vp-closed">
@@ -2054,7 +2066,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie,
-  jourOuvert, prochaineAt, showToast,
+  jourOuvert, prochaineAt, forcee, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -2108,7 +2120,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // produit mis en avant : une promo avec photo, en privilégiant
   // celle qui affiche une vraie remise
   // moins d'une heure avant la fermeture : on le dit clairement
-  const resteMin = ouvert && fermetureAt ? Math.floor((fermetureAt - now) / 60000) : null;
+  const resteMin = ouvert && !forcee && fermetureAt ? Math.floor((fermetureAt - now) / 60000) : null;
   const presse = resteMin != null && resteMin <= 60;
 
   const vedette = enPromo.filter((p) => p.photo_url)
@@ -2550,7 +2562,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <img src="/logo-mouton.png" alt="" className="vp-logo" />
         <h1 className="vp-title">{settings.titre}</h1>
         <Countdown fermetureAt={fermetureAt} now={now} ouvert={ouvert}
-          venteActive={settings.vente_active} prochaineAt={prochaineAt} />
+          venteActive={settings.vente_active} prochaineAt={prochaineAt} forcee={forcee} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
         <Sondage settings={settings} showToast={showToast} />
       </div>
@@ -4725,6 +4737,17 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const forceeAuj = settings.ouverture_forcee_le === todayStr();
+  const basculerForcage = async () => {
+    const valeur = forceeAuj ? null : todayStr();
+    const { error } = await supabase.from('viande_settings')
+      .update({ ouverture_forcee_le: valeur, updated_at: new Date().toISOString() }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    reload();
+    showToast(valeur ? "Boutique ouverte pour aujourd'hui" : 'Ouverture exceptionnelle levée');
+  };
+
   const toggleVente = async () => {
     const nouveau = !f.vente_active;
     setF((x) => ({ ...x, vente_active: nouveau }));
@@ -4771,17 +4794,34 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
           <div>
             <div className="vp-h2">{f.vente_active ? '🟢 Activée' : '🔴 Désactivée'}</div>
             <div className="vp-sub">
-              {estSemaine
-                ? (f.vente_active
-                    ? `${jourActuel} — ouverture auto ${f.heure_ouverture} · fermeture ${f.heure_fermeture}`
-                    : `${jourActuel} — fermée manuellement (horaires suspendus)`)
-                : (f.vente_active
-                    ? `${jourActuel} — ouverte manuellement`
-                    : `${jourActuel} — fermée (week-end par défaut)`)}
+              {f.vente_active
+                ? `${jourActuel} — la boutique suit le calendrier : dimanche 12h à jeudi ${f.heure_fermeture}`
+                : `${jourActuel} — boutique coupée, rien n'est visible`}
             </div>
           </div>
           <div className={`vp-toggle ${f.vente_active ? 'on' : ''}`} onClick={toggleVente} />
         </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 16 }}>
+              {forceeAuj ? '⚡ Ouverture exceptionnelle active' : 'Ouverture exceptionnelle'}
+            </div>
+            <div className="vp-sub">
+              {forceeAuj
+                ? "La boutique est ouverte aujourd'hui malgré le calendrier et les horaires. Elle se referme seule à minuit."
+                : "Force l'ouverture pour aujourd'hui, même un vendredi, un jour férié ou en dehors des horaires."}
+            </div>
+          </div>
+          <div className={`vp-toggle ${forceeAuj ? 'on' : ''}`} onClick={basculerForcage} />
+        </div>
+        {forceeAuj && (
+          <div className="vp-rupt-note" style={{ marginTop: 10 }}>
+            Pense au retrait : une commande passée aujourd'hui se retire demain.
+          </div>
+        )}
       </div>
 
       {!estSemaine && !f.vente_active && (
