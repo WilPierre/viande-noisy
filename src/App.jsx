@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-18d · vignettes générées';
+const VERSION = '2026-09-19 · ouverture du dimanche au jeudi';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -417,6 +417,59 @@ function nomJourFerie(date) {
   const d = date instanceof Date ? date : new Date(date);
   if (isNaN(d.getTime())) return null;
   return joursFeries(d.getFullYear())[`${d.getMonth() + 1}-${d.getDate()}`] || null;
+}
+
+/* ---- calendrier d'ouverture ----
+   Retrait le lendemain de la commande. On n'ouvre donc que les jours
+   dont le lendemain est ouvrable : dimanche (retrait lundi) à jeudi
+   (retrait vendredi). Vendredi et samedi restent fermés. */
+const JOURS_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const HEURE_DIMANCHE = '12:00';
+
+function joursPlusTard(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+// heure d'ouverture applicable à ce jour-là
+function heureOuvertureDu(date, heureDefaut) {
+  return date.getDay() === 0 ? HEURE_DIMANCHE : (heureDefaut || '09:00');
+}
+// peut-on prendre des commandes ce jour-là ?
+function jourCommandable(date) {
+  const j = date.getDay();
+  if (j === 5 || j === 6) return false;              // vendredi, samedi
+  if (nomJourFerie(date)) return false;              // férié
+  if (nomJourFerie(joursPlusTard(date, 1))) return false; // retrait impossible demain
+  return true;
+}
+function horodatage(date, heure) {
+  const a = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const j = String(date.getDate()).padStart(2, '0');
+  return new Date(`${a}-${m}-${j}T${heure}:00`).getTime();
+}
+// prochaine ouverture à partir de maintenant
+function prochaineOuverture(now, heureDefaut, heureFermeture) {
+  for (let i = 0; i < 14; i += 1) {
+    const d = joursPlusTard(new Date(now), i);
+    if (!jourCommandable(d)) continue;
+    const debut = horodatage(d, heureOuvertureDu(d, heureDefaut));
+    const fin = horodatage(d, heureFermeture || '19:30');
+    if (i === 0 && now >= fin) continue;   // journée déjà terminée
+    if (now < debut) return debut;
+    if (now < fin) return now;             // déjà ouvert
+  }
+  return null;
+}
+// « dimanche à 12h00 pour vos commandes du lendemain, lundi »
+function texteReouverture(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const heure = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+  const lendemain = JOURS_FR[(d.getDay() + 1) % 7];
+  return `Réouverture ${JOURS_FR[d.getDay()]} à ${heure} pour vos commandes du lendemain, ${lendemain}.`;
 }
 
 /* ---- DLC ---- */
@@ -1022,7 +1075,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
   background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow)}
 .vp-ferme-ico{font-size:32px;line-height:1}
 .vp-ferme b{display:block;margin-top:10px;font-size:17px}
-.vp-ferme small{display:block;margin-top:7px;color:var(--muted);font-size:13.5px;line-height:1.55}
+.vp-ferme small{display:block;margin-top:7px;color:var(--muted);font-size:13.5px;line-height:1.7}
+.vp-reouv{display:inline-block;margin-top:8px;color:var(--wine);font-size:14px}
 .vp-masque{display:none}
 
 /* dernière ligne droite */
@@ -1262,19 +1316,27 @@ export default function App() {
     if (!settings) return { ouvertureAt: null, fermetureAt: null };
     try {
       const d = new Date(now);
-      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return {
-        ouvertureAt: new Date(`${today}T${settings.heure_ouverture || '09:00'}:00`).getTime(),
-        fermetureAt: new Date(`${today}T${settings.heure_fermeture}:00`).getTime(),
+        // le dimanche, l'ouverture est fixée à midi
+        ouvertureAt: horodatage(d, heureOuvertureDu(d, settings.heure_ouverture)),
+        fermetureAt: horodatage(d, settings.heure_fermeture || '19:30'),
       };
-    } catch { return { ouvertureAt: null, fermetureAt: null }; }
+    } catch (e) { return { ouvertureAt: null, fermetureAt: null }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, now]);
+
+  // jour ouvrable au sens du retrait du lendemain
+  const jourOuvert = useMemo(() => jourCommandable(new Date(now)), [now]);
+  const prochaineAt = useMemo(
+    () => (settings ? prochaineOuverture(now, settings.heure_ouverture, settings.heure_fermeture) : null),
+    [now, settings],
+  );
 
   // Ouvert si :
   //   - semaine : vente_active=true ET dans les horaires (auto)
   //   - weekend : vente_active=true ET dans les horaires (manuel requis)
   const ouvert = !!settings?.vente_active
+    && jourOuvert
     && (!ouvertureAt || now >= ouvertureAt)
     && (!fermetureAt || now < fermetureAt);
 
@@ -1295,7 +1357,8 @@ export default function App() {
         <Client
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
-          estSemaine={estSemaine} ferie={ferie} showToast={showToast}
+          estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
+          showToast={showToast}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
       )}
@@ -1452,30 +1515,28 @@ function SetupScreen() {
 /* ============================================================
    COUNTDOWN
 ============================================================ */
-function Countdown({ fermetureAt, ouvertureAt, now, ouvert, venteActive, estSemaine }) {
-  // Fermé manuellement (override)
+function Countdown({ fermetureAt, now, ouvert, venteActive, prochaineAt }) {
   if (!venteActive) {
-    return <span className="vp-status vp-closed">
-      <span className="vp-dot" />
-      {estSemaine ? 'Fermé manuellement' : 'Fermé le week-end'}
-    </span>;
+    return (
+      <span className="vp-status vp-closed">
+        <span className="vp-dot" />Fermé
+      </span>
+    );
   }
-  // Pas encore ouvert — compte à rebours avant ouverture
-  if (ouvertureAt && now < ouvertureAt) {
-    const resteAvant = ouvertureAt - now;
-    const h = Math.floor(resteAvant / 3600000);
-    const m = Math.floor((resteAvant % 3600000) / 60000);
-    const hLabel = new Date(ouvertureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const txt = h > 0 ? `Ouverture à ${hLabel} (dans ${h}h${String(m).padStart(2, '0')})` : `Ouverture à ${hLabel} (dans ${m} min)`;
+
+  if (!ouvert) {
+    if (!prochaineAt) {
+      return <span className="vp-status vp-closed"><span className="vp-dot" />Fermé</span>;
+    }
+    const d = new Date(prochaineAt);
+    const heure = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+    const memeJour = d.toDateString() === new Date(now).toDateString();
+    const txt = memeJour
+      ? `Ouverture à ${heure}`
+      : `Ouverture ${JOURS_FR[d.getDay()]} à ${heure}`;
     return <span className="vp-status vp-closed"><span className="vp-dot" />{txt}</span>;
   }
-  // Fermé (après l'heure)
-  if (!ouvert) {
-    const hO = new Date(ouvertureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const msg = estSemaine ? `Réouverture demain à ${hO}` : 'Fermé';
-    return <span className="vp-status vp-closed"><span className="vp-dot" />{msg}</span>;
-  }
-  // Ouvert — compte à rebours fermeture
+
   const reste = fermetureAt - now;
   const h = Math.floor(reste / 3600000);
   const m = Math.floor((reste % 3600000) / 60000);
@@ -1992,7 +2053,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
 /* ============================================================
    CLIENT — interface de commande
 ============================================================ */
-function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie, showToast,
+function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie,
+  jourOuvert, prochaineAt, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -2487,7 +2549,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       <div className="vp-head">
         <img src="/logo-mouton.png" alt="" className="vp-logo" />
         <h1 className="vp-title">{settings.titre}</h1>
-        <Countdown fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} now={now} ouvert={ouvert} venteActive={settings.vente_active} estSemaine={estSemaine} />
+        <Countdown fermetureAt={fermetureAt} now={now} ouvert={ouvert}
+          venteActive={settings.vente_active} prochaineAt={prochaineAt} />
         {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
         <Sondage settings={settings} showToast={showToast} />
       </div>
@@ -2544,12 +2607,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           <span className="vp-ferme-ico">🕑</span>
           <b>
             {ferie ? `Fermé — ${ferie}`
-              : !estSemaine ? 'Fermé le week-end'
+              : !jourOuvert ? 'Fermé ce jour'
               : 'Commandes fermées pour le moment'}
           </b>
           <small>
-            Les commandes et les retraits ont lieu du lundi au vendredi.
-            Ni le week-end, ni les jours fériés.
+            Pas de livraisons ni de retrait les week-ends et jours fériés.
+            {prochaineAt && <><br /><b className="vp-reouv">{texteReouverture(prochaineAt)}</b></>}
           </small>
           <span className="vp-masque"> Reviens à la prochaine promo&nbsp;!</span>
         </div>
@@ -3937,7 +4000,8 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     }
     t += `🕒 Commandes jusqu'à ${settings.heure_fermeture}\n`;
     t += `👉 ${lien}\n\n`;
-    t += `Retrait le lendemain. Pas de commande le week-end ni les jours fériés.`;
+    t += `Retrait le lendemain. Commandes du dimanche 12h au jeudi soir.\n`;
+    t += `Pas de livraisons ni de retrait les week-ends et jours fériés.`;
     return t;
   };
 
@@ -4741,7 +4805,10 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
           </div>
         </div>
         <div className="vp-sub" style={{ marginTop: 8 }}>
-          Appliqués automatiquement du lundi au vendredi. Week-end : utilise le bouton on/off.
+          Commandes ouvertes du <b>dimanche 12h</b> au <b>jeudi soir</b>, retrait le lendemain.
+          Vendredi et samedi fermés, ainsi que les jours fériés et la veille d'un jour férié
+          (le retrait serait impossible). L'heure d'ouverture ci-dessus s'applique du lundi au
+          jeudi ; le dimanche, c'est toujours 12h.
         </div>
 
         <div className="vp-field">
