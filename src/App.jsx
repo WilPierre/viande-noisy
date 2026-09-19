@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19d · journée du jour, code visible';
+const VERSION = '2026-09-19e · mots de passe visibles sur demande';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1509,6 +1509,33 @@ function BoutonWhatsApp({ url, libelle }) {
 }
 
 /* ============================================================
+   ŒIL D'AFFICHAGE
+   Rend lisible un champ masqué. Défini ici et non dans un
+   composant : un composant créé à chaque rendu ferait perdre
+   le focus du champ à chaque caractère tapé.
+============================================================ */
+function BoutonOeil({ visible, onClick }) {
+  return (
+    <button className="vp-oeil" onClick={onClick} tabIndex={-1}
+      aria-label={visible ? 'Masquer' : 'Afficher'}
+      title={visible ? 'Masquer' : 'Afficher'}>
+      {visible ? (
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ) : (
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 12s3.6-7 10-7c1.6 0 3 .44 4.2 1.1M22 12s-3.6 7-10 7c-1.6 0-3-.44-4.2-1.1" />
+          <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+          <path d="M3 3l18 18" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+/* ============================================================
    DRAPEAU FRANÇAIS
    Dessiné en SVG : l'emoji 🇫🇷 s'affiche « FR » sur Windows,
    qui ne rend pas les indicateurs régionaux.
@@ -1607,6 +1634,7 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   const [mdp, setMdp] = useState('');
   const [code, setCode] = useState('');
   const [mdp2, setMdp2] = useState('');
+  const [mdpVisible, setMdpVisible] = useState(false);
   const [envoi, setEnvoi] = useState(false);
 
   // Mot de passe oublié : Supabase envoie un code, on le vérifie,
@@ -1769,9 +1797,13 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
           </div>
           <div className="vp-field">
             <label className="vp-label">Nouveau mot de passe</label>
-            <input className="vp-input" value={mdp2} onChange={(e) => setMdp2(e.target.value)}
-              type="password" placeholder="6 caractères minimum" autoComplete="new-password"
-              onKeyDown={(e) => e.key === 'Enter' && changerMdp()} />
+            <div className="vp-mdp">
+              <input className="vp-input" value={mdp2} onChange={(e) => setMdp2(e.target.value)}
+                type={mdpVisible ? 'text' : 'password'} placeholder="6 caractères minimum"
+                autoComplete="new-password"
+                onKeyDown={(e) => e.key === 'Enter' && changerMdp()} />
+              <BoutonOeil visible={mdpVisible} onClick={() => setMdpVisible(!mdpVisible)} />
+            </div>
           </div>
           <button className="vp-cta" disabled={envoi} onClick={changerMdp}>
             {envoi ? 'Un instant…' : 'Changer mon mot de passe'}
@@ -1825,10 +1857,13 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
       </div>
       <div className="vp-field">
         <label className="vp-label">Mot de passe *</label>
-        <input className="vp-input" value={mdp} onChange={(e) => setMdp(e.target.value)}
-          type="password" placeholder="6 caractères minimum"
-          autoComplete={mode === 'inscription' ? 'new-password' : 'current-password'}
-          onKeyDown={(e) => e.key === 'Enter' && (mode === 'inscription' ? inscrire() : connecter())} />
+        <div className="vp-mdp">
+          <input className="vp-input" value={mdp} onChange={(e) => setMdp(e.target.value)}
+            type={mdpVisible ? 'text' : 'password'} placeholder="6 caractères minimum"
+            autoComplete={mode === 'inscription' ? 'new-password' : 'current-password'}
+            onKeyDown={(e) => e.key === 'Enter' && (mode === 'inscription' ? inscrire() : connecter())} />
+          <BoutonOeil visible={mdpVisible} onClick={() => setMdpVisible(!mdpVisible)} />
+        </div>
       </div>
 
       {mode === 'connexion' && (
@@ -3024,22 +3059,7 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
               inputMode="numeric" type={pinVisible ? 'text' : 'password'} placeholder="Code"
               style={{ textAlign: 'center', letterSpacing: 4 }}
               onKeyDown={(e) => e.key === 'Enter' && check()} />
-            <button className="vp-oeil" onClick={() => setPinVisible(!pinVisible)}
-              aria-label={pinVisible ? 'Masquer le code' : 'Afficher le code'}
-              title={pinVisible ? 'Masquer le code' : 'Afficher le code'}>
-              {pinVisible ? (
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              ) : (
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 12s3.6-7 10-7c1.6 0 3 .44 4.2 1.1M22 12s-3.6 7-10 7c-1.6 0-3-.44-4.2-1.1" />
-                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-                  <path d="M3 3l18 18" />
-                </svg>
-              )}
-            </button>
+            <BoutonOeil visible={pinVisible} onClick={() => setPinVisible(!pinVisible)} />
           </div>
           <button className="vp-cta" style={{ marginTop: 14 }} onClick={check}>Entrer</button>
           <button className="vp-foot" style={{ background: 'none', color: 'var(--muted)', marginTop: 18, textDecoration: 'underline' }}
