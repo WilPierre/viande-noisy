@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19c · signature en pied de page';
+const VERSION = '2026-09-19d · journée du jour, code visible';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -772,6 +772,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
 
+/* champ masqué avec œil d'affichage */
+.vp-mdp{position:relative}
+.vp-mdp .vp-input{padding-right:46px}
+.vp-oeil{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:36px;height:36px;border-radius:9px;background:none;color:var(--muted);
+  display:grid;place-items:center}
+.vp-oeil:active{color:var(--wine);background:var(--paper)}
+
 /* pied de page */
 .vp-pied{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);text-align:center}
 .vp-credit{color:var(--muted);font-size:12.5px}
@@ -1311,6 +1319,19 @@ export default function App() {
     const poll = setInterval(loadBase, 12000); // filet de sécurité mobile
     return () => { supabase.removeChannel(ch); clearInterval(poll); };
   }, []);
+
+  // La journée de vente doit toujours désigner aujourd'hui. Jusqu'ici la
+  // mise à jour n'avait lieu qu'à l'ouverture de l'onglet Réglages : si on
+  // n'y passait pas, la date restait bloquée sur un jour passé et l'admin
+  // comme les nouvelles commandes se rattachaient au mauvais jour.
+  useEffect(() => {
+    if (!supabase || !settings) return;
+    const auj = aujourdhuiStr();
+    if (settings.date_vente === auj) return;
+    supabase.from('viande_settings').update({ date_vente: auj }).eq('id', 1)
+      .then(() => loadBase());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings && settings.date_vente]);
 
   // Jour de la semaine en temps réel (0=dim, 6=sam)
   const jourSemaine = useMemo(() => new Date(now).getDay(), [now]);
@@ -2935,15 +2956,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
+  const [pinVisible, setPinVisible] = useState(false);
   const [tab, setTab] = useState('commandes');
   const [commandes, setCommandes] = useState([]);
 
   // Journée de vente consultée. Par défaut celle en cours, mais on peut
   // revenir sur une journée passée — c'est indispensable pour saisir les
   // poids le lendemain, une fois la date de vente passée au jour suivant.
-  const [dateTravail, setDateTravail] = useState(settings.date_vente);
+  const [dateTravail, setDateTravail] = useState(aujourdhuiStr());
   const [journees, setJournees] = useState([]);
-  const [bascule, setBascule] = useState(false);
 
   const chargerJournees = async () => {
     const { data } = await supabase
@@ -2951,13 +2972,6 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
       .order('date_vente', { ascending: false });
     const uniques = [...new Set((data || []).map((r) => r.date_vente).filter(Boolean))];
     setJournees(uniques);
-    // Si la journée en cours n'a encore aucune commande alors qu'une
-    // journée précédente en a, on s'y place — une seule fois, pour ne
-    // jamais écraser un choix manuel.
-    if (!bascule && uniques.length && !uniques.includes(settings.date_vente)) {
-      setDateTravail(uniques[0]);
-      setBascule(true);
-    }
   };
 
   const loadCommandes = async () => {
@@ -3005,10 +3019,28 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
         <div className="vp-gate">
           <h2 style={{ fontSize: 22 }}>Espace organisateur</h2>
           <p style={{ color: 'var(--muted)', margin: '8px 0 18px' }}>Saisis ton code.</p>
-          <input className="vp-input" value={pin} onChange={(e) => setPin(e.target.value)}
-            inputMode="numeric" type="password" placeholder="Code"
-            style={{ textAlign: 'center', letterSpacing: 4 }}
-            onKeyDown={(e) => e.key === 'Enter' && check()} />
+          <div className="vp-mdp">
+            <input className="vp-input" value={pin} onChange={(e) => setPin(e.target.value)}
+              inputMode="numeric" type={pinVisible ? 'text' : 'password'} placeholder="Code"
+              style={{ textAlign: 'center', letterSpacing: 4 }}
+              onKeyDown={(e) => e.key === 'Enter' && check()} />
+            <button className="vp-oeil" onClick={() => setPinVisible(!pinVisible)}
+              aria-label={pinVisible ? 'Masquer le code' : 'Afficher le code'}
+              title={pinVisible ? 'Masquer le code' : 'Afficher le code'}>
+              {pinVisible ? (
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              ) : (
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 12s3.6-7 10-7c1.6 0 3 .44 4.2 1.1M22 12s-3.6 7-10 7c-1.6 0-3-.44-4.2-1.1" />
+                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                  <path d="M3 3l18 18" />
+                </svg>
+              )}
+            </button>
+          </div>
           <button className="vp-cta" style={{ marginTop: 14 }} onClick={check}>Entrer</button>
           <button className="vp-foot" style={{ background: 'none', color: 'var(--muted)', marginTop: 18, textDecoration: 'underline' }}
             onClick={() => { window.location.hash = ''; }}>← Retour à la boutique</button>
@@ -3036,24 +3068,33 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
       </div>
 
       {(journees.length > 0 || dateTravail !== settings.date_vente) && (
-        <div className={`vp-journee ${dateTravail !== settings.date_vente ? 'passee' : ''}`}>
+        <div className={`vp-journee ${dateTravail !== aujourdhuiStr() ? 'passee' : ''}`}>
           <label htmlFor="journee">Journée</label>
           <select id="journee" className="vp-quick-select" value={dateTravail}
-            onChange={(e) => { setDateTravail(e.target.value); setBascule(true); }}>
-            {!journees.includes(settings.date_vente) && (
-              <option value={settings.date_vente}>{fmtJournee(settings.date_vente)} — en cours</option>
+            onChange={(e) => setDateTravail(e.target.value)}>
+            {!journees.includes(aujourdhuiStr()) && (
+              <option value={aujourdhuiStr()}>{fmtJournee(aujourdhuiStr())} — aujourd'hui</option>
             )}
             {journees.map((d) => (
               <option key={d} value={d}>
-                {fmtJournee(d)}{d === settings.date_vente ? ' — en cours' : ''}
+                {fmtJournee(d)}{d === aujourdhuiStr() ? " — aujourd'hui" : ''}
               </option>
             ))}
           </select>
-          {dateTravail !== settings.date_vente && (
-            <button className="vp-btn ghost sm" onClick={() => { setDateTravail(settings.date_vente); setBascule(true); }}>
+          {dateTravail !== aujourdhuiStr() && (
+            <button className="vp-btn ghost sm" onClick={() => setDateTravail(aujourdhuiStr())}>
               Revenir à aujourd'hui
             </button>
           )}
+        </div>
+      )}
+
+      {commandes.length === 0 && dateTravail === aujourdhuiStr() && journees.length > 0 && (
+        <div className="vp-rupt-note" style={{ marginBottom: 14, background: '#FFF8EC', borderColor: '#F1DFBC', color: '#7A5A20' }}>
+          Aucune commande aujourd'hui.{' '}
+          <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setDateTravail(journees[0])}>
+            Voir le {fmtJournee(journees[0])}
+          </button>
         </div>
       )}
 
@@ -4739,15 +4780,6 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
-
-  // Mise à jour silencieuse de date_vente si on change de jour
-  useEffect(() => {
-    const today = todayStr();
-    if (settings.date_vente !== today) {
-      supabase.from('viande_settings').update({ date_vente: today }).eq('id', 1).then(() => reload());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const forceeAuj = settings.ouverture_forcee_le === todayStr();
   const basculerForcage = async () => {
