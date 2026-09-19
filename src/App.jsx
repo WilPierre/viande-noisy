@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19b · ouverture exceptionnelle';
+const VERSION = '2026-09-19c · signature en pied de page';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -772,7 +772,13 @@ textarea.vp-input{resize:vertical;min-height:64px}
   border:1px dashed var(--line);border-radius:12px}
 @media (max-width:600px){.vp-cols{grid-template-columns:1fr;gap:6px}}
 
-.vp-ver{text-align:center;color:var(--muted);font-size:11px;opacity:.6;margin-top:28px}
+/* pied de page */
+.vp-pied{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);text-align:center}
+.vp-credit{color:var(--muted);font-size:12.5px}
+.vp-credit a{color:var(--wine);font-weight:700;text-decoration:none;
+  border-bottom:1px solid rgba(138,46,46,.3);padding-bottom:1px}
+.vp-credit a:hover{border-bottom-color:var(--wine)}
+.vp-ver{text-align:center;color:var(--muted);font-size:11px;opacity:.55;margin-top:7px}
 
 /* ===== PANIER FLOTTANT (client) ===== */
 .vp-backdrop{position:fixed;inset:0;background:rgba(36,30,27,.38);z-index:39;
@@ -2782,7 +2788,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
       <PastilleWhatsApp url={settings.whatsapp_url} haut={ouvert && lignes.length > 0} />
 
-      <div className="vp-ver">v{VERSION}</div>
+      <div className="vp-pied">
+        <div className="vp-credit">
+          Créé et développé par Wil ·{' '}
+          <a href="https://enkraj.fr" target="_blank" rel="noreferrer noopener">Enkraj.fr</a>
+        </div>
+        <div className="vp-ver">v{VERSION}</div>
+      </div>
 
       {ouvert && lignes.length > 0 && (
         <>
