@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19e · mots de passe visibles sur demande';
+const VERSION = '2026-09-19f · récap WhatsApp, trois promos en vitrine';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -877,6 +877,13 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-macmd small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 .vp-macmd-b{display:flex;gap:8px;flex:0 0 auto}
 
+/* envoi du récap depuis la confirmation */
+.vp-wa-recap{display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  margin-top:22px;width:100%;max-width:340px;padding:14px 18px;border-radius:13px;
+  background:#25D366;color:#fff;font-weight:800;font-size:15px;text-decoration:none;
+  box-shadow:0 4px 14px rgba(37,211,102,.34)}
+.vp-wa-recap:active{background:#1EBE5B;transform:scale(.98)}
+
 /* pastille WhatsApp flottante */
 .vp-fab-zone{position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:38;
   width:100%;max-width:600px;padding:0 14px;
@@ -1102,10 +1109,24 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-mini-c.presse{color:var(--wine)}
 @media (prefers-reduced-motion:reduce){.vp-urgence-ico{animation:none}}
 
-/* bandeau de la promo du jour */
-.vp-hero{position:relative;display:block;width:100%;padding:0;margin-top:16px;
+/* vitrine des promos : une grande en tête, les suivantes côte à côte */
+.vp-vitrine{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.vp-vitrine .grand{grid-column:1 / -1}
+.vp-vitrine.n2 .petit{grid-column:1 / -1}
+
+.vp-hero{position:relative;display:block;width:100%;padding:0;margin:0;
   border:none;border-radius:20px;overflow:hidden;aspect-ratio:2.15/1;
   box-shadow:0 10px 30px rgba(36,30,27,.16);cursor:pointer}
+.vp-hero.petit{aspect-ratio:1.15/1;border-radius:16px;box-shadow:0 6px 18px rgba(36,30,27,.14)}
+.vp-vitrine.n2 .vp-hero.petit{aspect-ratio:2.15/1}
+.vp-hero.petit .txt{padding:11px 12px}
+.vp-hero.petit .eti{font-size:9.5px;padding:3px 8px}
+.vp-hero.petit h2{font-size:14.5px;margin-top:6px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vp-hero.petit .lp{gap:6px;margin-top:4px;flex-wrap:wrap}
+.vp-hero.petit .lp .ba{font-size:11.5px}
+.vp-hero.petit .lp .ac{font-size:15px}
+.vp-hero:active{transform:scale(.99)}
 .vp-hero img{width:100%;height:100%;object-fit:cover;display:block}
 .vp-hero .voile{position:absolute;inset:0;
   background:linear-gradient(to top,rgba(20,14,12,.88) 0%,rgba(20,14,12,.25) 52%,transparent 78%)}
@@ -2185,12 +2206,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const resteMin = ouvert && !forcee && fermetureAt ? Math.floor((fermetureAt - now) / 60000) : null;
   const presse = resteMin != null && resteMin <= 60;
 
-  const vedette = enPromo.filter((p) => p.photo_url)
+  // Vitrine : jusqu'à trois promos avec photo, la plus forte remise en tête.
+  const vedettes = enPromo.filter((p) => p.photo_url)
     .sort((a, b) => {
       const ra = a.prix_barre > 0 ? (1 - a.prix_william / a.prix_barre) : 0;
       const rb = b.prix_barre > 0 ? (1 - b.prix_william / b.prix_barre) : 0;
       return rb - ra;
-    })[0] || null;
+    })
+    .slice(0, 3);
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -2413,13 +2436,36 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       ecrireCommandeStockee(memo);
       setMaCommande(memo);
 
-      setDone({ nom: profil.nom, total, aDuPese });
+      // récapitulatif conservé pour l'envoi WhatsApp depuis l'écran de confirmation
+      const recap = [
+        `🥩 Ma commande ${settings.titre} — ${fmtDateCourt(settings.date_vente)}`,
+        profil.nom,
+        '',
+        ...lignes.map(({ p, v, q }) => {
+          const qte = p.mode_vente === 'kg' ? `${num(q)} kg` : `x${num(q)}`;
+          return `• ${p.nom}${v ? ` (${v.nom})` : ''} ${qte}`;
+        }),
+        '',
+        `Total estimé : ${aDuPese ? '≈ ' : ''}${eur(total)}`,
+        aDuPese ? '(les produits au kilo seront ajustés après pesée)' : '',
+        note.trim() ? `Note : ${note.trim()}` : '',
+      ].filter((x, i, arr) => x !== '' || (arr[i - 1] !== '' && i > 0)).join('\n').trim();
+
+      setDone({ nom: profil.nom, total, aDuPese, recap });
       setPanierOuvert(false);
       viderPanierStocke();
       setCart({}); setChoix({}); setNom(''); setTel(''); setNote('');
     } catch (e) {
       showToast('Erreur — réessaie');
     } finally { setEnvoi(false); }
+  };
+
+  // Lien WhatsApp prérempli, adressé au numéro de l'organisateur s'il est
+  // connu ; sinon WhatsApp laisse choisir le destinataire.
+  const lienRecap = (texte) => {
+    const n = String(settings.alerte_wa_numero || '').replace(/\D/g, '');
+    const t = encodeURIComponent(texte);
+    return n ? `https://wa.me/${n}?text=${t}` : `https://wa.me/?text=${t}`;
   };
 
   // supprime la commande en base (lignes puis en-tête)
@@ -2473,6 +2519,19 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               au poids réel à la livraison. Tu recevras ta note définitive.</>
             )}
           </p>
+          {done.recap && (
+            <a className="vp-wa-recap" href={lienRecap(done.recap)} target="_blank" rel="noreferrer noopener">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d={CHEMIN_WA} />
+              </svg>
+              Recevoir mon récap sur WhatsApp
+            </a>
+          )}
+          <div className="vp-sub" style={{ marginTop: 8 }}>
+            Le message est déjà rédigé, il ne reste qu'à appuyer sur Envoyer.
+            Tu gardes ainsi une trace écrite de ta commande.
+          </div>
+
           <div className="vp-note" style={{ marginTop: 20, textAlign: 'left' }}>
             Besoin de changer quelque chose ? Reviens sur la boutique&nbsp;:
             tu pourras modifier ou annuler ta commande tant qu'elle est ouverte.
@@ -2759,22 +2818,29 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             </div>
           )}
 
-          {vedette && !q && filtreCat === 'Tous' && (
-            <button className="vp-hero" onClick={() => setFiltreCat('PROMOS')}
-              aria-label={`Voir les promos — ${vedette.nom}`}>
-              <img src={vedette.photo_url} alt="" />
-              <span className="voile" />
-              <span className="txt">
-                <span className="eti"><span className="vp-eclair">⚡</span>LA PROMO DU JOUR</span>
-                <h2>{vedette.nom}</h2>
-                <span className="lp">
-                  {vedette.prix_barre > 0 && vedette.prix_barre > vedette.prix_william && (
-                    <span className="ba">{eur(vedette.prix_barre)}</span>
-                  )}
-                  <span className="ac">{eur(vedette.prix_william)}{MODES[vedette.mode_vente].suffixe}</span>
-                </span>
-              </span>
-            </button>
+          {vedettes.length > 0 && !q && filtreCat === 'Tous' && (
+            <div className={`vp-vitrine n${vedettes.length}`}>
+              {vedettes.map((p, i) => (
+                <button key={p.id} className={`vp-hero ${i === 0 ? 'grand' : 'petit'}`}
+                  onClick={() => setFiltreCat('PROMOS')}
+                  aria-label={`Voir les promos — ${p.nom}`}>
+                  <img src={p.photo_url} alt="" />
+                  <span className="voile" />
+                  <span className="txt">
+                    <span className="eti">
+                      <span className="vp-eclair">⚡</span>{i === 0 ? 'LA PROMO DU JOUR' : 'PROMO'}
+                    </span>
+                    <h2>{p.nom}</h2>
+                    <span className="lp">
+                      {p.prix_barre > 0 && p.prix_barre > p.prix_william && (
+                        <span className="ba">{eur(p.prix_barre)}</span>
+                      )}
+                      <span className="ac">{eur(p.prix_william)}{MODES[p.mode_vente].suffixe}</span>
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
 
           {presse && (
