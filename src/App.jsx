@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19h · titre Promo flash';
+const VERSION = '2026-09-19i · carrousel : ajout direct et accès au produit';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1108,6 +1108,23 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-urgence-ico{font-size:18px;line-height:1;animation:vpbat 1.6s ease-in-out infinite}
 .vp-mini-c.presse{color:var(--wine)}
 @media (prefers-reduced-motion:reduce){.vp-urgence-ico{animation:none}}
+
+/* ajout direct depuis le carrousel */
+.vp-car-bas{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-top:6px}
+.vp-car-bas .lp{margin-top:0}
+.vp-car-ajout{flex:0 0 auto;padding:10px 16px;border-radius:11px;background:#fff;color:#8A2E2E;
+  font-weight:800;font-size:14px;white-space:nowrap;box-shadow:0 3px 12px rgba(0,0,0,.28)}
+.vp-car-ajout:active{transform:scale(.95)}
+.vp-car-diapo{cursor:pointer}
+.vp-car-diapo:focus-visible{outline:3px solid #E0A23C;outline-offset:-3px}
+
+/* fiche désignée depuis le carrousel */
+.vp-prod.vp-repere{animation:vprepere 1.8s ease-out}
+@keyframes vprepere{
+  0%{box-shadow:0 0 0 3px #E0A23C,var(--shadow);border-color:#E0A23C}
+  100%{box-shadow:0 0 0 0 rgba(224,162,60,0),var(--shadow);border-color:var(--line)}
+}
+@media (prefers-reduced-motion:reduce){.vp-prod.vp-repere{animation:none;border-color:#E0A23C}}
 
 /* titre du carrousel */
 .vp-car-titre{display:flex;align-items:center;gap:7px;margin:4px 2px 10px;
@@ -2250,6 +2267,26 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     el.scrollTo({ left: cible * el.clientWidth, behavior: mouvementDoux() ? 'smooth' : 'auto' });
     setDiapo(cible);
   };
+  // Descend jusqu'à la fiche du produit et la fait clignoter, sans
+  // changer de rubrique : le carrousel reste en place au-dessus.
+  const allerAuProduit = (p) => {
+    const el = document.getElementById(`carte-liste-${p.id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: mouvementDoux() ? 'smooth' : 'auto' });
+    el.classList.remove('vp-repere');
+    // relance l'animation même si on retape sur la même promo
+    requestAnimationFrame(() => el.classList.add('vp-repere'));
+    setTimeout(() => el.classList.remove('vp-repere'), 1900);
+  };
+  // Ajout direct depuis le carrousel. Un produit à options exige de choisir
+  // l'option : on emmène alors le client sur la fiche plutôt que d'ajouter
+  // une option au hasard.
+  const ajouterDepuisCarrousel = (e, p) => {
+    e.stopPropagation();
+    if (variantesDe(p).length > 0) { allerAuProduit(p); showToast('Choisis ton option'); return; }
+    ajouter(p, null);
+  };
+
   const surDefilement = () => {
     const el = pisteRef.current;
     if (!el || !el.clientWidth) return;
@@ -2603,7 +2640,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // Carte produit, écrite comme une fonction et non un composant :
   // un composant défini ici serait remonté à chaque frappe et ferait
   // sauter le focus des champs de la page.
-  const carteProduit = (p) => {
+  // « ou » distingue les deux endroits où un produit peut apparaître
+  // (liste de sa catégorie, rubrique favoris) pour cibler le bon.
+  const carteProduit = (p, ou = 'liste') => {
               const m = MODES[p.mode_vente];
               const vs = variantesDe(p);
               const v = varianteActive(p);
@@ -2611,7 +2650,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               const prix = prixVariante(p, v, 'prix_william');
               const pm = poidsVariante(p, v);
               return (
-                <div className="vp-prod" key={p.id}>
+                <div className="vp-prod" key={p.id} id={`carte-${ou}-${p.id}`}>
                   <button className={`vp-etoile ${estFavori(p) ? 'on' : ''}`}
                     onClick={() => basculerFavori(p)}
                     aria-label={estFavori(p) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
@@ -2880,26 +2919,37 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 <span className="vp-car-mot">Promo{vedettes.length > 1 ? 's' : ''} flash</span>
               </h2>
               <div className="vp-car-piste" ref={pisteRef} onScroll={surDefilement}>
-                {vedettes.map((p, i) => (
-                  <button key={p.id} className="vp-hero vp-car-diapo"
-                    onClick={() => setFiltreCat('PROMOS')}
-                    aria-label={`Promo ${i + 1} sur ${vedettes.length} — ${p.nom}`}>
-                    <img src={p.photo_url} alt="" />
-                    <span className="voile" />
-                    <span className="txt">
-                      <span className="eti">
-                        <span className="vp-eclair">⚡</span>{i === 0 ? 'LA PROMO DU JOUR' : 'PROMO'}
+                {vedettes.map((p, i) => {
+                  const dejaQte = Object.keys(cart)
+                    .filter((k) => k.startsWith(`${p.id}|`))
+                    .reduce((t, k) => t + (cart[k] || 0), 0);
+                  return (
+                    <div key={p.id} className="vp-hero vp-car-diapo" role="button" tabIndex={0}
+                      onClick={() => allerAuProduit(p)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') allerAuProduit(p); }}
+                      aria-label={`Promo ${i + 1} sur ${vedettes.length} — ${p.nom}, voir la fiche`}>
+                      <img src={p.photo_url} alt="" />
+                      <span className="voile" />
+                      <span className="txt">
+                        <span className="eti">
+                          <span className="vp-eclair">⚡</span>{i === 0 ? 'LA PROMO DU JOUR' : 'PROMO'}
+                        </span>
+                        <h2>{p.nom}</h2>
+                        <span className="vp-car-bas">
+                          <span className="lp">
+                            {p.prix_barre > 0 && p.prix_barre > p.prix_william && (
+                              <span className="ba">{eur(p.prix_barre)}</span>
+                            )}
+                            <span className="ac">{eur(p.prix_william)}{MODES[p.mode_vente].suffixe}</span>
+                          </span>
+                          <button className="vp-car-ajout" onClick={(e) => ajouterDepuisCarrousel(e, p)}>
+                            {dejaQte > 0 ? `+1 · ${num(dejaQte)} au panier` : 'Ajouter'}
+                          </button>
+                        </span>
                       </span>
-                      <h2>{p.nom}</h2>
-                      <span className="lp">
-                        {p.prix_barre > 0 && p.prix_barre > p.prix_william && (
-                          <span className="ba">{eur(p.prix_barre)}</span>
-                        )}
-                        <span className="ac">{eur(p.prix_william)}{MODES[p.mode_vente].suffixe}</span>
-                      </span>
-                    </span>
-                  </button>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
 
               {vedettes.length > 1 && (
@@ -2955,7 +3005,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           {favorisDispo.length > 0 && !q && filtreCat === 'Tous' && (
             <div>
               <div className="vp-cat"><span className="vp-cat-ico">⭐</span>Mes favoris</div>
-              {favorisDispo.map(carteProduit)}
+              {favorisDispo.map((p) => carteProduit(p, 'fav'))}
             </div>
           )}
 
@@ -2972,7 +3022,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           {catsAffichees.map((cat) => (
           <div key={cat}>
             <div className="vp-cat"><span className="vp-cat-ico">{iconeCat(cat)}</span>{libelleCat(cat)}</div>
-            {source.filter((p) => catDe(p) === cat).map(carteProduit)}
+            {source.filter((p) => catDe(p) === cat).map((p) => carteProduit(p, 'liste'))}
           </div>
           ))}
         </>
