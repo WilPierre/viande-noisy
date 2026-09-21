@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19g · carrousel des promos';
+const VERSION = '2026-09-19h · titre Promo flash';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1109,15 +1109,27 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-mini-c.presse{color:var(--wine)}
 @media (prefers-reduced-motion:reduce){.vp-urgence-ico{animation:none}}
 
+/* titre du carrousel */
+.vp-car-titre{display:flex;align-items:center;gap:7px;margin:4px 2px 10px;
+  font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:22px;font-weight:800;
+  letter-spacing:-.02em;line-height:1}
+.vp-car-eclair{font-size:20px;animation:vpeclair 2.4s ease-in-out infinite}
+.vp-car-mot{background:linear-gradient(135deg,#E0852C 0%,#C2521A 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+[data-theme="sombre"] .vp-car-mot{background:linear-gradient(135deg,#F0B429 0%,#E0852C 100%);
+  -webkit-background-clip:text;background-clip:text}
+@keyframes vpeclair{0%,86%,100%{opacity:1;transform:scale(1)}90%{opacity:.35;transform:scale(1.18)}}
+@media (prefers-reduced-motion:reduce){.vp-car-eclair{animation:none}}
+
 /* carrousel des promos — flèches et points rendent visible ce qui est hors écran */
-.vp-car{position:relative;margin-top:16px}
+.vp-car{position:relative;margin-top:20px}
 .vp-car-piste{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;
   border-radius:20px;box-shadow:0 10px 30px rgba(36,30,27,.16);
   scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 .vp-car-piste::-webkit-scrollbar{display:none}
 .vp-car-diapo{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;
   border-radius:0;box-shadow:none}
-.vp-car-fl{position:absolute;top:calc(50% - 14px);transform:translateY(-50%);
+.vp-car-fl{position:absolute;top:calc(50% + 2px);transform:translateY(-50%);
   width:38px;height:38px;border-radius:50%;z-index:3;
   background:rgba(255,255,255,.9);color:#241E1B;display:grid;place-items:center;
   box-shadow:0 2px 10px rgba(0,0,0,.22);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
@@ -2863,6 +2875,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
           {vedettes.length > 0 && !q && filtreCat === 'Tous' && (
             <div className="vp-car" aria-roledescription="carrousel" aria-label="Promos du moment">
+              <h2 className="vp-car-titre">
+                <span className="vp-car-eclair">⚡</span>
+                <span className="vp-car-mot">Promo{vedettes.length > 1 ? 's' : ''} flash</span>
+              </h2>
               <div className="vp-car-piste" ref={pisteRef} onScroll={surDefilement}>
                 {vedettes.map((p, i) => (
                   <button key={p.id} className="vp-hero vp-car-diapo"
