@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-20 · questionnaire membres, réponses, alertes';
+const VERSION = '2026-09-20b · demandes de produits hors catalogue';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1234,6 +1234,30 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-remise{display:inline-block;margin-right:7px;padding:1px 7px;border-radius:6px;
   background:var(--red-s);color:var(--wine);font-size:11.5px;font-weight:800}
 
+/* demandes de produits hors catalogue */
+.vp-demande-lien{width:100%;display:flex;align-items:center;gap:12px;text-align:left;
+  margin-top:20px;padding:13px 15px;border-radius:14px;background:var(--card);
+  border:1px dashed var(--line);color:var(--ink)}
+.vp-demande-lien b{display:block;font-size:14.5px}
+.vp-demande-lien small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.vp-badge-dem{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;
+  background:#3B5B8C;color:#fff;font-size:10px;font-weight:800;letter-spacing:.05em;
+  vertical-align:0.08em}
+.vp-demandes{margin-top:14px;padding:12px 13px;border-radius:12px;
+  background:#F2F6FB;border:1px dashed #C9D8EC}
+[data-theme="sombre"] .vp-demandes{background:#1B2330;border-color:#2C3A50}
+.vp-demandes > b{display:block;font-size:13.5px}
+.vp-demandes > small{display:block;color:var(--muted);font-size:12px;margin-top:2px;line-height:1.45}
+.vp-demande-l{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 0;border-bottom:1px dotted var(--line);font-size:14px}
+.vp-demande-l .l{min-width:0}
+.vp-demande-l .l small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+.vp-demande-x{width:28px;height:28px;flex:0 0 auto;border-radius:8px;background:var(--blanc);
+  border:1px solid var(--line);color:var(--muted);font-size:16px;display:grid;place-items:center}
+.vp-demande-f{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.vp-demande-q{display:grid;grid-template-columns:72px 1fr auto;gap:8px;align-items:center}
+.vp-demande-q .vp-input{padding:9px 10px;font-size:15px}
+
 /* rappel des produits habituels */
 .vp-oublis{margin-top:14px;padding:12px 13px;border-radius:12px;
   background:var(--paper);border:1px dashed var(--line)}
@@ -2137,7 +2161,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const imprimerFacture = (c) => {
     const rows = (c.lignes || []).map((l) => {
       const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pièce(s)`;
-      const montant = l.sous_total_final != null ? eur(l.sous_total_final)
+      const montant = l.demande && !(Number(l.sous_total_final) > 0) ? 'prix à confirmer'
+        : l.sous_total_final != null ? eur(l.sous_total_final)
         : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime);
       return `<tr>
         <td class="prod">${esc(nomLigne(l))}</td>
@@ -2242,7 +2267,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
                   {l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`}
                 </span></span>
                 <span style={{ fontWeight: 700 }}>
-                  {l.sous_total_final != null ? eur(l.sous_total_final)
+                  {l.demande && !(Number(l.sous_total_final) > 0) ? 'prix à confirmer'
+                    : l.sous_total_final != null ? eur(l.sous_total_final)
                     : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime)}
                 </span>
               </div>
@@ -2299,6 +2325,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
   const [choix, setChoix] = useState(() => (repris && repris.choix) || {}); // produitId -> variante choisie
+  // produits demandés hors catalogue : [{ id, nom, quantite, unite, produit_id, emoji }]
+  const [demandes, setDemandes] = useState(() => (repris && repris.demandes) || []);
+  const [demNom, setDemNom] = useState('');
+  const [demQte, setDemQte] = useState('1');
+  const [demUnite, setDemUnite] = useState('piece');
   const [nom, setNom] = useState(() => (repris && repris.nom) || '');
   const [tel, setTel] = useState(() => (repris && repris.tel) || '');
   const [note, setNote] = useState(() => (repris && repris.note) || '');
@@ -2414,9 +2445,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   // sauvegarde continue : rafraîchir la page ne perd plus rien
   useEffect(() => {
-    if (Object.keys(cart).length === 0) { viderPanierStocke(); return; }
-    ecrirePanierStocke({ date: settings.date_vente, cart, choix, nom, tel, note });
-  }, [cart, choix, nom, tel, note, settings.date_vente]);
+    if (Object.keys(cart).length === 0 && demandes.length === 0) { viderPanierStocke(); return; }
+    ecrirePanierStocke({ date: settings.date_vente, cart, choix, nom, tel, note, demandes });
+  }, [cart, choix, nom, tel, note, demandes, settings.date_vente]);
 
   // prévient une seule fois que le panier a été retrouvé
   const [reprisSignale, setReprisSignale] = useState(false);
@@ -2587,14 +2618,42 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // Nombre d'articles réel : on additionne les quantités.
   // Une ligne « au kilo » compte pour 1 (c'est une demande de poids,
   // pas un nombre de pièces).
+  // le panier existe dès qu'il y a un produit ou une demande
+  const panierPlein = lignes.length > 0 || demandes.length > 0;
+
   const nbArticles = lignes.reduce((s, { p, q }) =>
-    s + (p.mode_vente === 'kg' ? 1 : Math.round(Number(q) || 0)), 0);
+    s + (p.mode_vente === 'kg' ? 1 : Math.round(Number(q) || 0)), 0)
+    + demandes.reduce((s, d) => s + (d.unite === 'kg' ? 1 : Math.round(Number(d.quantite) || 0)), 0);
   const aDuPese = lignes.some(({ p }) => MODES[p.mode_vente].pese);
+
+  // Produits qu'on ne vend pas en ce moment : ils servent de suggestions,
+  // un voisin qui les a déjà achetés les reconnaîtra.
+  const horsVente = produits.filter((p) => !p.disponible || p.rupture);
+
+  const ajouterDemande = () => {
+    const n = demNom.trim();
+    if (n.length < 2) { showToast('Indique le produit souhaité'); return; }
+    const qte = nombre(demQte);
+    if (isNaN(qte) || qte <= 0) { showToast('Indique une quantité'); return; }
+    // si le nom correspond à un produit connu, on le rattache
+    const connu = horsVente.find((p) => normaliser(p.nom) === normaliser(n));
+    setDemandes((d) => [...d, {
+      id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+      nom: connu ? connu.nom : n,
+      quantite: qte,
+      unite: demUnite,
+      produit_id: connu ? connu.id : null,
+      emoji: connu ? connu.emoji : '📝',
+    }]);
+    setDemNom(''); setDemQte('1'); setDemUnite('piece');
+    showToast('Demande ajoutée — le prix te sera confirmé');
+  };
+  const retirerDemande = (id) => setDemandes((d) => d.filter((x) => x.id !== id));
 
   const envoyer = async () => {
     if (!connecte || !profil) { showToast('Connecte-toi pour commander'); setModeAuth('connexion'); setAuthOuvert(true); return; }
     if (profil.bloque) { showToast('Ton compte ne permet pas de commander — contacte-nous'); return; }
-    if (lignes.length === 0) { showToast('Ton panier est vide'); return; }
+    if (lignes.length === 0 && demandes.length === 0) { showToast('Ton panier est vide'); return; }
     setEnvoi(true);
     try {
       const totalPatrice = lignes.reduce(
@@ -2620,12 +2679,29 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         quantite: q,
         sous_total_estime: Math.round(sousTotalLigne(p, v, q, 'prix_william') * 100) / 100,
       }));
+      // demandes hors catalogue : lignes sans prix, à fixer dans l'onglet Pesées
+      demandes.forEach((d) => rows.push({
+        commande_id: cmd.id,
+        produit_id: d.produit_id || null,
+        produit_nom: d.nom,
+        mode_vente: d.unite === 'kg' ? 'kg' : 'piece_fixe',
+        emoji: d.emoji || '📝',
+        variante_id: null,
+        variante_nom: null,
+        prix_patrice: 0,
+        prix_william: 0,
+        poids_moyen: null,
+        quantite: d.quantite,
+        sous_total_estime: 0,
+        demande: true,
+      }));
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
       if (e2) throw e2;
       // alerte (ne bloque jamais la commande)
-      const resume = lignes
-        .map(({ p, v, q }) => `• ${p.nom}${v ? ` (${v.nom})` : ''} x${num(q)}`)
-        .join('\n');
+      const resume = [
+        ...lignes.map(({ p, v, q }) => `• ${p.nom}${v ? ` (${v.nom})` : ''} x${num(q)}`),
+        ...demandes.map((d) => `• 📝 DEMANDE : ${d.nom} ${d.unite === 'kg' ? `${num(d.quantite)} kg` : `x${num(d.quantite)}`}`),
+      ].join('\n');
       envoyerAlerteWhatsApp(settings,
         `🥩 Nouvelle commande\n${profil.nom} — ${profil.telephone}\n\n${resume}\n\n`
         + `Total estimé : ${eur(total)}`
@@ -2648,6 +2724,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           const qte = p.mode_vente === 'kg' ? `${num(q)} kg` : `x${num(q)}`;
           return `• ${p.nom}${v ? ` (${v.nom})` : ''} ${qte}`;
         }),
+        ...demandes.map((d) =>
+          `• ${d.nom} ${d.unite === 'kg' ? `${num(d.quantite)} kg` : `x${num(d.quantite)}`} (demande, prix à confirmer)`),
         '',
         `Total estimé : ${aDuPese ? '≈ ' : ''}${eur(total)}`,
         aDuPese ? '(les produits au kilo seront ajustés après pesée)' : '',
@@ -2657,7 +2735,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       setDone({ nom: profil.nom, total, aDuPese, recap });
       setPanierOuvert(false);
       viderPanierStocke();
-      setCart({}); setChoix({}); setNom(''); setTel(''); setNote('');
+      setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
     } catch (e) {
       showToast('Erreur — réessaie');
     } finally { setEnvoi(false); }
@@ -2844,7 +2922,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }
 
   return (
-    <div className={`vp-app ${ouvert && lignes.length > 0 ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
+    <div className={`vp-app ${ouvert && (panierPlein || panierOuvert) ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
       <div className="vp-mini">
         <span className="vp-mini-m">{settings.titre}</span>
         <button className="vp-theme" onClick={basculerTheme}
@@ -3141,6 +3219,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             {source.filter((p) => catDe(p) === cat).map((p) => carteProduit(p, 'liste'))}
           </div>
           ))}
+
+          {!q && (
+            <button className="vp-demande-lien"
+              onClick={() => { setPanierOuvert(true); }}>
+              <span className="vp-rappel-ico">📝</span>
+              <span>
+                <b>Un produit manque à la liste ?</b>
+                <small>Demande un produit déjà proposé, on te confirme le prix</small>
+              </span>
+              <span className="vp-sondage-fl">›</span>
+            </button>
+          )}
         </>
       )}
 
@@ -3152,7 +3242,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         </div>
       )}
 
-      <PastilleWhatsApp url={settings.whatsapp_url} haut={ouvert && lignes.length > 0} />
+      <PastilleWhatsApp url={settings.whatsapp_url} haut={ouvert && (panierPlein || panierOuvert)} />
 
       <div className="vp-pied">
         <div className="vp-credit">
@@ -3162,7 +3252,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <div className="vp-ver">v{VERSION}</div>
       </div>
 
-      {ouvert && lignes.length > 0 && (
+      {ouvert && (panierPlein || panierOuvert) && (
         <>
           {panierOuvert && <div className="vp-backdrop" onClick={() => setPanierOuvert(false)} />}
 
@@ -3198,6 +3288,40 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   );
                 })}
 
+                <div className="vp-demandes">
+                  <b>Un produit qui n'est pas dans la liste ?</b>
+                  <small>Un produit déjà proposé et que tu aimerais retrouver. Le prix te sera confirmé.</small>
+
+                  {demandes.map((d) => (
+                    <div className="vp-demande-l" key={d.id}>
+                      <span className="l">
+                        {d.emoji} {d.nom}
+                        <small>{d.unite === 'kg' ? `${num(d.quantite)} kg` : `${num(d.quantite)} pièce(s)`} · prix à confirmer</small>
+                      </span>
+                      <button className="vp-demande-x" onClick={() => retirerDemande(d.id)} aria-label={`Retirer ${d.nom}`}>×</button>
+                    </div>
+                  ))}
+
+                  <div className="vp-demande-f">
+                    <input className="vp-input" value={demNom} list="vp-hors-vente"
+                      onChange={(e) => setDemNom(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && ajouterDemande()}
+                      placeholder="Ex : Côte de bœuf, fuet aux noisettes…" />
+                    <datalist id="vp-hors-vente">
+                      {horsVente.map((p) => <option key={p.id} value={p.nom} />)}
+                    </datalist>
+                    <div className="vp-demande-q">
+                      <input className="vp-input" value={demQte} inputMode="decimal"
+                        onChange={(e) => setDemQte(e.target.value)} aria-label="Quantité" />
+                      <select className="vp-input" value={demUnite} onChange={(e) => setDemUnite(e.target.value)} aria-label="Unité">
+                        <option value="piece">pièce(s)</option>
+                        <option value="kg">kg</option>
+                      </select>
+                      <button className="vp-btn ghost sm" onClick={ajouterDemande}>+ Ajouter</button>
+                    </div>
+                  </div>
+                </div>
+
                 {oublis.length > 0 && (
                   <div className="vp-oublis">
                     <b>Tu prends ça d'habitude</b>
@@ -3218,7 +3342,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   </div>
                 )}
 
-                <div className="vp-tot"><span>Total estimé</span><span className="r">{aDuPese ? '≈ ' : ''}{eur(total)}</span></div>
+                <div className="vp-tot"><span>Total estimé</span><span className="r">{lignes.length === 0 ? 'à confirmer' : `${aDuPese ? '≈ ' : ''}${eur(total)}`}</span></div>
+                {demandes.length > 0 && lignes.length > 0 && (
+                  <div className="vp-mini">+ {demandes.length} demande(s) dont le prix te sera confirmé.</div>
+                )}
                 {aDuPese && (
                   <div className="vp-avert">
                     <b>⚠️ Ce montant n'est qu'une estimation.</b>
@@ -3246,7 +3373,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : je passe vers 18h…" />
                     </div>
                     <button className="vp-cta" disabled={envoi} onClick={envoyer}>
-                      {envoi ? 'Envoi…' : `Envoyer ma commande · ${aDuPese ? '≈ ' : ''}${eur(total)}`}
+                      {envoi ? 'Envoi…'
+                        : lignes.length === 0 ? 'Envoyer ma demande'
+                        : `Envoyer ma commande · ${aDuPese ? '≈ ' : ''}${eur(total)}`}
                     </button>
                   </>
                 ) : (
@@ -3281,7 +3410,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 </span>
               </span>
               <span className="vp-bar-r">
-                {aDuPese ? '≈ ' : ''}{eur(total)}
+                {lignes.length === 0 ? 'à confirmer' : `${aDuPese ? '≈ ' : ''}${eur(total)}`}
                 <svg className={`vp-bar-chev ${panierOuvert ? 'on' : ''}`} width="16" height="16" viewBox="0 0 24 24"
                   fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
                   <path d="M6 15l6-6 6 6" />
@@ -3604,7 +3733,10 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
               const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`;
               return (
                 <div className="vp-cmd-l" key={l.id}>
-                  <span>{l.emoji} {nomLigne(l)} <span className="vp-pill">{q}</span></span>
+                  <span>
+                    {l.emoji} {nomLigne(l)} <span className="vp-pill">{q}</span>
+                    {l.demande && <span className="vp-badge-dem">DEMANDE</span>}
+                  </span>
                   <span style={{ fontWeight: 700 }}>
                     {l.poids_reel != null ? eur(sousTotalFinal(l)) : (m.pese && l.mode_vente !== 'piece_fixe' ? '≈ ' : '') + eur(l.sous_total_estime)}
                   </span>
@@ -4336,7 +4468,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
           <td class="prod"><span class="nom">${esc(sansPoids(nomLigne(l)))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
           <td class="qte c">${esc(q)}</td>
           <td class="c">${rupt || !auKilo ? '—' : '<span class="saisie"></span>'}</td>
-          <td class="n">${esc(eur(Number(l.prix_patrice)) + unite)}</td>
+          <td class="n">${l.demande && !(Number(l.prix_patrice) > 0) ? 'à fixer' : esc(eur(Number(l.prix_patrice)) + unite)}</td>
         </tr>`;
       }).join('');
       return `<div class="bloc">
@@ -4701,6 +4833,10 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         <div className="vp-pl-h">
           <div className="nm">
             <span className={rupt ? 'vp-barre' : ''}>{sousTitre}</span>
+            {l.demande && <span className="vp-badge-dem">DEMANDE</span>}
+            {l.demande && !(nombre(valWil(l)) > 0) && (
+              <small style={{ color: '#B3261E', fontWeight: 700 }}>Prix à fixer ci-dessous</small>
+            )}
             <small>
               {l.mode_vente === 'kg' ? `${num(l.quantite)} kg souhaités`
                 : `${num(l.quantite)} pièce(s)`}
