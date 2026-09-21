@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 /* ============================================================
@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-19f · récap WhatsApp, trois promos en vitrine';
+const VERSION = '2026-09-19g · carrousel des promos';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1109,6 +1109,27 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-mini-c.presse{color:var(--wine)}
 @media (prefers-reduced-motion:reduce){.vp-urgence-ico{animation:none}}
 
+/* carrousel des promos — flèches et points rendent visible ce qui est hors écran */
+.vp-car{position:relative;margin-top:16px}
+.vp-car-piste{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;
+  border-radius:20px;box-shadow:0 10px 30px rgba(36,30,27,.16);
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.vp-car-piste::-webkit-scrollbar{display:none}
+.vp-car-diapo{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;
+  border-radius:0;box-shadow:none}
+.vp-car-fl{position:absolute;top:calc(50% - 14px);transform:translateY(-50%);
+  width:38px;height:38px;border-radius:50%;z-index:3;
+  background:rgba(255,255,255,.9);color:#241E1B;display:grid;place-items:center;
+  box-shadow:0 2px 10px rgba(0,0,0,.22);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.vp-car-fl.g{left:10px}
+.vp-car-fl.d{right:10px}
+.vp-car-fl:active{transform:translateY(-50%) scale(.9)}
+.vp-car-pts{display:flex;justify-content:center;gap:6px;margin-top:10px}
+.vp-car-pts button{width:7px;height:7px;padding:0;border-radius:999px;background:var(--line);
+  transition:width .2s ease,background .2s ease}
+.vp-car-pts button.on{width:20px;background:var(--wine)}
+@media (prefers-reduced-motion:reduce){.vp-car-pts button{transition:none}}
+
 /* vitrine des promos : une grande en tête, les suivantes côte à côte */
 .vp-vitrine{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
 .vp-vitrine .grand{grid-column:1 / -1}
@@ -2202,6 +2223,28 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const favorisDispo = visibles.filter((p) => favoris.includes(String(p.id)));
   // produit mis en avant : une promo avec photo, en privilégiant
   // celle qui affiche une vraie remise
+  // carrousel des promos
+  const pisteRef = useRef(null);
+  const [diapo, setDiapo] = useState(0);
+  const mouvementDoux = () => {
+    try { return !window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch (e) { return true; }
+  };
+  const allerA = (i) => {
+    const el = pisteRef.current;
+    if (!el || !vedettes.length) return;
+    const n = vedettes.length;
+    const cible = ((i % n) + n) % n; // on boucle aux deux extrémités
+    el.scrollTo({ left: cible * el.clientWidth, behavior: mouvementDoux() ? 'smooth' : 'auto' });
+    setDiapo(cible);
+  };
+  const surDefilement = () => {
+    const el = pisteRef.current;
+    if (!el || !el.clientWidth) return;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== diapo) setDiapo(i);
+  };
+
   // moins d'une heure avant la fermeture : on le dit clairement
   const resteMin = ouvert && !forcee && fermetureAt ? Math.floor((fermetureAt - now) / 60000) : null;
   const presse = resteMin != null && resteMin <= 60;
@@ -2213,7 +2256,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       const rb = b.prix_barre > 0 ? (1 - b.prix_william / b.prix_barre) : 0;
       return rb - ra;
     })
-    .slice(0, 3);
+    .slice(0, 10);
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -2819,27 +2862,46 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           )}
 
           {vedettes.length > 0 && !q && filtreCat === 'Tous' && (
-            <div className={`vp-vitrine n${vedettes.length}`}>
-              {vedettes.map((p, i) => (
-                <button key={p.id} className={`vp-hero ${i === 0 ? 'grand' : 'petit'}`}
-                  onClick={() => setFiltreCat('PROMOS')}
-                  aria-label={`Voir les promos — ${p.nom}`}>
-                  <img src={p.photo_url} alt="" />
-                  <span className="voile" />
-                  <span className="txt">
-                    <span className="eti">
-                      <span className="vp-eclair">⚡</span>{i === 0 ? 'LA PROMO DU JOUR' : 'PROMO'}
+            <div className="vp-car" aria-roledescription="carrousel" aria-label="Promos du moment">
+              <div className="vp-car-piste" ref={pisteRef} onScroll={surDefilement}>
+                {vedettes.map((p, i) => (
+                  <button key={p.id} className="vp-hero vp-car-diapo"
+                    onClick={() => setFiltreCat('PROMOS')}
+                    aria-label={`Promo ${i + 1} sur ${vedettes.length} — ${p.nom}`}>
+                    <img src={p.photo_url} alt="" />
+                    <span className="voile" />
+                    <span className="txt">
+                      <span className="eti">
+                        <span className="vp-eclair">⚡</span>{i === 0 ? 'LA PROMO DU JOUR' : 'PROMO'}
+                      </span>
+                      <h2>{p.nom}</h2>
+                      <span className="lp">
+                        {p.prix_barre > 0 && p.prix_barre > p.prix_william && (
+                          <span className="ba">{eur(p.prix_barre)}</span>
+                        )}
+                        <span className="ac">{eur(p.prix_william)}{MODES[p.mode_vente].suffixe}</span>
+                      </span>
                     </span>
-                    <h2>{p.nom}</h2>
-                    <span className="lp">
-                      {p.prix_barre > 0 && p.prix_barre > p.prix_william && (
-                        <span className="ba">{eur(p.prix_barre)}</span>
-                      )}
-                      <span className="ac">{eur(p.prix_william)}{MODES[p.mode_vente].suffixe}</span>
-                    </span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
+
+              {vedettes.length > 1 && (
+                <>
+                  <button className="vp-car-fl g" onClick={() => allerA(Math.min(diapo, vedettes.length - 1) - 1)} aria-label="Promo précédente">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+                  </button>
+                  <button className="vp-car-fl d" onClick={() => allerA(Math.min(diapo, vedettes.length - 1) + 1)} aria-label="Promo suivante">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+                  </button>
+                  <div className="vp-car-pts">
+                    {vedettes.map((p, i) => (
+                      <button key={p.id} className={i === Math.min(diapo, vedettes.length - 1) ? 'on' : ''}
+                        onClick={() => allerA(i)} aria-label={`Aller à la promo ${i + 1}`} />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
