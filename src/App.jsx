@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-20d · nom WhatsApp des membres';
+const VERSION = '2026-09-20e · envoi de commande fiabilisé';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2739,6 +2739,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         poids_moyen: p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null,
         quantite: q,
         sous_total_estime: Math.round(sousTotalLigne(p, v, q, 'prix_william') * 100) / 100,
+        // Champs des demandes, renseignés ici aussi : dans un envoi groupé,
+        // Supabase remplit par du vide ce qu'une ligne ne précise pas, et
+        // « demande » refuse le vide. Toutes les lignes doivent être identiques.
+        demande: false,
+        demande_origine: null,
       }));
       // demandes hors catalogue : lignes sans prix, à fixer dans l'onglet Pesées
       demandes.forEach((d) => rows.push({
@@ -2758,7 +2763,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         demande_origine: d.nom,
       }));
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
-      if (e2) throw e2;
+      if (e2) {
+        // L'en-tête est déjà enregistré : sans ses lignes, il deviendrait une
+        // commande vide dans l'admin. On le retire avant de signaler l'erreur.
+        await supabase.from('viande_commandes').delete().eq('id', cmd.id);
+        throw e2;
+      }
       // alerte (ne bloque jamais la commande)
       const resume = [
         ...lignes.map(({ p, v, q }) => `• ${p.nom}${v ? ` (${v.nom})` : ''} x${num(q)}`),
@@ -2799,7 +2809,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       viderPanierStocke();
       setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
     } catch (e) {
-      showToast('Erreur — réessaie');
+      // le détail part dans la console pour le diagnostic ; le client garde
+      // son panier intact et peut renvoyer
+      console.error('Envoi de commande impossible :', e);
+      showToast(`Commande non envoyée — ${messageErreur(e) || 'réessaie dans un instant'}. Ton panier est conservé.`);
     } finally { setEnvoi(false); }
   };
 
