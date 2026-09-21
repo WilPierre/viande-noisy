@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-20c · demandes en texte libre, reformulables';
+const VERSION = '2026-09-20d · nom WhatsApp des membres';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1002,6 +1002,11 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-rep{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff}
 .vp-rep-t{margin:6px 0 4px;font-size:14px;line-height:1.55;white-space:pre-wrap}
 
+/* nom WhatsApp (admin) */
+.vp-alias{display:inline-flex;align-items:center;gap:5px;margin:3px 0 1px;padding:1px 8px;
+  border-radius:6px;background:#E7F7EE;color:#1E7A45;font-size:12px;font-weight:700}
+[data-theme="sombre"] .vp-alias{background:#18301F;color:#7FD39C}
+
 /* alerte messages (admin) */
 .vp-alerte-msg{width:100%;display:flex;align-items:center;gap:12px;text-align:left;
   margin-bottom:14px;padding:13px 15px;border-radius:14px;
@@ -1792,6 +1797,7 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   const [mode, setMode] = useState(modeInitial || 'inscription');
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
+  const [alias, setAlias] = useState('');
   const [email, setEmail] = useState('');
   const [mdp, setMdp] = useState('');
   const [code, setCode] = useState('');
@@ -1837,6 +1843,7 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   const creerFiche = async (uid) => {
     const { error } = await supabase.from('viande_clients').upsert({
       id: uid, nom: nom.trim(), telephone: tel.trim(), email: email.trim(),
+      alias_whatsapp: alias.trim() || null,
     });
     if (error) showToast(messageErreur(error));
   };
@@ -2009,6 +2016,14 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
               Indispensable pour te joindre en cas de rupture ou d'ajustement de poids.
             </div>
           </div>
+          <div className="vp-field">
+            <label className="vp-label">Ton nom sur WhatsApp (facultatif)</label>
+            <input className="vp-input" value={alias} onChange={(e) => setAlias(e.target.value)}
+              placeholder="Ex : Marie D., Mimi 🌸…" />
+            <div className="vp-sub" style={{ marginTop: 4 }}>
+              Celui qui s'affiche dans le groupe, pour qu'on te reconnaisse.
+            </div>
+          </div>
         </>
       )}
 
@@ -2055,6 +2070,7 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
 function EcranProfilManquant({ session, chargerProfil, showToast }) {
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
+  const [alias, setAlias] = useState('');
   const [envoi, setEnvoi] = useState(false);
 
   const valider = async () => {
@@ -2067,6 +2083,7 @@ function EcranProfilManquant({ session, chargerProfil, showToast }) {
         nom: nom.trim(),
         telephone: tel.trim(),
         email: session.user.email || null,
+        alias_whatsapp: alias.trim() || null,
       });
       const err = messageErreur(error);
       if (err) { showToast(err); return; }
@@ -2093,6 +2110,11 @@ function EcranProfilManquant({ session, chargerProfil, showToast }) {
         <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)}
           placeholder="06 12 34 56 78" inputMode="tel"
           onKeyDown={(e) => e.key === 'Enter' && valider()} />
+      </div>
+      <div className="vp-field">
+        <label className="vp-label">Ton nom sur WhatsApp (facultatif)</label>
+        <input className="vp-input" value={alias} onChange={(e) => setAlias(e.target.value)}
+          placeholder="Ex : Marie D., Mimi 🌸…" />
       </div>
       <button className="vp-cta" disabled={envoi} onClick={valider}>
         {envoi ? 'Un instant…' : 'Valider'}
@@ -2129,6 +2151,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const [edition, setEdition] = useState(false);
   const [nom, setNom] = useState((profil && profil.nom) || '');
   const [tel, setTel] = useState((profil && profil.telephone) || '');
+  const [alias, setAlias] = useState((profil && profil.alias_whatsapp) || '');
 
   useEffect(() => {
     const charger = async () => {
@@ -2149,7 +2172,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
     if (!nom.trim()) { showToast('Le prénom ne peut pas être vide'); return; }
     if (tel.replace(/\D/g, '').length < 10) { showToast('Numéro de téléphone invalide'); return; }
     const { error } = await supabase.from('viande_clients')
-      .update({ nom: nom.trim(), telephone: tel.trim() }).eq('id', profil.id);
+      .update({ nom: nom.trim(), telephone: tel.trim(), alias_whatsapp: alias.trim() || null })
+      .eq('id', profil.id);
     const err = messageErreur(error);
     if (err) { showToast(err); return; }
     await chargerProfil();
@@ -2230,13 +2254,24 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
               <label className="vp-label">Téléphone</label>
               <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" />
             </div>
+            <div className="vp-field">
+              <label className="vp-label">Nom sur WhatsApp (facultatif)</label>
+              <input className="vp-input" value={alias} onChange={(e) => setAlias(e.target.value)}
+                placeholder="Ex : Marie D., Mimi 🌸…" />
+            </div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
-              <button className="vp-btn ghost" onClick={() => { setEdition(false); setNom(profil.nom); setTel(profil.telephone); }}>Annuler</button>
+              <button className="vp-btn ghost" onClick={() => {
+                setEdition(false); setNom(profil.nom); setTel(profil.telephone);
+                setAlias(profil.alias_whatsapp || '');
+              }}>Annuler</button>
               <button className="vp-btn" onClick={enregistrer}>Enregistrer</button>
             </div>
           </>
         ) : (
-          <div className="vp-sub" style={{ marginTop: 6 }}>{profil && profil.telephone}</div>
+          <div className="vp-sub" style={{ marginTop: 6 }}>
+            {profil && profil.telephone}
+            {profil && profil.alias_whatsapp && <> · WhatsApp : {profil.alias_whatsapp}</>}
+          </div>
         )}
       </div>
 
@@ -3646,11 +3681,15 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
   // à 18 h vaut mieux qu'un message de plus dans le groupe.
   const [absents, setAbsents] = useState([]);
   const [voirAbsents, setVoirAbsents] = useState(false);
+  const [alias, setAlias] = useState({}); // user_id -> nom WhatsApp
 
   useEffect(() => {
     const charger = async () => {
       const { data: clients } = await supabase.from('viande_clients')
-        .select('id, nom, telephone, bloque');
+        .select('id, nom, telephone, bloque, alias_whatsapp');
+      const a = {};
+      (clients || []).forEach((c) => { if (c.alias_whatsapp) a[String(c.id)] = c.alias_whatsapp; });
+      setAlias(a);
       const { data: histo } = await supabase.from('viande_commandes')
         .select('user_id, created_at');
       const dejaLa = new Set(commandes.map((c) => String(c.user_id)));
@@ -3685,7 +3724,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
   const texteRelance = () => {
     let t = '📣 À relancer\n\n';
     absents.forEach((a) => {
-      t += `${a.nom} — ${a.telephone}`;
+      t += `${a.nom}${a.alias_whatsapp ? ` (${a.alias_whatsapp})` : ''} — ${a.telephone}`;
       t += a.jours === null ? ' (jamais commandé)\n' : ` (dernière fois il y a ${a.jours} j)\n`;
     });
     return t;
@@ -3719,7 +3758,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
                 <span>
                   {a.nom}
                   <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
-                    {a.telephone}
+                    {a.alias_whatsapp ? `${a.alias_whatsapp} · ` : ''}{a.telephone}
                   </small>
                 </span>
                 <b style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>
@@ -3765,6 +3804,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
               </span>
               <span className="vp-cmd-time">{new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
+            {alias[String(c.user_id)] && <div className="vp-alias">WhatsApp : {alias[String(c.user_id)]}</div>}
             {c.telephone && <div className="vp-sub">{c.telephone}</div>}
             {(c.lignes || []).map((l) => {
               const m = MODES[l.mode_vente];
@@ -5068,11 +5108,12 @@ function AdminMembres({ showToast }) {
   const q = normaliser(recherche.trim());
   const listeFiltree = !q ? membres : membres.filter((m) =>
     normaliser(m.nom).includes(q) || normaliser(m.email).includes(q)
+    || normaliser(m.alias_whatsapp).includes(q)
     || String(m.telephone || '').includes(recherche.trim()));
 
   const texte = () => membres
     .filter((m) => !m.bloque)
-    .map((m) => `${m.nom} : ${m.telephone}`)
+    .map((m) => `${m.nom}${m.alias_whatsapp ? ` (${m.alias_whatsapp})` : ''} : ${m.telephone}`)
     .join('\n');
 
   return (
@@ -5100,7 +5141,7 @@ function AdminMembres({ showToast }) {
             </svg>
           </span>
           <input className="vp-input" value={recherche} type="search" autoComplete="off"
-            onChange={(e) => setRecherche(e.target.value)} placeholder="Nom, e-mail ou téléphone…" />
+            onChange={(e) => setRecherche(e.target.value)} placeholder="Nom, nom WhatsApp, e-mail ou téléphone…" />
           {recherche && (
             <button className="vp-search-clear" onClick={() => setRecherche('')} aria-label="Effacer">×</button>
           )}
@@ -5121,6 +5162,9 @@ function AdminMembres({ showToast }) {
                 {m.nom}
                 {m.bloque && <span className="vp-rupt-pill" style={{ marginLeft: 6 }}>BLOQUÉ</span>}
               </div>
+              {m.alias_whatsapp && (
+                <div className="vp-alias">WhatsApp : {m.alias_whatsapp}</div>
+              )}
               <div className="vp-sub">{m.telephone}</div>
               <div className="vp-sub">{m.email}</div>
             </div>
