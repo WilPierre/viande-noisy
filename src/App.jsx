@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-20e · envoi de commande fiabilisé';
+const VERSION = '2026-09-21 · saisie de commande par l\'organisateur';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1001,6 +1001,19 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* réponses au questionnaire (admin) */
 .vp-rep{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:9px;background:#fff}
 .vp-rep-t{margin:6px 0 4px;font-size:14px;line-height:1.55;white-space:pre-wrap}
+
+/* saisie d'une commande par l'organisateur */
+.vp-saisie-ouvrir{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+  margin-bottom:14px;padding:13px;border-radius:13px;background:var(--blanc);
+  border:1.5px dashed var(--wine);color:var(--wine);font-weight:800;font-size:14.5px}
+.vp-saisie-ouvrir span{font-size:18px;line-height:1}
+.vp-saisie-ouvrir:active{background:var(--paper)}
+.vp-saisie{border-color:var(--wine);box-shadow:0 0 0 1px var(--wine),var(--shadow)}
+.vp-saisie-choix{padding:11px 12px;border-radius:11px;background:var(--paper);
+  border:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.vp-saisie-q{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vp-saisie-q .vp-input{width:84px;padding:9px 10px}
+.vp-seg button:disabled{opacity:.4}
 
 /* nom WhatsApp (admin) */
 .vp-alias{display:inline-flex;align-items:center;gap:5px;margin:3px 0 1px;padding:1px 8px;
@@ -3669,7 +3682,8 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
         </div>
       )}
 
-      {tab === 'commandes' && <AdminCommandes commandes={commandes} ouvert={ouvert} reload={loadCommandes} showToast={showToast} />}
+      {tab === 'commandes' && <AdminCommandes commandes={commandes} ouvert={ouvert} reload={loadCommandes} showToast={showToast}
+        produits={produits} settings={settingsJour} />}
       {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settingsJour} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
@@ -3684,8 +3698,262 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
   );
 }
 
+/* ---------- Admin : saisie d'une commande pour un tiers ----------
+   Deux usages : compléter la commande de quelqu'un après un oubli,
+   ou créer une commande pour une personne qui n'est pas passée par
+   la boutique. La saisie ignore le calendrier et les horaires. */
+function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToast }) {
+  const [mode, setMode] = useState(commandes.length > 0 ? 'ajout' : 'nouvelle');
+  const [cibleId, setCibleId] = useState(commandes[0] ? commandes[0].id : '');
+  const [membres, setMembres] = useState([]);
+  const [membreId, setMembreId] = useState('');
+  const [nom, setNom] = useState('');
+  const [tel, setTel] = useState('');
+  const [note, setNote] = useState('');
+  const [recherche, setRecherche] = useState('');
+  const [choisi, setChoisi] = useState(null);
+  const [varId, setVarId] = useState('');
+  const [qte, setQte] = useState('1');
+  const [lignes, setLignes] = useState([]); // { cle, p, v, q }
+  const [envoi, setEnvoi] = useState(false);
+
+  useEffect(() => {
+    supabase.from('viande_clients').select('id, nom, telephone, alias_whatsapp')
+      .order('nom').then(({ data }) => setMembres(data || []));
+  }, []);
+
+  const choisirMembre = (id) => {
+    setMembreId(id);
+    const m = membres.find((x) => String(x.id) === String(id));
+    if (m) { setNom(m.nom); setTel(m.telephone || ''); }
+  };
+
+  const q = normaliser(recherche.trim());
+  const trouves = q
+    ? produits.filter((p) => normaliser(p.nom).includes(q)).slice(0, 8)
+    : [];
+
+  const prendre = (p) => {
+    setChoisi(p);
+    const vs = variantesDe(p);
+    setVarId(vs.length ? String(vs[0].id) : '');
+    setQte(p.mode_vente === 'kg' ? '1' : '1');
+    setRecherche('');
+  };
+
+  const ajouterLigne = () => {
+    if (!choisi) return;
+    const n = nombre(qte);
+    if (isNaN(n) || n <= 0) { showToast('Quantité invalide'); return; }
+    const vs = variantesDe(choisi);
+    const v = vs.length ? vs.find((x) => String(x.id) === String(varId)) || vs[0] : null;
+    const q2 = choisi.mode_vente === 'kg' ? n : Math.round(n);
+    setLignes((l) => [...l, { cle: `${choisi.id}|${v ? v.id : ''}|${Date.now()}`, p: choisi, v, q: q2 }]);
+    setChoisi(null); setQte('1');
+  };
+
+  const total = lignes.reduce((t, { p, v, q: q2 }) => t + sousTotalLigne(p, v, q2, 'prix_william'), 0);
+  const totalPat = lignes.reduce((t, { p, v, q: q2 }) => t + sousTotalLigne(p, v, q2, 'prix_patrice'), 0);
+
+  const valider = async () => {
+    if (lignes.length === 0) { showToast('Ajoute au moins un produit'); return; }
+    if (mode === 'nouvelle' && !nom.trim()) { showToast('Indique le prénom'); return; }
+    if (mode === 'ajout' && !cibleId) { showToast('Choisis la commande à compléter'); return; }
+    setEnvoi(true);
+    try {
+      let commandeId = cibleId;
+      if (mode === 'nouvelle') {
+        const { data: cmd, error } = await supabase.from('viande_commandes').insert({
+          user_id: membreId || null,
+          nom_client: nom.trim(),
+          telephone: tel.trim() || null,
+          note: note.trim() || null,
+          total_estime: cts(total),
+          total_patrice: cts(totalPat),
+          date_vente: settings.date_vente,
+        }).select().single();
+        if (error) throw error;
+        commandeId = cmd.id;
+      }
+
+      const rows = lignes.map(({ p, v, q: q2 }) => ({
+        commande_id: commandeId,
+        produit_id: p.id,
+        produit_nom: p.nom,
+        mode_vente: p.mode_vente,
+        emoji: p.emoji,
+        variante_id: v ? String(v.id) : null,
+        variante_nom: v ? v.nom : null,
+        prix_patrice: prixVariante(p, v, 'prix_patrice'),
+        prix_william: prixVariante(p, v, 'prix_william'),
+        poids_moyen: p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null,
+        quantite: q2,
+        sous_total_estime: cts(sousTotalLigne(p, v, q2, 'prix_william')),
+        demande: false,
+        demande_origine: null,
+      }));
+      const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
+      if (e2) {
+        if (mode === 'nouvelle') await supabase.from('viande_commandes').delete().eq('id', commandeId);
+        throw e2;
+      }
+
+      if (mode === 'ajout') {
+        // on cumule avec l'existant ; le total définitif sera recalculé aux pesées
+        const cible = commandes.find((c) => String(c.id) === String(cibleId));
+        await supabase.from('viande_commandes').update({
+          total_estime: cts(Number(cible ? cible.total_estime : 0) + total),
+          total_patrice: cts(Number(cible ? cible.total_patrice : 0) + totalPat),
+          total_final: null,
+          statut: 'en_cours',
+        }).eq('id', commandeId);
+      }
+
+      showToast(mode === 'ajout' ? 'Produits ajoutés à la commande' : 'Commande créée');
+      onFait();
+    } catch (e) {
+      showToast(messageErreur(e) || 'Enregistrement impossible');
+    } finally { setEnvoi(false); }
+  };
+
+  const vsChoisi = choisi ? variantesDe(choisi) : [];
+
+  return (
+    <div className="vp-section vp-saisie">
+      <div className="vp-srow">
+        <div className="vp-h2" style={{ fontSize: 17 }}>Saisir pour quelqu'un</div>
+        <button className="vp-sheet-x" onClick={onFermer} aria-label="Fermer">×</button>
+      </div>
+
+      <div className="vp-seg" style={{ marginTop: 12 }}>
+        <button className={mode === 'ajout' ? 'on' : ''} disabled={commandes.length === 0}
+          onClick={() => setMode('ajout')}>Compléter une commande</button>
+        <button className={mode === 'nouvelle' ? 'on' : ''} onClick={() => setMode('nouvelle')}>
+          Nouvelle commande
+        </button>
+      </div>
+
+      {mode === 'ajout' ? (
+        <div className="vp-field">
+          <label className="vp-label">Commande à compléter</label>
+          <select className="vp-input" value={cibleId} onChange={(e) => setCibleId(e.target.value)}>
+            {commandes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nom_client} · {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · {eur(c.total_estime)}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <>
+          {membres.length > 0 && (
+            <div className="vp-field">
+              <label className="vp-label">Membre inscrit (facultatif)</label>
+              <select className="vp-input" value={membreId} onChange={(e) => choisirMembre(e.target.value)}>
+                <option value="">— Personne sans compte —</option>
+                {membres.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nom}{m.alias_whatsapp ? ` (${m.alias_whatsapp})` : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="vp-sub" style={{ marginTop: 4 }}>
+                Choisir un membre rattache la commande à son compte : il la verra dans son profil.
+              </div>
+            </div>
+          )}
+          <div className="vp-grid2" style={{ marginTop: 12 }}>
+            <div>
+              <label className="vp-label">Prénom *</label>
+              <input className="vp-input" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Ex : Marie" />
+            </div>
+            <div>
+              <label className="vp-label">Téléphone (facultatif)</label>
+              <input className="vp-input" value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" />
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="vp-field">
+        <label className="vp-label">Ajouter un produit</label>
+        {choisi ? (
+          <div className="vp-saisie-choix">
+            <b>{choisi.emoji} {choisi.nom}</b>
+            {vsChoisi.length > 0 && (
+              <select className="vp-input" value={varId} onChange={(e) => setVarId(e.target.value)}>
+                {vsChoisi.map((v) => <option key={v.id} value={v.id}>{v.nom}</option>)}
+              </select>
+            )}
+            <div className="vp-saisie-q">
+              <input className="vp-input" value={qte} inputMode="decimal"
+                onChange={(e) => setQte(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && ajouterLigne()} aria-label="Quantité" />
+              <span className="vp-sub">{choisi.mode_vente === 'kg' ? 'kg' : 'pièce(s)'}</span>
+              <button className="vp-btn sm" onClick={ajouterLigne}>Ajouter</button>
+              <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setChoisi(null)}>Annuler</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <input className="vp-input" value={recherche} onChange={(e) => setRecherche(e.target.value)}
+              placeholder="Tape le nom d'un produit…" autoComplete="off" />
+            {trouves.length > 0 && (
+              <div className="vp-sugg" style={{ marginTop: 8 }}>
+                {trouves.map((p) => (
+                  <button key={p.id} className="vp-sugg-b" onClick={() => prendre(p)}>
+                    {p.emoji} {p.nom}{!p.disponible || p.rupture ? ' · hors vente' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {lignes.length > 0 && (
+        <div className="vp-liste" style={{ marginTop: 12 }}>
+          {lignes.map(({ cle, p, v, q: q2 }) => (
+            <div className="vp-liste-l" key={cle}>
+              <span>
+                {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
+                <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                  {p.mode_vente === 'kg' ? `${num(q2)} kg` : `${num(q2)} pièce(s)`}
+                </small>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <b>{p.mode_vente === 'piece_fixe' ? '' : '≈ '}{eur(sousTotalLigne(p, v, q2, 'prix_william'))}</b>
+                <button className="vp-demande-x" onClick={() => setLignes((l) => l.filter((x) => x.cle !== cle))}
+                  aria-label="Retirer">×</button>
+              </span>
+            </div>
+          ))}
+          <div className="vp-liste-l tot"><span>Total estimé</span><b>{eur(total)}</b></div>
+        </div>
+      )}
+
+      {mode === 'nouvelle' && (
+        <div className="vp-field">
+          <label className="vp-label">Note (facultatif)</label>
+          <input className="vp-input" value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="Ex : oubli de la commande de mardi" />
+        </div>
+      )}
+
+      <button className="vp-cta" disabled={envoi || lignes.length === 0} onClick={valider}>
+        {envoi ? 'Enregistrement…'
+          : mode === 'ajout' ? 'Ajouter à cette commande' : 'Créer la commande'}
+      </button>
+      <div className="vp-sub" style={{ marginTop: 8, textAlign: 'center' }}>
+        Journée : {fmtDateCourt(settings.date_vente)}. Les poids et prix se corrigent ensuite dans Pesées.
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Admin : Commandes ---------- */
-function AdminCommandes({ commandes, ouvert, reload, showToast }) {
+function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settings }) {
+  const [saisie, setSaisie] = useState(false);
   const total = commandes.reduce((s, c) => s + Number(c.total_estime || 0), 0);
   const marge = commandes.reduce((s, c) => s + (Number(c.total_estime || 0) - Number(c.total_patrice || 0)), 0);
 
@@ -3793,6 +4061,16 @@ function AdminCommandes({ commandes, ouvert, reload, showToast }) {
 
   return (
     <>
+      {saisie ? (
+        <AdminSaisie commandes={commandes} produits={produits} settings={settings}
+          showToast={showToast} onFermer={() => setSaisie(false)}
+          onFait={() => { setSaisie(false); reload(); }} />
+      ) : (
+        <button className="vp-saisie-ouvrir" onClick={() => setSaisie(true)}>
+          <span>＋</span> Saisir une commande pour quelqu'un
+        </button>
+      )}
+
       <div className="vp-section">
         <div className="vp-srow">
           <div>
