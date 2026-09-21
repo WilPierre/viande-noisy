@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-20b · demandes de produits hors catalogue';
+const VERSION = '2026-09-20c · demandes en texte libre, reformulables';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1257,6 +1257,24 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-demande-f{margin-top:10px;display:flex;flex-direction:column;gap:8px}
 .vp-demande-q{display:grid;grid-template-columns:72px 1fr auto;gap:8px;align-items:center}
 .vp-demande-q .vp-input{padding:9px 10px;font-size:15px}
+
+/* suggestions de produits déjà proposés */
+.vp-sugg{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.vp-sugg-t{width:100%;font-size:11.5px;font-weight:700;color:var(--muted)}
+.vp-sugg-b{padding:6px 11px;border-radius:999px;background:var(--blanc);
+  border:1px solid var(--line);color:var(--ink);font-size:13px;font-weight:600}
+.vp-sugg-b:active{background:var(--paper);transform:scale(.96)}
+
+/* reformulation d'une demande (pesées) */
+.vp-reform{margin-top:10px;padding:10px 11px;border-radius:10px;
+  background:#F2F6FB;border:1px solid #C9D8EC}
+[data-theme="sombre"] .vp-reform{background:#1B2330;border-color:#2C3A50}
+.vp-reform-o{display:block;font-size:12.5px;color:var(--muted);margin-bottom:8px;line-height:1.45}
+.vp-reform-o i{color:var(--ink);font-style:italic}
+.vp-reform label{display:block}
+.vp-reform label span{display:block;font-size:11px;font-weight:700;letter-spacing:.03em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.vp-reform .vp-input{padding:9px 11px;font-size:15px}
 
 /* rappel des produits habituels */
 .vp-oublis{margin-top:14px;padding:12px 13px;border-radius:12px;
@@ -2630,6 +2648,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // un voisin qui les a déjà achetés les reconnaîtra.
   const horsVente = produits.filter((p) => !p.disponible || p.rupture);
 
+  const suggestions = (() => {
+    const q2 = normaliser(demNom.trim());
+    const base = q2
+      ? horsVente.filter((p) => normaliser(p.nom).includes(q2) && normaliser(p.nom) !== q2)
+      : horsVente;
+    return base.slice(0, 6);
+  })();
+
   const ajouterDemande = () => {
     const n = demNom.trim();
     if (n.length < 2) { showToast('Indique le produit souhaité'); return; }
@@ -2694,6 +2720,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         quantite: d.quantite,
         sous_total_estime: 0,
         demande: true,
+        demande_origine: d.nom,
       }));
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
       if (e2) throw e2;
@@ -3303,13 +3330,24 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   ))}
 
                   <div className="vp-demande-f">
-                    <input className="vp-input" value={demNom} list="vp-hors-vente"
+                    <label className="vp-label" style={{ margin: 0 }}>Écris le produit comme tu veux</label>
+                    <input className="vp-input" value={demNom}
                       onChange={(e) => setDemNom(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && ajouterDemande()}
-                      placeholder="Ex : Côte de bœuf, fuet aux noisettes…" />
-                    <datalist id="vp-hors-vente">
-                      {horsVente.map((p) => <option key={p.id} value={p.nom} />)}
-                    </datalist>
+                      placeholder="Ex : une belle côte de bœuf pour 4" autoComplete="off" />
+
+                    {suggestions.length > 0 && (
+                      <div className="vp-sugg">
+                        <span className="vp-sugg-t">
+                          {demNom.trim() ? 'Tu penses peut-être à :' : 'Déjà proposés par le passé :'}
+                        </span>
+                        {suggestions.map((p) => (
+                          <button key={p.id} className="vp-sugg-b" onClick={() => setDemNom(p.nom)}>
+                            {p.emoji} {p.nom}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="vp-demande-q">
                       <input className="vp-input" value={demQte} inputMode="decimal"
                         onChange={(e) => setDemQte(e.target.value)} aria-label="Quantité" />
@@ -4695,13 +4733,18 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
           const rupt = estRupture(l);
           const v = valPoids(l);
           const pr = (v !== '' && !isNaN(nombre(v))) ? nombre(v) : null;
-          const { error } = await supabase.from('viande_commande_lignes').update({
+          const maj = {
             poids_reel: rupt ? null : pr,
             prix_patrice: cts(nombre(valPat(l)) || 0),
             prix_william: cts(nombre(valWil(l)) || 0),
             rupture: rupt,
             sous_total_final: cts(stLive(l)),
-          }).eq('id', l.id);
+          };
+          // libellé reformulé d'une demande, pour la feuille de Patrice
+          if (l.demande && edits[l.id].nom !== undefined && edits[l.id].nom.trim()) {
+            maj.produit_nom = edits[l.id].nom.trim();
+          }
+          const { error } = await supabase.from('viande_commande_lignes').update(maj).eq('id', l.id);
           const err = messageErreur(error);
           if (err) { showToast(err); setEnCours(false); return; }
         }
@@ -4847,6 +4890,20 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             {rupt ? 'En rupture' : 'Rupture'}
           </button>
         </div>
+
+        {l.demande && (
+          <div className="vp-reform">
+            <span className="vp-reform-o">
+              Le client a écrit : <i>« {l.demande_origine || l.produit_nom} »</i>
+            </span>
+            <label>
+              <span>Libellé pour Patrice</span>
+              <input className="vp-input" value={lire(l, 'nom', l.produit_nom || '')}
+                onChange={(e) => ecrire(l, 'nom', e.target.value)}
+                placeholder="Reformule pour que Patrice comprenne" />
+            </label>
+          </div>
+        )}
 
         <div className="vp-pl-g">
           <label>
