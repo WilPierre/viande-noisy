@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-21 · saisie de commande par l\'organisateur';
+const VERSION = '2026-09-21b · poids à la saisie et sur les demandes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1014,6 +1014,12 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-saisie-q{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vp-saisie-q .vp-input{width:84px;padding:9px 10px}
 .vp-seg button:disabled{opacity:.4}
+
+/* champs quantité / poids de la saisie */
+.vp-saisie-c{display:flex;flex-direction:column;gap:3px}
+.vp-saisie-c span{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.vp-saisie-c em{font-style:normal;font-size:12px;color:var(--muted)}
+.vp-saisie-c .vp-input{width:96px}
 
 /* nom WhatsApp (admin) */
 .vp-alias{display:inline-flex;align-items:center;gap:5px;margin:3px 0 1px;padding:1px 8px;
@@ -3714,7 +3720,13 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
   const [choisi, setChoisi] = useState(null);
   const [varId, setVarId] = useState('');
   const [qte, setQte] = useState('1');
-  const [lignes, setLignes] = useState([]); // { cle, p, v, q }
+  const [poidsReel, setPoidsReel] = useState('');
+  const [lignes, setLignes] = useState([]); // { cle, p, v, q, pr }
+
+  // montant d'une ligne : sur le poids réel s'il est connu, sinon estimé
+  const montantLigne = (p, v, q2, pr, champ) => (
+    pr != null ? pr * prixVariante(p, v, champ) : sousTotalLigne(p, v, q2, champ)
+  );
   const [envoi, setEnvoi] = useState(false);
 
   useEffect(() => {
@@ -3748,12 +3760,17 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
     const vs = variantesDe(choisi);
     const v = vs.length ? vs.find((x) => String(x.id) === String(varId)) || vs[0] : null;
     const q2 = choisi.mode_vente === 'kg' ? n : Math.round(n);
-    setLignes((l) => [...l, { cle: `${choisi.id}|${v ? v.id : ''}|${Date.now()}`, p: choisi, v, q: q2 }]);
-    setChoisi(null); setQte('1');
+    let pr = null;
+    if (choisi.mode_vente !== 'piece_fixe' && poidsReel.trim() !== '') {
+      pr = nombre(poidsReel);
+      if (isNaN(pr) || pr <= 0) { showToast('Poids invalide'); return; }
+    }
+    setLignes((l) => [...l, { cle: `${choisi.id}|${v ? v.id : ''}|${Date.now()}`, p: choisi, v, q: q2, pr }]);
+    setChoisi(null); setQte('1'); setPoidsReel('');
   };
 
-  const total = lignes.reduce((t, { p, v, q: q2 }) => t + sousTotalLigne(p, v, q2, 'prix_william'), 0);
-  const totalPat = lignes.reduce((t, { p, v, q: q2 }) => t + sousTotalLigne(p, v, q2, 'prix_patrice'), 0);
+  const total = lignes.reduce((t, { p, v, q: q2, pr }) => t + montantLigne(p, v, q2, pr, 'prix_william'), 0);
+  const totalPat = lignes.reduce((t, { p, v, q: q2, pr }) => t + montantLigne(p, v, q2, pr, 'prix_patrice'), 0);
 
   const valider = async () => {
     if (lignes.length === 0) { showToast('Ajoute au moins un produit'); return; }
@@ -3776,7 +3793,7 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
         commandeId = cmd.id;
       }
 
-      const rows = lignes.map(({ p, v, q: q2 }) => ({
+      const rows = lignes.map(({ p, v, q: q2, pr }) => ({
         commande_id: commandeId,
         produit_id: p.id,
         produit_nom: p.nom,
@@ -3789,6 +3806,9 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
         poids_moyen: p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null,
         quantite: q2,
         sous_total_estime: cts(sousTotalLigne(p, v, q2, 'prix_william')),
+        // poids déjà connu : la ligne arrive pesée, rien à ressaisir aux pesées
+        poids_reel: pr,
+        sous_total_final: pr != null ? cts(pr * prixVariante(p, v, 'prix_william')) : null,
         demande: false,
         demande_origine: null,
       }));
@@ -3886,12 +3906,27 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
               </select>
             )}
             <div className="vp-saisie-q">
-              <input className="vp-input" value={qte} inputMode="decimal"
-                onChange={(e) => setQte(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && ajouterLigne()} aria-label="Quantité" />
-              <span className="vp-sub">{choisi.mode_vente === 'kg' ? 'kg' : 'pièce(s)'}</span>
-              <button className="vp-btn sm" onClick={ajouterLigne}>Ajouter</button>
-              <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => setChoisi(null)}>Annuler</button>
+              <label className="vp-saisie-c">
+                <span>Quantité</span>
+                <input className="vp-input" value={qte} inputMode="decimal"
+                  onChange={(e) => setQte(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && ajouterLigne()} />
+                <em>{choisi.mode_vente === 'kg' ? 'kg' : 'pièce(s)'}</em>
+              </label>
+              {choisi.mode_vente !== 'piece_fixe' && (
+                <label className="vp-saisie-c">
+                  <span>Poids réel</span>
+                  <input className="vp-input" value={poidsReel} inputMode="decimal"
+                    onChange={(e) => setPoidsReel(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && ajouterLigne()}
+                    placeholder="facultatif" />
+                  <em>kg</em>
+                </label>
+              )}
+            </div>
+            <div className="vp-saisie-q">
+              <button className="vp-btn sm" onClick={ajouterLigne}>Ajouter la ligne</button>
+              <button className="vp-trash" style={{ marginTop: 0 }} onClick={() => { setChoisi(null); setPoidsReel(''); }}>Annuler</button>
             </div>
           </div>
         ) : (
@@ -3913,16 +3948,17 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
 
       {lignes.length > 0 && (
         <div className="vp-liste" style={{ marginTop: 12 }}>
-          {lignes.map(({ cle, p, v, q: q2 }) => (
+          {lignes.map(({ cle, p, v, q: q2, pr }) => (
             <div className="vp-liste-l" key={cle}>
               <span>
                 {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
                 <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
                   {p.mode_vente === 'kg' ? `${num(q2)} kg` : `${num(q2)} pièce(s)`}
+                  {pr != null && <> · pesé {num(pr)} kg</>}
                 </small>
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <b>{p.mode_vente === 'piece_fixe' ? '' : '≈ '}{eur(sousTotalLigne(p, v, q2, 'prix_william'))}</b>
+                <b>{p.mode_vente === 'piece_fixe' || pr != null ? '' : '≈ '}{eur(montantLigne(p, v, q2, pr, 'prix_william'))}</b>
                 <button className="vp-demande-x" onClick={() => setLignes((l) => l.filter((x) => x.cle !== cle))}
                   aria-label="Retirer">×</button>
               </span>
@@ -4831,7 +4867,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
       const rows = (c.lignes || []).map((l) => {
         const rupt = enRupture.has(String(l.produit_id));
         const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`;
-        const auKilo = l.mode_vente !== 'piece_fixe';
+        const auKilo = l.mode_vente !== 'piece_fixe' || !!l.demande;
         const unite = auKilo ? '/kg' : '/pc';
         return `<tr class="${rupt ? 'rupture' : ''}">
           <td class="prod"><span class="nom">${esc(sansPoids(nomLigne(l)))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
@@ -5022,6 +5058,14 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const montant = (l, prixTexte) => {
     if (estRupture(l)) return 0;
     const prix = nombre(prixTexte) || 0;
+    // une demande peut se révéler vendue au poids : si un poids est
+    // saisi, on facture au kilo ; sinon à la pièce
+    if (l.demande && l.mode_vente === 'piece_fixe') {
+      const v = valPoids(l);
+      const n = nombre(v);
+      if (v !== '' && !isNaN(n) && n > 0) return n * prix;
+      return (Number(l.quantite) || 0) * prix;
+    }
     if (l.mode_vente === 'piece_fixe') return (Number(l.quantite) || 0) * prix;
     return poidsRetenu(l) * prix;
   };
@@ -5201,7 +5245,9 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
      caractère tapé. */
   const ligneSaisie = (l, sousTitre) => {
     const rupt = estRupture(l);
-    const auKilo = l.mode_vente !== 'piece_fixe';
+    // une demande accepte toujours un poids : on ne sait pas d'avance
+    // si le produit demandé se vend à la pièce ou au kilo
+    const auKilo = l.mode_vente !== 'piece_fixe' || !!l.demande;
     return (
       <div className={`vp-pl ${rupt ? 'rupt' : ''}`} key={l.id}>
         <div className="vp-pl-h">
