@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-21b · poids à la saisie et sur les demandes';
+const VERSION = '2026-09-21c · retrait du partage WhatsApp client';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -876,13 +876,6 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-macmd b{display:block;font-size:14.5px;color:var(--ink)}
 .vp-macmd small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}
 .vp-macmd-b{display:flex;gap:8px;flex:0 0 auto}
-
-/* envoi du récap depuis la confirmation */
-.vp-wa-recap{display:inline-flex;align-items:center;justify-content:center;gap:9px;
-  margin-top:22px;width:100%;max-width:340px;padding:14px 18px;border-radius:13px;
-  background:#25D366;color:#fff;font-weight:800;font-size:15px;text-decoration:none;
-  box-shadow:0 4px 14px rgba(37,211,102,.34)}
-.vp-wa-recap:active{background:#1EBE5B;transform:scale(.98)}
 
 /* pastille WhatsApp flottante */
 .vp-fab-zone{position:fixed;left:50%;transform:translateX(-50%);bottom:0;z-index:38;
@@ -2806,24 +2799,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       ecrireCommandeStockee(memo);
       setMaCommande(memo);
 
-      // récapitulatif conservé pour l'envoi WhatsApp depuis l'écran de confirmation
-      const recap = [
-        `🥩 Ma commande ${settings.titre} — ${fmtDateCourt(settings.date_vente)}`,
-        profil.nom,
-        '',
-        ...lignes.map(({ p, v, q }) => {
-          const qte = p.mode_vente === 'kg' ? `${num(q)} kg` : `x${num(q)}`;
-          return `• ${p.nom}${v ? ` (${v.nom})` : ''} ${qte}`;
-        }),
-        ...demandes.map((d) =>
-          `• ${d.nom} ${d.unite === 'kg' ? `${num(d.quantite)} kg` : `x${num(d.quantite)}`} (demande, prix à confirmer)`),
-        '',
-        `Total estimé : ${aDuPese ? '≈ ' : ''}${eur(total)}`,
-        aDuPese ? '(les produits au kilo seront ajustés après pesée)' : '',
-        note.trim() ? `Note : ${note.trim()}` : '',
-      ].filter((x, i, arr) => x !== '' || (arr[i - 1] !== '' && i > 0)).join('\n').trim();
-
-      setDone({ nom: profil.nom, total, aDuPese, recap });
+      setDone({ nom: profil.nom, total, aDuPese });
       setPanierOuvert(false);
       viderPanierStocke();
       setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
@@ -2833,14 +2809,6 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       console.error('Envoi de commande impossible :', e);
       showToast(`Commande non envoyée — ${messageErreur(e) || 'réessaie dans un instant'}. Ton panier est conservé.`);
     } finally { setEnvoi(false); }
-  };
-
-  // Lien WhatsApp prérempli, adressé au numéro de l'organisateur s'il est
-  // connu ; sinon WhatsApp laisse choisir le destinataire.
-  const lienRecap = (texte) => {
-    const n = String(settings.alerte_wa_numero || '').replace(/\D/g, '');
-    const t = encodeURIComponent(texte);
-    return n ? `https://wa.me/${n}?text=${t}` : `https://wa.me/?text=${t}`;
   };
 
   // supprime la commande en base (lignes puis en-tête)
@@ -2894,19 +2862,6 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               au poids réel à la livraison. Tu recevras ta note définitive.</>
             )}
           </p>
-          {done.recap && (
-            <a className="vp-wa-recap" href={lienRecap(done.recap)} target="_blank" rel="noreferrer noopener">
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d={CHEMIN_WA} />
-              </svg>
-              Recevoir mon récap sur WhatsApp
-            </a>
-          )}
-          <div className="vp-sub" style={{ marginTop: 8 }}>
-            Le message est déjà rédigé, il ne reste qu'à appuyer sur Envoyer.
-            Tu gardes ainsi une trace écrite de ta commande.
-          </div>
-
           <div className="vp-note" style={{ marginTop: 20, textAlign: 'left' }}>
             Besoin de changer quelque chose ? Reviens sur la boutique&nbsp;:
             tu pourras modifier ou annuler ta commande tant qu'elle est ouverte.
