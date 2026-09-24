@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-21c · retrait du partage WhatsApp client';
+const VERSION = '2026-09-22 · quantité livrée ajustable';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1008,6 +1008,11 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-saisie-q .vp-input{width:84px;padding:9px 10px}
 .vp-seg button:disabled{opacity:.4}
 
+/* quantité partiellement livrée */
+.vp-partiel{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;
+  background:#FFF4E0;border:1px solid #F0D9AE;color:#8A5A12;font-size:11.5px;font-weight:800}
+[data-theme="sombre"] .vp-partiel{background:#2A2115;border-color:#4A3A22;color:#E8CFA0}
+
 /* champs quantité / poids de la saisie */
 .vp-saisie-c{display:flex;flex-direction:column;gap:3px}
 .vp-saisie-c span{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
@@ -1362,7 +1367,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-pl-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .vp-pl-h .nm{min-width:0;font-size:14.5px;font-weight:600}
 .vp-pl-h .nm small{display:block;color:var(--muted);font-size:12px;font-weight:400;margin-top:2px}
-.vp-pl-g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.vp-pl-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:8px;margin-top:10px}
 .vp-pl-g label{display:block;min-width:0}
 .vp-pl-g label span{display:block;font-size:11px;font-weight:700;letter-spacing:.03em;
   text-transform:uppercase;color:var(--muted);margin-bottom:4px}
@@ -4989,6 +4994,14 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     setEdits((x) => ({ ...x, [l.id]: { ...(x[l.id] || {}), [champ]: val } }));
 
   const valPoids = (l) => lire(l, 'poids', l.poids_reel != null ? String(l.poids_reel) : '');
+  // quantité réellement servie ; à défaut, celle commandée
+  const valQte = (l) => lire(l, 'qte',
+    l.quantite_livree != null ? String(l.quantite_livree) : String(l.quantite ?? ''));
+  const qteLivree = (l) => {
+    const n = nombre(valQte(l));
+    return isNaN(n) || n < 0 ? (Number(l.quantite) || 0) : n;
+  };
+  const partiel = (l) => qteLivree(l) !== (Number(l.quantite) || 0);
   const valPat = (l) => lire(l, 'pat', l.prix_patrice != null ? String(l.prix_patrice) : '');
   const valWil = (l) => lire(l, 'wil', l.prix_william != null ? String(l.prix_william) : '');
   const estRupture = (l) =>
@@ -5019,9 +5032,9 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       const v = valPoids(l);
       const n = nombre(v);
       if (v !== '' && !isNaN(n) && n > 0) return n * prix;
-      return (Number(l.quantite) || 0) * prix;
+      return qteLivree(l) * prix;
     }
-    if (l.mode_vente === 'piece_fixe') return (Number(l.quantite) || 0) * prix;
+    if (l.mode_vente === 'piece_fixe') return qteLivree(l) * prix;
     return poidsRetenu(l) * prix;
   };
   const stLive = (l) => montant(l, valWil(l));
@@ -5064,6 +5077,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
           const v = valPoids(l);
           const pr = (v !== '' && !isNaN(nombre(v))) ? nombre(v) : null;
           const maj = {
+            quantite_livree: rupt ? 0 : qteLivree(l),
             poids_reel: rupt ? null : pr,
             prix_patrice: cts(nombre(valPat(l)) || 0),
             prix_william: cts(nombre(valWil(l)) || 0),
@@ -5097,7 +5111,8 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     const n = nomLigne(l);
     if (estRupture(l)) return `• ${n} : ❌ EN RUPTURE — non fourni\n`;
     if (l.mode_vente === 'piece_fixe') {
-      return `• ${n} : ${num(l.quantite)} × ${eur(nombre(valWil(l)))} = ${eur(stLive(l))}\n`;
+      const q2 = partiel(l) ? `${num(qteLivree(l))} (sur ${num(l.quantite)} commandé(s))` : num(l.quantite);
+      return `• ${n} : ${q2} × ${eur(nombre(valWil(l)))} = ${eur(stLive(l))}\n`;
     }
     if (estEstime(l)) return `• ${n} : (poids à confirmer)\n`;
     return `• ${n} : ${num(poidsRetenu(l))} kg × ${eur(nombre(valWil(l)))} = ${eur(stLive(l))}\n`;
@@ -5147,7 +5162,8 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       const rows = (c.lignes || []).map((l) => {
         const rupt = estRupture(l);
         const detail = rupt ? 'EN RUPTURE — non fourni'
-          : l.mode_vente === 'piece_fixe' ? `${num(l.quantite)} × ${eur(nombre(valWil(l)))}`
+          : l.mode_vente === 'piece_fixe'
+            ? `${partiel(l) ? `${num(qteLivree(l))} sur ${num(l.quantite)}` : num(l.quantite)} × ${eur(nombre(valWil(l)))}`
           : estEstime(l) ? `${num(l.quantite)} ${l.mode_vente === 'kg' ? 'kg' : 'pc'} · poids à confirmer`
           : `${num(poidsRetenu(l))} kg × ${eur(nombre(valWil(l)))}/kg`;
         const approx = estEstime(l) ? '≈ ' : '';
@@ -5239,6 +5255,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
 
         <div className="vp-pl-g">
           <label>
+            <span>Livré</span>
+            <input className="vp-winput" inputMode="decimal" disabled={rupt}
+              value={valQte(l)} onChange={(e) => ecrire(l, 'qte', e.target.value)} />
+          </label>
+          <label>
             <span>Poids (kg)</span>
             <input className="vp-winput" inputMode="decimal" placeholder={auKilo ? 'kg' : '—'}
               disabled={rupt || !auKilo} value={auKilo ? valPoids(l) : ''}
@@ -5257,7 +5278,12 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         </div>
 
         <div className="vp-pl-f">
-          <span>coût {eur(stPatriceLive(l))}</span>
+          <span>
+            coût {eur(stPatriceLive(l))}
+            {!rupt && partiel(l) && (
+              <b className="vp-partiel">{num(qteLivree(l))} livré(s) sur {num(l.quantite)}</b>
+            )}
+          </span>
           <b>{estEstime(l) ? '≈ ' : ''}{eur(stLive(l))}</b>
         </div>
       </div>
