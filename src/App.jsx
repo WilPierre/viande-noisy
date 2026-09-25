@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-22b · carrousel jusqu\'à 20 promos';
+const VERSION = '2026-09-23 · retrait automatique des DLC échues';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -485,6 +485,14 @@ function joursAvantDlc(dlc) {
   if (isNaN(b)) return null;
   return Math.round((b - a) / 86400000);
 }
+// Le retrait a lieu le lendemain : un produit doit être encore bon
+// ce jour-là. Une DLC d'aujourd'hui ne convient donc déjà plus.
+function dlcDepassee(p) {
+  if (!p || !p.dlc) return false;
+  const j = joursAvantDlc(p.dlc);
+  return j !== null && j < 1;
+}
+
 // { classe, texte } pour la pastille DLC, ou null
 function infoDlc(dlc) {
   const j = joursAvantDlc(dlc);
@@ -2441,7 +2449,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
   const [reprise, setReprise] = useState(false);
 
-  const dispo = produits.filter((p) => p.disponible && !p.rupture);
+  const dispo = produits.filter((p) => p.disponible && !p.rupture && !dlcDepassee(p));
 
   // recherche : insensible à la casse et aux accents, sur le nom,
   // la catégorie et les options (parfums, contenances)
@@ -4154,6 +4162,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
   const [sansPhoto, setSansPhoto] = useState(false);
   const nbSansPhoto = produits.filter((p) => !p.photo_url).length;
+  const nbDlc = produits.filter((p) => p.disponible && dlcDepassee(p)).length;
 
   const q = normaliser(recherche.trim());
   const produitsAffiches = produits.filter((p) => {
@@ -4655,10 +4664,11 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)}{m.suffixe}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
-              {(dlc || p.rupture || p.promo) && (
+              {(dlc || p.rupture || p.promo || dlcDepassee(p)) && (
                 <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
                   {p.rupture && <span className="vp-rupt-pill">EN RUPTURE</span>}
+                  {dlcDepassee(p) && <span className="vp-rupt-pill">RETIRÉ · DLC</span>}
                   {dlc && <span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span>}
                 </div>
               )}
@@ -4734,6 +4744,13 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <button className="vp-search-clear" onClick={() => setRecherche('')} aria-label="Effacer la recherche">×</button>
         )}
       </div>
+
+      {nbDlc > 0 && (
+        <div className="vp-rupt-note" style={{ marginBottom: 12 }}>
+          {nbDlc} produit(s) retiré(s) de la boutique : leur DLC ne couvre plus le retrait
+          du lendemain. Ils restent modifiables ici — change la date ou efface-la pour les remettre en vente.
+        </div>
+      )}
 
       {nbSansPhoto > 0 && (
         <button className={`vp-tab vp-tab-photo ${sansPhoto ? 'on' : ''}`}
