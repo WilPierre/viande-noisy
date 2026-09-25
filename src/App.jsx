@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-22 · quantité livrée ajustable';
+const VERSION = '2026-09-22b · carrousel jusqu\'à 20 promos';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1186,6 +1186,10 @@ textarea.vp-input{resize:vertical;min-height:64px}
 }
 @media (prefers-reduced-motion:reduce){.vp-prod.vp-repere{animation:none;border-color:#E0A23C}}
 
+/* au-delà de dix promos, un compteur remplace les points */
+.vp-car-cpt{margin-top:10px;text-align:center;font-size:12.5px;font-weight:800;
+  color:var(--muted);font-variant-numeric:tabular-nums}
+
 /* titre du carrousel */
 .vp-car-titre{display:flex;align-items:center;gap:7px;margin:4px 2px 10px;
   font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:22px;font-weight:800;
@@ -1213,7 +1217,12 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-car-fl.g{left:10px}
 .vp-car-fl.d{right:10px}
 .vp-car-fl:active{transform:translateY(-50%) scale(.9)}
-.vp-car-pts{display:flex;justify-content:center;gap:6px;margin-top:10px}
+/* au-delà d'une dizaine de promos, les points ne suffisent plus à
+   se repérer : on affiche aussi le rang en clair */
+.vp-car-rang{position:absolute;top:10px;right:10px;z-index:3;padding:3px 10px;
+  border-radius:999px;background:rgba(20,16,14,.55);color:#fff;
+  font-size:11.5px;font-weight:800;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.vp-car-pts{display:flex;justify-content:center;gap:6px;margin-top:10px;flex-wrap:wrap}
 .vp-car-pts button{width:7px;height:7px;padding:0;border-radius:999px;background:var(--line);
   transition:width .2s ease,background .2s ease}
 .vp-car-pts button.on{width:20px;background:var(--wine)}
@@ -2502,7 +2511,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       const rb = b.prix_barre > 0 ? (1 - b.prix_william / b.prix_barre) : 0;
       return rb - ra;
     })
-    .slice(0, 10);
+    .slice(0, 20);
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -3208,12 +3217,21 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   <button className="vp-car-fl d" onClick={() => allerA(Math.min(diapo, vedettes.length - 1) + 1)} aria-label="Promo suivante">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
                   </button>
-                  <div className="vp-car-pts">
-                    {vedettes.map((p, i) => (
-                      <button key={p.id} className={i === Math.min(diapo, vedettes.length - 1) ? 'on' : ''}
-                        onClick={() => allerA(i)} aria-label={`Aller à la promo ${i + 1}`} />
-                    ))}
+                  <div className="vp-car-rang">
+                    {Math.min(diapo, vedettes.length - 1) + 1} / {vedettes.length}
                   </div>
+                  {vedettes.length <= 10 ? (
+                    <div className="vp-car-pts">
+                      {vedettes.map((p, i) => (
+                        <button key={p.id} className={i === Math.min(diapo, vedettes.length - 1) ? 'on' : ''}
+                          onClick={() => allerA(i)} aria-label={`Aller à la promo ${i + 1}`} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="vp-car-cpt">
+                      {Math.min(diapo, vedettes.length - 1) + 1} / {vedettes.length}
+                    </div>
+                  )}
                 </>
               )}
             </div>
