@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-23 · retrait automatique des DLC échues';
+const VERSION = '2026-09-28 · filtre des DLC échues';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1015,6 +1015,10 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-saisie-q{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vp-saisie-q .vp-input{width:84px;padding:9px 10px}
 .vp-seg button:disabled{opacity:.4}
+
+/* filtre des DLC échues */
+.vp-tab-dlc{border-style:dashed;border-color:#F0CFCF;color:#B3261E}
+.vp-tab-dlc.on{background:#B3261E;border-color:#B3261E;color:#fff;border-style:solid}
 
 /* quantité partiellement livrée */
 .vp-partiel{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;
@@ -4161,12 +4165,14 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const catsPresentes = CATEGORIES.filter((c) => produits.some((p) => catDe(p) === c));
 
   const [sansPhoto, setSansPhoto] = useState(false);
+  const [filtreDlc, setFiltreDlc] = useState(false);
   const nbSansPhoto = produits.filter((p) => !p.photo_url).length;
   const nbDlc = produits.filter((p) => p.disponible && dlcDepassee(p)).length;
 
   const q = normaliser(recherche.trim());
   const produitsAffiches = produits.filter((p) => {
     if (sansPhoto && p.photo_url) return false;
+    if (filtreDlc && !dlcDepassee(p)) return false;
     if (filtreCat !== 'Tous' && catDe(p) !== filtreCat) return false;
     if (!q) return true;
     if (normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q)) return true;
@@ -4709,6 +4715,10 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     );
   };
 
+  if (filtreDlc) {
+    produitsAffiches.sort((a, b) => String(a.dlc || '').localeCompare(String(b.dlc || '')));
+  }
+
   const actifs = produitsAffiches.filter((p) => p.disponible);
   const inactifs = produitsAffiches.filter((p) => !p.disponible);
 
@@ -4745,18 +4755,29 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         )}
       </div>
 
-      {nbDlc > 0 && (
-        <div className="vp-rupt-note" style={{ marginBottom: 12 }}>
-          {nbDlc} produit(s) retiré(s) de la boutique : leur DLC ne couvre plus le retrait
-          du lendemain. Ils restent modifiables ici — change la date ou efface-la pour les remettre en vente.
-        </div>
+      {nbDlc > 0 && !filtreDlc && (
+        <button className="vp-rupt-note" style={{ marginBottom: 12, width: '100%', textAlign: 'left' }}
+          onClick={() => { setFiltreDlc(true); setSansPhoto(false); setFiltreCat('Tous'); }}>
+          <b>{nbDlc} produit(s) retiré(s) de la boutique</b> — leur DLC ne couvre plus le retrait
+          du lendemain. Appuie pour les afficher.
+        </button>
       )}
 
-      {nbSansPhoto > 0 && (
-        <button className={`vp-tab vp-tab-photo ${sansPhoto ? 'on' : ''}`}
-          style={{ marginBottom: 10 }} onClick={() => setSansPhoto(!sansPhoto)}>
-          📷 Sans photo ({nbSansPhoto})
-        </button>
+      {(nbSansPhoto > 0 || nbDlc > 0) && (
+        <div className="vp-tabs" style={{ paddingTop: 0, paddingBottom: 4 }}>
+          {nbDlc > 0 && (
+            <button className={`vp-tab vp-tab-dlc ${filtreDlc ? 'on' : ''}`}
+              onClick={() => { setFiltreDlc(!filtreDlc); setSansPhoto(false); }}>
+              ⏱ DLC échue ({nbDlc})
+            </button>
+          )}
+          {nbSansPhoto > 0 && (
+            <button className={`vp-tab vp-tab-photo ${sansPhoto ? 'on' : ''}`}
+              onClick={() => { setSansPhoto(!sansPhoto); setFiltreDlc(false); }}>
+              📷 Sans photo ({nbSansPhoto})
+            </button>
+          )}
+        </div>
       )}
 
       {catsPresentes.length > 1 && (
@@ -4774,7 +4795,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
       {produitsAffiches.length === 0 ? (
         <div className="vp-empty">
-          {produits.length === 0
+          {filtreDlc
+            ? 'Aucun produit avec une DLC échue.'
+            : produits.length === 0
             ? 'Aucun produit. Ajoute les promos de Patrice.'
             : q
               ? <>Aucun produit ne correspond à « {recherche.trim()} ».{' '}
