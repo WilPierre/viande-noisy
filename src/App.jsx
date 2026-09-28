@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-28 · filtre des DLC échues';
+const VERSION = '2026-09-28b · filtre du carrousel';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -491,6 +491,17 @@ function dlcDepassee(p) {
   if (!p || !p.dlc) return false;
   const j = joursAvantDlc(p.dlc);
   return j !== null && j < 1;
+}
+
+// Un produit n'entre dans le carrousel que s'il est en promo, visible
+// en boutique ET pourvu d'une photo — sans image, la diapositive serait
+// un rectangle vide. Même règle que côté boutique.
+function auCarrousel(p) {
+  return !!(p && p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && p.photo_url);
+}
+// remise affichée, pour l'ordre d'apparition
+function remiseDe(p) {
+  return p && p.prix_barre > 0 ? (1 - p.prix_william / p.prix_barre) : 0;
 }
 
 // { classe, texte } pour la pastille DLC, ou null
@@ -1015,6 +1026,18 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-saisie-q{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vp-saisie-q .vp-input{width:84px;padding:9px 10px}
 .vp-seg button:disabled{opacity:.4}
+
+/* carrousel : filtre et rang */
+.vp-tab-car{border-style:dashed;border-color:#E0A23C;color:#B07318}
+.vp-tab-car.on{background:linear-gradient(135deg,#E0852C,#C2521A);border-color:#A8440F;
+  color:#fff;border-style:solid}
+.vp-badge-car{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;
+  background:#FFF4E0;border:1px solid #E8C98A;color:#8A5A12;font-size:10px;font-weight:800;
+  letter-spacing:.04em;vertical-align:0.08em}
+.vp-badge-hors{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;
+  background:var(--paper);border:1px dashed var(--line);color:var(--muted);font-size:10px;
+  font-weight:800;letter-spacing:.04em;vertical-align:0.08em}
+[data-theme="sombre"] .vp-badge-car{background:#2A2115;border-color:#4A3A22;color:#E8CFA0}
 
 /* filtre des DLC échues */
 .vp-tab-dlc{border-style:dashed;border-color:#F0CFCF;color:#B3261E}
@@ -2518,11 +2541,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   // Vitrine : jusqu'à trois promos avec photo, la plus forte remise en tête.
   const vedettes = enPromo.filter((p) => p.photo_url)
-    .sort((a, b) => {
-      const ra = a.prix_barre > 0 ? (1 - a.prix_william / a.prix_barre) : 0;
-      const rb = b.prix_barre > 0 ? (1 - b.prix_william / b.prix_barre) : 0;
-      return rb - ra;
-    })
+    .sort((a, b) => remiseDe(b) - remiseDe(a))
     .slice(0, 20);
 
   useEffect(() => {
@@ -4166,6 +4185,17 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
   const [sansPhoto, setSansPhoto] = useState(false);
   const [filtreDlc, setFiltreDlc] = useState(false);
+  const [filtreCar, setFiltreCar] = useState(false);
+
+  // ordre exact du carrousel, pour afficher le rang de chaque produit
+  const ordreCarrousel = produits.filter(auCarrousel)
+    .sort((a, b) => remiseDe(b) - remiseDe(a))
+    .slice(0, 20);
+  const rangCarrousel = (p) => ordreCarrousel.findIndex((x) => x.id === p.id) + 1;
+  const nbCarrousel = ordreCarrousel.length;
+  // promos qui n'y entrent pas faute de photo
+  const promosSansPhoto = produits.filter(
+    (p) => p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && !p.photo_url);
   const nbSansPhoto = produits.filter((p) => !p.photo_url).length;
   const nbDlc = produits.filter((p) => p.disponible && dlcDepassee(p)).length;
 
@@ -4173,6 +4203,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const produitsAffiches = produits.filter((p) => {
     if (sansPhoto && p.photo_url) return false;
     if (filtreDlc && !dlcDepassee(p)) return false;
+    if (filtreCar && rangCarrousel(p) === 0) return false;
     if (filtreCat !== 'Tous' && catDe(p) !== filtreCat) return false;
     if (!q) return true;
     if (normaliser(p.nom).includes(q) || normaliser(p.categorie).includes(q)) return true;
@@ -4670,9 +4701,15 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)}{m.suffixe}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
-              {(dlc || p.rupture || p.promo || dlcDepassee(p)) && (
+              {(dlc || p.rupture || p.promo || dlcDepassee(p) || rangCarrousel(p) > 0) && (
                 <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
+                  {rangCarrousel(p) > 0 && (
+                    <span className="vp-badge-car">CARROUSEL N°{rangCarrousel(p)}</span>
+                  )}
+                  {p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && !p.photo_url && (
+                    <span className="vp-badge-hors">PAS AU CARROUSEL · SANS PHOTO</span>
+                  )}
                   {p.rupture && <span className="vp-rupt-pill">EN RUPTURE</span>}
                   {dlcDepassee(p) && <span className="vp-rupt-pill">RETIRÉ · DLC</span>}
                   {dlc && <span className={`vp-dlc ${dlc.classe}`}>{dlc.texte}</span>}
@@ -4718,6 +4755,10 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   if (filtreDlc) {
     produitsAffiches.sort((a, b) => String(a.dlc || '').localeCompare(String(b.dlc || '')));
   }
+  if (filtreCar) {
+    // même ordre que sur la boutique
+    produitsAffiches.sort((a, b) => rangCarrousel(a) - rangCarrousel(b));
+  }
 
   const actifs = produitsAffiches.filter((p) => p.disponible);
   const inactifs = produitsAffiches.filter((p) => !p.disponible);
@@ -4755,6 +4796,16 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         )}
       </div>
 
+      {promosSansPhoto.length > 0 && (
+        <button className="vp-rupt-note" style={{
+          marginBottom: 12, width: '100%', textAlign: 'left',
+          background: '#FFF8EC', borderColor: '#F1DFBC', color: '#7A5A20',
+        }} onClick={() => { setSansPhoto(true); setFiltreCar(false); setFiltreDlc(false); setFiltreCat('Tous'); }}>
+          <b>{promosSansPhoto.length} promo(s) absente(s) du carrousel</b> — il leur manque une photo.
+          Appuie pour les compléter.
+        </button>
+      )}
+
       {nbDlc > 0 && !filtreDlc && (
         <button className="vp-rupt-note" style={{ marginBottom: 12, width: '100%', textAlign: 'left' }}
           onClick={() => { setFiltreDlc(true); setSansPhoto(false); setFiltreCat('Tous'); }}>
@@ -4763,17 +4814,23 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         </button>
       )}
 
-      {(nbSansPhoto > 0 || nbDlc > 0) && (
+      {(nbSansPhoto > 0 || nbDlc > 0 || nbCarrousel > 0) && (
         <div className="vp-tabs" style={{ paddingTop: 0, paddingBottom: 4 }}>
+          {nbCarrousel > 0 && (
+            <button className={`vp-tab vp-tab-car ${filtreCar ? 'on' : ''}`}
+              onClick={() => { setFiltreCar(!filtreCar); setFiltreDlc(false); setSansPhoto(false); }}>
+              ⚡ Au carrousel ({nbCarrousel})
+            </button>
+          )}
           {nbDlc > 0 && (
             <button className={`vp-tab vp-tab-dlc ${filtreDlc ? 'on' : ''}`}
-              onClick={() => { setFiltreDlc(!filtreDlc); setSansPhoto(false); }}>
+              onClick={() => { setFiltreDlc(!filtreDlc); setSansPhoto(false); setFiltreCar(false); }}>
               ⏱ DLC échue ({nbDlc})
             </button>
           )}
           {nbSansPhoto > 0 && (
             <button className={`vp-tab vp-tab-photo ${sansPhoto ? 'on' : ''}`}
-              onClick={() => { setSansPhoto(!sansPhoto); setFiltreDlc(false); }}>
+              onClick={() => { setSansPhoto(!sansPhoto); setFiltreDlc(false); setFiltreCar(false); }}>
               📷 Sans photo ({nbSansPhoto})
             </button>
           )}
@@ -4795,7 +4852,9 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
       {produitsAffiches.length === 0 ? (
         <div className="vp-empty">
-          {filtreDlc
+          {filtreCar
+            ? 'Aucun produit au carrousel. Marque une promo ⚡ et donne-lui une photo.'
+            : filtreDlc
             ? 'Aucun produit avec une DLC échue.'
             : produits.length === 0
             ? 'Aucun produit. Ajoute les promos de Patrice.'
