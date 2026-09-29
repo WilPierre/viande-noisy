@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-29 · ajout de lignes depuis les pesées';
+const VERSION = '2026-09-29b · notes client imprimables';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -323,6 +323,11 @@ function imprimerDocument(titre, corpsHTML) {
     .c-qte{width:11%}
     .c-poids{width:24%}
     .c-prix{width:18%}
+    .n-prod{width:44%}
+    .n-det{width:33%}
+    .n-tot{width:23%}
+    table.notecl{table-layout:fixed}
+    .note-client{page-break-inside:avoid;border-left-color:#8A2E2E}
     .t-prod{width:38%}
     .t-det{width:28%}
     .t-moi{width:17%}
@@ -5341,6 +5346,66 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   };
 
   /* ---- impressions ---- */
+  // Note destinée au client : uniquement TES prix, jamais le coût Patrice.
+  // C'est le document qu'on peut lui mettre entre les mains.
+  const blocNote = (c) => {
+    const rows = (c.lignes || []).map((l) => {
+      const rupt = estRupture(l);
+      const detail = rupt ? 'non fourni'
+        : l.mode_vente === 'piece_fixe'
+          ? `${partiel(l) ? `${num(qteLivree(l))} sur ${num(l.quantite)}` : num(l.quantite)} × ${eur(nombre(valWil(l)))}`
+          : estEstime(l) ? `${num(l.quantite)} ${l.mode_vente === 'kg' ? 'kg' : 'pc'} · poids à confirmer`
+          : `${num(poidsRetenu(l))} kg × ${eur(nombre(valWil(l)))}/kg`;
+      return `<tr class="${rupt ? 'rupture' : ''}">
+        <td class="prod"><span class="nom">${esc(nomLigne(l))}</span></td>
+        <td class="qte">${esc(detail)}</td>
+        <td class="n">${rupt ? '—' : (estEstime(l) ? '≈ ' : '') + esc(eur(stLive(l)))}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="bloc note-client">
+      <h2>${esc(c.nom_client)}</h2>
+      <div class="tel">${esc(settings.titre)} — ${esc(fmtDateCourt(settings.date_vente))}</div>
+      <table class="notecl">
+        <colgroup><col class="n-prod"><col class="n-det"><col class="n-tot"></colgroup>
+        <thead><tr><th>Produit</th><th>Détail</th><th class="n">Montant</th></tr></thead>
+        <tbody>${rows}
+          <tr class="ligne-tot">
+            <td class="tot">Total à régler</td><td></td>
+            <td class="n tot">${esc(eur(totalCmd(c)))}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="pied" style="margin-top:10px;text-align:left">
+        Les produits au kilo sont facturés au poids réel constaté à la pesée. Merci !
+      </div>
+    </div>`;
+  };
+
+  const imprimerNote = (c) => {
+    const corps = `
+      <div class="tete mince"><div class="barre"></div><div>
+        <h1>Détail de ta commande</h1>
+        <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}</div>
+      </div></div>
+      ${blocNote(c)}`;
+    if (!imprimerDocument(`Note ${c.nom_client}`, corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
+  };
+
+  const imprimerToutesNotes = () => {
+    const corps = `
+      <div class="tete mince"><div class="barre"></div><div>
+        <h1>Notes des clients</h1>
+        <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
+          · ${commandes.length} note(s) · à distribuer</div>
+      </div></div>
+      ${commandes.map(blocNote).join('')}`;
+    if (!imprimerDocument(`Notes ${settings.date_vente}`, corps)) {
+      showToast('Autorise les fenêtres pop-up pour imprimer');
+    }
+  };
+
   const imprimerListe = () => {
     const rows = commandes.map((c) => `
       <tr>
@@ -5620,10 +5685,15 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             )}
 
             {c.note && <div className="vp-sub" style={{ marginTop: 8, fontStyle: 'italic' }}>« {c.note} »</div>}
-            <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
-              onClick={async () => { (await copier(noteClient(c))) && showToast(`Note de ${c.nom_client} copiée`); }}>
-              Copier sa note
-            </button>
+            <div className="vp-grid2" style={{ marginTop: 10 }}>
+              <button className="vp-btn ghost sm"
+                onClick={async () => { (await copier(noteClient(c))) && showToast(`Note de ${c.nom_client} copiée`); }}>
+                Copier sa note
+              </button>
+              <button className="vp-btn ghost sm" onClick={() => imprimerNote(c)}>
+                Imprimer sa note
+              </button>
+            </div>
           </div>
         ))
       ) : (
@@ -5663,8 +5733,16 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             <div className="vp-sub">
               À payer à Patrice : <b>{eur(totalPatriceGroupe)}</b>.
             </div>
-            <div className="vp-grid2" style={{ marginTop: 12 }}>
-              <button className="vp-btn" onClick={imprimer}>Détail par client</button>
+            <button className="vp-cta" style={{ marginTop: 12 }} onClick={imprimerToutesNotes}>
+              Imprimer les notes des clients
+            </button>
+            <div className="vp-sub" style={{ marginTop: 6 }}>
+              Une note par voisin, avec <b>tes prix uniquement</b> — aucun coût Patrice.
+              C'est le document à leur remettre.
+            </div>
+
+            <div className="vp-grid2" style={{ marginTop: 16 }}>
+              <button className="vp-btn ghost" onClick={imprimer}>Détail + coûts (pour toi)</button>
               <button className="vp-btn green" onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>Copier le récap</button>
             </div>
           </div>
