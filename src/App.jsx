@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-28b · filtre du carrousel';
+const VERSION = '2026-09-29 · ajout de lignes depuis les pesées';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1026,6 +1026,16 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-saisie-q{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vp-saisie-q .vp-input{width:84px;padding:9px 10px}
 .vp-seg button:disabled{opacity:.4}
+
+/* ajout d'une ligne depuis les pesées */
+.vp-ajout-b{width:100%;margin-top:10px;padding:11px;border-radius:11px;background:var(--blanc);
+  border:1.5px dashed var(--wine);color:var(--wine);font-weight:800;font-size:14px}
+.vp-ajout-b:active{background:var(--paper)}
+.vp-ajout{margin-top:12px;padding:13px;border-radius:12px;background:var(--paper);
+  border:1px solid var(--wine)}
+.vp-ajout .vp-pl-g{margin-top:10px}
+.vp-ajout .vp-pl-g label span{display:block;font-size:11px;font-weight:700;
+  letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
 
 /* carrousel : filtre et rang */
 .vp-tab-car{border-style:dashed;border-color:#E0A23C;color:#B07318}
@@ -5096,6 +5106,89 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const [vue, setVue] = useState('client');
+  // ajout d'une ligne à la volée, pendant la pesée : il arrive que des
+  // produits soient demandés par SMS après la clôture des commandes
+  const [ajoutPour, setAjoutPour] = useState(null); // id de commande
+  const [aNom, setANom] = useState('');
+  const [aProduit, setAProduit] = useState(null);
+  const [aVar, setAVar] = useState('');
+  const [aQte, setAQte] = useState('1');
+  const [aPoids, setAPoids] = useState('');
+  const [aPat, setAPat] = useState('');
+  const [aWil, setAWil] = useState('');
+  const [aKilo, setAKilo] = useState(false);
+  const [aEnvoi, setAEnvoi] = useState(false);
+
+  const reinitAjout = () => {
+    setANom(''); setAProduit(null); setAVar(''); setAQte('1');
+    setAPoids(''); setAPat(''); setAWil(''); setAKilo(false);
+  };
+  const ouvrirAjout = (c) => { reinitAjout(); setAjoutPour(c.id); };
+
+  const qAjout = normaliser(aNom.trim());
+  const suggestionsAjout = qAjout.length >= 1
+    ? (produits || []).filter((p) => normaliser(p.nom).includes(qAjout)).slice(0, 6)
+    : [];
+
+  const prendreProduit = (p) => {
+    setAProduit(p);
+    setANom(p.nom);
+    const vs = variantesDe(p);
+    setAVar(vs.length ? String(vs[0].id) : '');
+    setAKilo(p.mode_vente !== 'piece_fixe');
+    setAPat(String(p.prix_patrice ?? ''));
+    setAWil(String(p.prix_william ?? ''));
+  };
+
+  const enregistrerAjout = async (c) => {
+    if (aNom.trim().length < 2) { showToast('Indique le produit'); return; }
+    const qn = nombre(aQte);
+    if (isNaN(qn) || qn <= 0) { showToast('Quantité invalide'); return; }
+    const pr = aPoids.trim() === '' ? null : nombre(aPoids);
+    if (pr !== null && (isNaN(pr) || pr <= 0)) { showToast('Poids invalide'); return; }
+    const wil = cts(nombre(aWil) || 0);
+    const pat = cts(nombre(aPat) || 0);
+    const vs = aProduit ? variantesDe(aProduit) : [];
+    const v = vs.length ? vs.find((x) => String(x.id) === String(aVar)) || vs[0] : null;
+    const modeV = aKilo ? (aProduit && aProduit.mode_vente === 'kg' ? 'kg' : 'piece_pesee') : 'piece_fixe';
+    const base = pr != null ? pr * wil : (aKilo ? 0 : qn * wil);
+
+    setAEnvoi(true);
+    try {
+      const { error } = await supabase.from('viande_commande_lignes').insert({
+        commande_id: c.id,
+        produit_id: aProduit ? aProduit.id : null,
+        produit_nom: aProduit ? aProduit.nom : aNom.trim(),
+        mode_vente: modeV,
+        emoji: aProduit ? aProduit.emoji : '➕',
+        variante_id: v ? String(v.id) : null,
+        variante_nom: v ? v.nom : null,
+        prix_patrice: pat,
+        prix_william: wil,
+        poids_moyen: null,
+        quantite: aKilo && aProduit && aProduit.mode_vente === 'kg' ? qn : Math.round(qn),
+        quantite_livree: null,
+        poids_reel: pr,
+        sous_total_estime: cts(base),
+        sous_total_final: pr != null || !aKilo ? cts(base) : null,
+        demande: false,
+        demande_origine: null,
+      });
+      const err = messageErreur(error);
+      if (err) { showToast(err); return; }
+      // le total figé en base ne vaut plus rien : on le remet à recalculer,
+      // sinon le profil du client afficherait l'ancien montant
+      await supabase.from('viande_commandes').update({
+        total_estime: cts(Number(c.total_estime || 0) + base),
+        total_final: null,
+        statut: 'en_cours',
+      }).eq('id', c.id);
+      setAjoutPour(null);
+      reinitAjout();
+      showToast('Produit ajouté — pense à enregistrer les pesées');
+      reload();
+    } finally { setAEnvoi(false); }
+  };
   // Corrections saisies : id de ligne -> { poids, pat, wil, rupture }
   // Ce qui n'est pas saisi retombe sur la valeur enregistrée en base.
   const [edits, setEdits] = useState({});
@@ -5439,6 +5532,93 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             <div style={{ marginTop: 10 }}>
               {(c.lignes || []).map((l) => ligneSaisie(l, `${l.emoji} ${nomLigne(l)}`))}
             </div>
+            {ajoutPour === c.id ? (
+              <div className="vp-ajout">
+                <div className="vp-srow">
+                  <b style={{ fontSize: 14.5 }}>Ajouter un produit à {c.nom_client}</b>
+                  <button className="vp-sheet-x" onClick={() => { setAjoutPour(null); reinitAjout(); }}
+                    aria-label="Annuler">×</button>
+                </div>
+
+                <div className="vp-field">
+                  <label className="vp-label">Produit</label>
+                  <input className="vp-input" value={aNom} autoComplete="off"
+                    onChange={(e) => { setANom(e.target.value); setAProduit(null); }}
+                    placeholder="Tape un nom, ou écris-le librement" />
+                  {!aProduit && suggestionsAjout.length > 0 && (
+                    <div className="vp-sugg" style={{ marginTop: 8 }}>
+                      {suggestionsAjout.map((p) => (
+                        <button key={p.id} className="vp-sugg-b" onClick={() => prendreProduit(p)}>
+                          {p.emoji} {p.nom}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {aProduit && variantesDe(aProduit).length > 0 && (
+                    <select className="vp-input" style={{ marginTop: 8 }} value={aVar}
+                      onChange={(e) => setAVar(e.target.value)}>
+                      {variantesDe(aProduit).map((v) => (
+                        <option key={v.id} value={v.id}>{v.nom}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className="vp-seg" style={{ marginTop: 10 }}>
+                  <button className={!aKilo ? 'on' : ''} onClick={() => setAKilo(false)}>À la pièce</button>
+                  <button className={aKilo ? 'on' : ''} onClick={() => setAKilo(true)}>Au poids</button>
+                </div>
+
+                <div className="vp-pl-g">
+                  <label>
+                    <span>Quantité</span>
+                    <input className="vp-winput" inputMode="decimal" value={aQte}
+                      onChange={(e) => setAQte(e.target.value)} />
+                  </label>
+                  <label>
+                    <span>Poids (kg)</span>
+                    <input className="vp-winput" inputMode="decimal" value={aPoids} disabled={!aKilo}
+                      onChange={(e) => setAPoids(e.target.value)} placeholder={aKilo ? 'kg' : '—'} />
+                  </label>
+                  <label>
+                    <span>Prix Patrice</span>
+                    <input className="vp-winput" inputMode="decimal" value={aPat}
+                      onChange={(e) => setAPat(e.target.value)} />
+                  </label>
+                  <label>
+                    <span>Ton prix</span>
+                    <input className="vp-winput" inputMode="decimal" value={aWil}
+                      onChange={(e) => setAWil(e.target.value)} />
+                  </label>
+                </div>
+
+                <div className="vp-pl-f">
+                  <span>
+                    coût {eur(aPoids.trim() !== '' && !isNaN(nombre(aPoids))
+                      ? nombre(aPoids) * (nombre(aPat) || 0)
+                      : (aKilo ? 0 : (nombre(aQte) || 0) * (nombre(aPat) || 0)))}
+                  </span>
+                  <b>
+                    {eur(aPoids.trim() !== '' && !isNaN(nombre(aPoids))
+                      ? nombre(aPoids) * (nombre(aWil) || 0)
+                      : (aKilo ? 0 : (nombre(aQte) || 0) * (nombre(aWil) || 0)))}
+                  </b>
+                </div>
+
+                <button className="vp-btn" style={{ width: '100%', marginTop: 10 }}
+                  disabled={aEnvoi} onClick={() => enregistrerAjout(c)}>
+                  {aEnvoi ? 'Ajout…' : 'Ajouter cette ligne'}
+                </button>
+                <div className="vp-sub" style={{ marginTop: 6 }}>
+                  Au poids sans pesée saisie, la ligne arrive à 0 € : tu la complètes juste au-dessus.
+                </div>
+              </div>
+            ) : (
+              <button className="vp-ajout-b" onClick={() => ouvrirAjout(c)}>
+                ＋ Ajouter un produit à cette commande
+              </button>
+            )}
+
             {c.note && <div className="vp-sub" style={{ marginTop: 8, fontStyle: 'italic' }}>« {c.note} »</div>}
             <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
               onClick={async () => { (await copier(noteClient(c))) && showToast(`Note de ${c.nom_client} copiée`); }}>
