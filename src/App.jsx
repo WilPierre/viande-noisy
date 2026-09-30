@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-30 · compteur de visiteurs en direct';
+const VERSION = '2026-09-30b · catégories dépliables';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1381,6 +1381,30 @@ textarea.vp-input{resize:vertical;min-height:64px}
   font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:var(--green);
   vertical-align:0.08em}
 
+/* rubriques dépliables */
+.vp-rub{margin-top:8px}
+.vp-rub-t{width:100%;display:flex;align-items:center;gap:11px;padding:14px 4px;
+  background:none;color:var(--muted);text-align:left}
+.vp-rub-ico{font-size:23px;line-height:1;flex:0 0 auto}
+.vp-rub-nom{font-size:13.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  white-space:nowrap}
+.vp-rub-nb{flex:0 0 auto;min-width:22px;padding:1px 8px;border-radius:999px;
+  background:var(--paper);border:1px solid var(--line);color:var(--muted);
+  font-size:11.5px;font-weight:700;letter-spacing:0}
+.vp-rub-trait{flex:1;height:1px;background:linear-gradient(to right,var(--line),transparent)}
+.vp-rub-ch{flex:0 0 auto;transition:transform .2s ease}
+.vp-rub-t.on{color:var(--ink)}
+.vp-rub-t.on .vp-rub-nb{background:var(--wine);border-color:var(--wine);color:#fff}
+.vp-rub-t.on .vp-rub-ch{transform:rotate(180deg)}
+.vp-rub-t:active{opacity:.6}
+.vp-rub-c{animation:vpdeplie .18s ease-out}
+@keyframes vpdeplie{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.vp-rub-tout{text-align:right;margin-top:14px}
+@media (prefers-reduced-motion:reduce){
+  .vp-rub-ch{transition:none}
+  .vp-rub-c{animation:none}
+}
+
 /* compteur de visiteurs (admin) */
 .vp-live{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:9px 13px;
   border-radius:10px;background:var(--blanc);border:1px solid var(--line);
@@ -2511,6 +2535,9 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [derniere, setDerniere] = useState(null);  // dernière commande du client
   const [nbVoisins, setNbVoisins] = useState(0);   // commandes du jour
   const [photoZoom, setPhotoZoom] = useState(null); // { url, nom } affiché en grand
+  const [ouvertes, setOuvertes] = useState([]); // rubriques dépliées
+  const basculerRubrique = (cat) => setOuvertes((o) =>
+    (o.includes(cat) ? o.filter((x) => x !== cat) : [...o, cat]));
   const [reponsesNonVues, setReponsesNonVues] = useState(0);
   const [theme, setTheme] = useState(lireTheme);
   const sombre = theme === 'sombre';
@@ -2602,6 +2629,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cats.join(',')]);
+
+  // pendant une recherche ou sur une catégorie choisie, tout reste ouvert :
+  // replier masquerait précisément ce qu'on vient de demander
+  const toutDeplie = !!q || filtreCat !== 'Tous';
 
   const catsAffichees = (filtreCat === 'Tous' || filtreCat === 'PROMOS')
     ? CATEGORIES.filter((c) => source.some((p) => catDe(p) === c))
@@ -3376,12 +3407,42 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             </div>
           )}
 
-          {catsAffichees.map((cat) => (
-          <div key={cat}>
-            <div className="vp-cat"><span className="vp-cat-ico">{iconeCat(cat)}</span>{libelleCat(cat)}</div>
-            {source.filter((p) => catDe(p) === cat).map((p) => carteProduit(p, 'liste'))}
-          </div>
-          ))}
+          {catsAffichees.length > 1 && !toutDeplie && (
+            <div className="vp-rub-tout">
+              <button className="vp-trash" style={{ marginTop: 0 }}
+                onClick={() => setOuvertes(
+                  ouvertes.length >= catsAffichees.length ? [] : catsAffichees)}>
+                {ouvertes.length >= catsAffichees.length ? 'Tout replier' : 'Tout déplier'}
+              </button>
+            </div>
+          )}
+
+          {catsAffichees.map((cat) => {
+            const prods = source.filter((p) => catDe(p) === cat);
+            if (prods.length === 0) return null;
+            const ouverte = toutDeplie || ouvertes.includes(cat);
+            return (
+              <div className="vp-rub" key={cat}>
+                <button className={`vp-rub-t ${ouverte ? 'on' : ''}`}
+                  onClick={() => basculerRubrique(cat)}
+                  aria-expanded={ouverte}>
+                  <span className="vp-rub-ico">{iconeCat(cat)}</span>
+                  <span className="vp-rub-nom">{libelleCat(cat)}</span>
+                  <span className="vp-rub-nb">{prods.length}</span>
+                  <span className="vp-rub-trait" />
+                  <svg className="vp-rub-ch" width="17" height="17" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                {ouverte && (
+                  <div className="vp-rub-c">
+                    {prods.map((p) => carteProduit(p, 'liste'))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           {!q && (
             <button className="vp-demande-lien"
