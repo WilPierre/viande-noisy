@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-29b · notes client imprimables';
+const VERSION = '2026-09-30 · compteur de visiteurs en direct';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1381,8 +1381,18 @@ textarea.vp-input{resize:vertical;min-height:64px}
   font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:var(--green);
   vertical-align:0.08em}
 
+/* compteur de visiteurs (admin) */
+.vp-live{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:9px 13px;
+  border-radius:10px;background:var(--blanc);border:1px solid var(--line);
+  color:var(--muted);font-size:13px;font-weight:600}
+.vp-live.on{background:var(--green-s);border-color:#CFE3D5;color:var(--green)}
+.vp-live-pt{width:8px;height:8px;border-radius:50%;background:var(--line);flex:0 0 auto}
+.vp-live.on .vp-live-pt{background:var(--green);animation:vpbat 2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.vp-live.on .vp-live-pt{animation:none}}
+.vp-social-sep{opacity:.5}
+
 /* preuve sociale */
-.vp-social{display:flex;align-items:center;gap:8px;margin-top:14px;padding:9px 13px;
+.vp-social{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:14px;padding:9px 13px;
   border-radius:10px;background:var(--green-s);border:1px solid #CFE3D5;
   color:var(--green);font-size:13px;font-weight:600}
 .vp-social-pt{width:8px;height:8px;border-radius:50%;background:var(--green);
@@ -1491,6 +1501,9 @@ export default function App() {
   const [produits, setProduits] = useState([]);
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState('');
+  // Visiteurs connectés, via Realtime Presence : rien n'est écrit en base,
+  // chaque navigateur s'annonce et disparaît de lui-même à la fermeture.
+  const [enLigne, setEnLigne] = useState(0);
   const [session, setSession] = useState(null);
   const [profil, setProfil] = useState(null);
   const [profilCharge, setProfilCharge] = useState(false);
@@ -1518,6 +1531,31 @@ export default function App() {
   useEffect(() => { chargerProfil();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
+
+  // compteur de présence — l'organisateur ne se compte pas comme visiteur
+  useEffect(() => {
+    if (!supabase) return;
+    const moi = `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const ch = supabase.channel('viande_presence', { config: { presence: { key: moi } } });
+    const compter = () => {
+      try {
+        const etat = ch.presenceState();
+        const n = Object.values(etat)
+          .flat()
+          .filter((p) => p && p.role === 'client').length;
+        setEnLigne(n);
+      } catch (e) { /* canal fermé */ }
+    };
+    ch.on('presence', { event: 'sync' }, compter)
+      .on('presence', { event: 'join' }, compter)
+      .on('presence', { event: 'leave' }, compter)
+      .subscribe((statut) => {
+        if (statut === 'SUBSCRIBED') {
+          ch.track({ role: view === 'admin' ? 'admin' : 'client', depuis: Date.now() });
+        }
+      });
+    return () => { supabase.removeChannel(ch); };
+  }, [view]);
 
   // horloge (countdown)
   useEffect(() => {
@@ -1614,7 +1652,7 @@ export default function App() {
       {view === 'admin' ? (
         <Admin
           settings={settings} produits={produits} ouvert={ouvert}
-          estSemaine={estSemaine}
+          estSemaine={estSemaine} enLigne={enLigne}
           reload={loadBase} showToast={showToast}
         />
       ) : (
@@ -1623,6 +1661,7 @@ export default function App() {
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
           forcee={forcee} showToast={showToast}
+          enLigne={enLigne}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
       )}
@@ -2449,7 +2488,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie,
-  jourOuvert, prochaineAt, forcee, showToast,
+  jourOuvert, prochaineAt, forcee, enLigne, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -3293,10 +3332,16 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             </div>
           )}
 
-          {nbVoisins >= 2 && !q && (
+          {(nbVoisins >= 2 || enLigne >= 2) && !q && (
             <div className="vp-social">
               <span className="vp-social-pt" />
-              {nbVoisins} voisins ont déjà commandé aujourd'hui
+              {enLigne >= 2 && (
+                <span>{enLigne} voisins regardent la boutique en ce moment</span>
+              )}
+              {enLigne >= 2 && nbVoisins >= 2 && <span className="vp-social-sep">·</span>}
+              {nbVoisins >= 2 && (
+                <span>{nbVoisins} ont déjà commandé aujourd'hui</span>
+              )}
             </div>
           )}
 
@@ -3556,7 +3601,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 /* ============================================================
    ADMIN
 ============================================================ */
-function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
+function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showToast }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
   const [pinVisible, setPinVisible] = useState(false);
@@ -3668,6 +3713,13 @@ function Admin({ settings, produits, ouvert, estSemaine, reload, showToast }) {
         {TABS.map(([k, lbl]) => (
           <button key={k} className={`vp-tab ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{lbl}</button>
         ))}
+      </div>
+
+      <div className={`vp-live ${enLigne > 0 ? 'on' : ''}`}>
+        <span className="vp-live-pt" />
+        {enLigne === 0
+          ? 'Personne sur la boutique en ce moment'
+          : `${enLigne} visiteur${enLigne > 1 ? 's' : ''} sur la boutique en ce moment`}
       </div>
 
       {nonLus > 0 && tab !== 'sondage' && (
