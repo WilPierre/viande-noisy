@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-30b · catégories dépliables';
+const VERSION = '2026-09-30c · libellé du compteur';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -3367,7 +3367,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             <div className="vp-social">
               <span className="vp-social-pt" />
               {enLigne >= 2 && (
-                <span>{enLigne} voisins regardent la boutique en ce moment</span>
+                <span>{enLigne} personnes regardent la boutique en ce moment</span>
               )}
               {enLigne >= 2 && nbVoisins >= 2 && <span className="vp-social-sep">·</span>}
               {nbVoisins >= 2 && (
