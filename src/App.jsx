@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-03 · commandes hors horaires';
+const VERSION = '2026-10-03b · photos allégées';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -206,6 +206,67 @@ function envoyerAlerteWhatsApp(settings, texte) {
     fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
   } catch (e) { /* alerte non bloquante */ }
 }
+
+/* ---- photos : réduction avant envoi ----
+   Une photo de téléphone pèse 2 à 5 Mo. Affichée dans une vignette de
+   300 px, c'est du gâchis pur : le visiteur télécharge 5 Mo pour voir
+   un timbre-poste, et le quota Supabase part en fumée.
+   On redimensionne donc dans le navigateur avant l'envoi : largeur
+   maximale LARGEUR_PHOTO, JPEG qualité QUALITE_PHOTO. Résultat typique :
+   60 à 90 Ko, soit 30 à 50 fois moins, sans différence visible à l'écran.
+   Tout se passe côté client — aucun outil à installer. */
+const LARGEUR_PHOTO = 900;
+const QUALITE_PHOTO = 0.78;
+
+function chargerImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image illisible'));
+    img.src = src;
+  });
+}
+
+/* Prend un Blob/File image, rend un Blob JPEG réduit.
+   Si quoi que ce soit échoue, on rend le fichier d'origine : mieux vaut
+   une photo lourde qu'aucune photo. */
+async function reduireImage(fichier, largeurMax = LARGEUR_PHOTO, qualite = QUALITE_PHOTO) {
+  const url = URL.createObjectURL(fichier);
+  try {
+    const img = await chargerImage(url);
+    const l = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!l || !h) return fichier;
+    const ratio = Math.min(1, largeurMax / l);
+    const nl = Math.max(1, Math.round(l * ratio));
+    const nh = Math.max(1, Math.round(h * ratio));
+    const canvas = document.createElement('canvas');
+    canvas.width = nl; canvas.height = nh;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return fichier;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, nl, nh); // les PNG transparents deviennent blancs, pas noirs
+    ctx.drawImage(img, 0, 0, nl, nh);
+    const blob = await new Promise((res) => {
+      if (canvas.toBlob) canvas.toBlob((b) => res(b), 'image/jpeg', qualite);
+      else res(null);
+    });
+    if (!blob) return fichier;
+    // Une image déjà légère et déjà petite n'a rien à gagner.
+    if (blob.size >= fichier.size && ratio === 1) return fichier;
+    return blob;
+  } catch (e) {
+    return fichier;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const poidsLisible = (o) => {
+  const n = Number(o) || 0;
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
+  return `${Math.max(1, Math.round(n / 1024))} Ko`;
+};
 
 /* ---- panier conservé entre deux visites ----
    Un rafraîchissement accidentel ne doit pas vider le panier.
@@ -1648,7 +1709,11 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_produits' }, loadBase)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_settings' }, loadBase)
       .subscribe();
-    const poll = setInterval(loadBase, 12000); // filet de sécurité mobile
+    // Le temps réel (postgres_changes) fait déjà le travail. Ce rechargement
+    // n'est qu'un filet de sécurité pour les mobiles qui coupent la
+    // connexion en arrière-plan : une fois par minute suffit largement,
+    // et ça divise par cinq la bande passante consommée par visiteur.
+    const poll = setInterval(loadBase, 60000);
     return () => { supabase.removeChannel(ch); clearInterval(poll); };
   }, []);
 
@@ -3083,7 +3148,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     ? <button className="vp-photo-wrap"
                         onClick={() => setPhotoZoom({ url: p.photo_url, nom: p.nom })}
                         aria-label={`Agrandir la photo de ${p.nom}`}>
-                        <img src={p.photo_url} alt={p.nom} className="vp-photo" />
+                        <img src={p.photo_url} alt={p.nom} className="vp-photo"
+                          loading="lazy" decoding="async" />
                         <span className="vp-photo-loupe">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                             <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
@@ -3355,7 +3421,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       onClick={() => allerAuProduit(p)}
                       onKeyDown={(e) => { if (e.key === 'Enter') allerAuProduit(p); }}
                       aria-label={`Promo ${i + 1} sur ${vedettes.length} — ${p.nom}, voir la fiche`}>
-                      <img src={p.photo_url} alt="" />
+                      <img src={p.photo_url} alt=""
+                        loading={i === 0 ? 'eager' : 'lazy'} decoding="async" />
                       <span className="voile" />
                       <span className="txt">
                         <span className="eti">
@@ -3791,7 +3858,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showTo
       .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commandes' }, () => { loadCommandes(); chargerJournees(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commande_lignes' }, loadCommandes)
       .subscribe();
-    const poll = setInterval(loadCommandes, 8000);
+    const poll = setInterval(loadCommandes, 30000); // le temps réel fait le reste
     return () => { supabase.removeChannel(ch); clearInterval(poll); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unlocked, dateTravail, settings.date_vente]);
@@ -4496,13 +4563,19 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     if (!file) return;
     setUploading(true);
     try {
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      // On réduit AVANT l'envoi : la photo part en ~70 Ko au lieu de 3 Mo.
+      const reduit = await reduireImage(file);
+      const estJpeg = reduit !== file || /jpe?g$/i.test(file.name);
+      const ext = estJpeg ? 'jpg' : (file.name.split('.').pop() || 'jpg').toLowerCase();
       const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error } = await supabase.storage.from('viande-photos').upload(path, file, { upsert: true });
+      const { error } = await supabase.storage.from('viande-photos')
+        .upload(path, reduit, { upsert: true, contentType: reduit.type || 'image/jpeg', cacheControl: '31536000' });
       if (error) throw error;
       const { data } = supabase.storage.from('viande-photos').getPublicUrl(path);
       setForm((f) => ({ ...f, photo_url: data.publicUrl }));
-      showToast('Photo ajoutée');
+      showToast(reduit.size < file.size
+        ? `Photo ajoutée · ${poidsLisible(file.size)} → ${poidsLisible(reduit.size)}`
+        : 'Photo ajoutée');
     } catch (err) {
       showToast("Échec de l'envoi de la photo");
     } finally { setUploading(false); }
@@ -4725,7 +4798,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <label className="vp-label">Photo (facultatif — sinon l'emoji est utilisé)</label>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             {form.photo_url
-              ? <img src={form.photo_url} alt="" style={{ width: 64, height: 64, borderRadius: 12, objectFit: 'cover', border: '1px solid var(--line)' }} />
+              ? <img src={form.photo_url} alt="" loading="lazy" decoding="async" style={{ width: 64, height: 64, borderRadius: 12, objectFit: 'cover', border: '1px solid var(--line)' }} />
               : <div style={{ width: 64, height: 64, borderRadius: 12, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', fontSize: 28 }}>{form.emoji}</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label className="vp-btn ghost sm" style={{ display: 'inline-block', cursor: 'pointer', textAlign: 'center' }}>
@@ -4890,7 +4963,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         <div className="vp-srow">
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
             {p.photo_url
-              ? <img src={p.photo_url} alt="" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
+              ? <img src={p.photo_url} alt="" loading="lazy" decoding="async" style={{ width: 36, height: 36, borderRadius: 9, objectFit: 'cover', flex: '0 0 auto' }} />
               : <span className="vp-tuile vp-tuile-sm" style={{
                   background: `linear-gradient(135deg, ${teintesDe(p)[0]} 0%, ${teintesDe(p)[1]} 100%)`,
                 }}>
@@ -6302,6 +6375,108 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
 
+  /* ---- Allègement des photos déjà en ligne ----
+     Les photos envoyées avant cette version sont restées en pleine
+     résolution. On les retélécharge une fois, on les réduit dans le
+     navigateur, on les renvoie allégées et on efface les originales.
+     C'est une opération à faire UNE fois, depuis un ordinateur ou un
+     téléphone en wifi. Rien n'est perdu si on l'interrompt : chaque
+     photo est traitée indépendamment. */
+  const [opti, setOpti] = useState(null); // { total, faits, ignores, echecs, avant, apres, encours }
+  const [optiJournal, setOptiJournal] = useState([]);
+  const optiStop = useRef(false);
+
+  const cheminStockage = (url) => {
+    const m = String(url || '').match(/\/viande-photos\/(.+)$/);
+    return m ? decodeURIComponent(m[1].split('?')[0]) : null;
+  };
+
+  const optimiserPhotos = async () => {
+    if (!window.confirm(
+      "Alléger toutes les photos du catalogue ?\n\n"
+      + "Chaque photo est retéléchargée, réduite, puis remplacée par sa version légère. "
+      + "L'opération peut prendre quelques minutes. Reste sur cette page, de préférence en wifi."
+    )) return;
+
+    optiStop.current = false;
+    setOptiJournal([]);
+    const { data: liste, error } = await supabase
+      .from('viande_produits').select('id, nom, photo_url')
+      .not('photo_url', 'is', null).order('ordre');
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+
+    const cibles = (liste || []).filter((p) => cheminStockage(p.photo_url));
+    if (!cibles.length) { showToast('Aucune photo à alléger'); return; }
+
+    const st = { total: cibles.length, faits: 0, ignores: 0, echecs: 0, avant: 0, apres: 0, encours: true };
+    setOpti({ ...st });
+    const ajouterAuJournal = (ligne) => setOptiJournal((j) => [ligne, ...j].slice(0, 40));
+
+    for (const p of cibles) {
+      if (optiStop.current) break;
+      setOpti({ ...st, nomEnCours: p.nom });
+      try {
+        const rep = await fetch(p.photo_url, { cache: 'reload' });
+        if (!rep.ok) throw new Error('téléchargement refusé');
+        const original = await rep.blob();
+        st.avant += original.size;
+
+        // Deuxième gain, invisible mais énorme : la durée de cache. Par
+        // défaut Supabase annonce 1 heure, donc un visiteur qui revient
+        // retélécharge tout. On repasse les photos avec un cache d'un an.
+        const cacheCourt = !/max-age=\s*(\d{6,})/.test(rep.headers.get('cache-control') || '');
+
+        let aEnvoyer = original.size > 120 * 1024 ? await reduireImage(original) : null;
+        if (aEnvoyer && aEnvoyer.size >= original.size * 0.9) aEnvoyer = null;
+
+        if (!aEnvoyer && !cacheCourt) {
+          st.apres += original.size; st.ignores += 1;
+          ajouterAuJournal(`• ${p.nom} — déjà optimale (${poidsLisible(original.size)})`);
+          setOpti({ ...st }); continue;
+        }
+        const nouveauBlob = aEnvoyer || original;
+        const typeBlob = aEnvoyer ? 'image/jpeg' : (original.type || 'image/jpeg');
+        const extBlob = aEnvoyer ? 'jpg' : (/png$/i.test(original.type || '') ? 'png' : 'jpg');
+
+        const chemin = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extBlob}`;
+        const { error: eUp } = await supabase.storage.from('viande-photos')
+          .upload(chemin, nouveauBlob, { upsert: true, contentType: typeBlob, cacheControl: '31536000' });
+        if (eUp) throw eUp;
+
+        const { data: pub } = supabase.storage.from('viande-photos').getPublicUrl(chemin);
+        const { error: eMaj } = await supabase.from('viande_produits')
+          .update({ photo_url: pub.publicUrl }).eq('id', p.id);
+        if (eMaj) {
+          await supabase.storage.from('viande-photos').remove([chemin]); // on ne laisse pas d'orphelin
+          throw eMaj;
+        }
+
+        const ancien = cheminStockage(p.photo_url);
+        if (ancien && ancien !== chemin) {
+          await supabase.storage.from('viande-photos').remove([ancien]);
+        }
+
+        st.apres += nouveauBlob.size; st.faits += 1;
+        ajouterAuJournal(aEnvoyer
+          ? `✓ ${p.nom} — ${poidsLisible(original.size)} → ${poidsLisible(nouveauBlob.size)}`
+          : `✓ ${p.nom} — cache rallongé (${poidsLisible(original.size)})`);
+        setOpti({ ...st });
+      } catch (e) {
+        st.echecs += 1;
+        ajouterAuJournal(`✗ ${p.nom} — ${e && e.message ? e.message : 'échec'}`);
+        setOpti({ ...st });
+      }
+    }
+
+    st.encours = false;
+    setOpti({ ...st });
+    reload();
+    showToast(optiStop.current
+      ? `Arrêté — ${st.faits} photo(s) allégée(s)`
+      : `Terminé — ${st.faits} photo(s) allégée(s)`);
+  };
+
   const basculerPrecommande = async () => {
     const nouveau = !f.precommande_active;
     setF((x) => ({ ...x, precommande_active: nouveau }));
@@ -6529,6 +6704,61 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
         <input className="vp-input" style={{ marginTop: 10 }} value={f.email_alerte}
           onChange={(e) => setF({ ...f, email_alerte: e.target.value })}
           placeholder="ton.adresse@exemple.fr" inputMode="email" type="email" />
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Alléger les photos <span className="vp-pill">à faire une fois</span></div>
+        <div className="vp-sub">
+          Les photos envoyées depuis un téléphone pèsent plusieurs mégaoctets chacune, alors
+          qu'elles s'affichent dans une vignette. Cet outil les réduit une bonne fois : le site
+          s'ouvre beaucoup plus vite et la consommation de l'hébergement s'effondre.
+          Les nouvelles photos sont désormais réduites automatiquement à l'envoi.
+        </div>
+
+        {opti && (
+          <div className="vp-rupt-note" style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 700 }}>
+              {opti.encours
+                ? `En cours — ${opti.faits + opti.ignores + opti.echecs} / ${opti.total}`
+                : `Terminé — ${opti.total} photo(s) examinée(s)`}
+            </div>
+            <div style={{ marginTop: 4 }}>
+              {opti.faits} allégée(s) · {opti.ignores} déjà bonne(s) · {opti.echecs} échec(s)
+            </div>
+            {opti.avant > 0 && (
+              <div style={{ marginTop: 4 }}>
+                Poids du catalogue : <b>{poidsLisible(opti.avant)}</b> → <b>{poidsLisible(opti.apres)}</b>
+                {opti.apres < opti.avant && (
+                  <> · soit {Math.round((1 - opti.apres / opti.avant) * 100)} % de moins</>
+                )}
+              </div>
+            )}
+            {opti.encours && opti.nomEnCours && (
+              <div style={{ marginTop: 4, opacity: 0.75 }}>Traitement : {opti.nomEnCours}</div>
+            )}
+          </div>
+        )}
+
+        {optiJournal.length > 0 && (
+          <div style={{
+            marginTop: 10, maxHeight: 180, overflowY: 'auto', fontSize: 13,
+            lineHeight: 1.6, padding: '8px 10px', borderRadius: 10,
+            border: '1px solid var(--line)',
+          }}>
+            {optiJournal.map((l, i) => <div key={i}>{l}</div>)}
+          </div>
+        )}
+
+        {opti && opti.encours ? (
+          <button className="vp-btn ghost" style={{ marginTop: 12 }}
+            onClick={() => { optiStop.current = true; showToast('Arrêt après la photo en cours'); }}>
+            Arrêter
+          </button>
+        ) : (
+          <button className="vp-btn green" style={{ marginTop: 12 }} onClick={optimiserPhotos}>
+            Alléger les photos du catalogue
+          </button>
+        )}
       </div>
 
       <div className="vp-section">
