@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-09-30c · libellé du compteur';
+const VERSION = '2026-10-03 · commandes hors horaires';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -468,6 +468,25 @@ function prochaineOuverture(now, heureDefaut, heureFermeture) {
   }
   return null;
 }
+// Une commande passée boutique fermée est rattachée à la prochaine
+// journée d'ouverture, jamais à aujourd'hui : sinon elle tomberait dans
+// une journée déjà close, voire déjà pesée.
+function dateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function infoPrecommande(prochaineAt) {
+  if (!prochaineAt) return null;
+  const ouv = new Date(prochaineAt);
+  const ret = joursPlusTard(ouv, 1); // le retrait suit toujours le jour d'ouverture
+  const jour = (d) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const heure = ouv.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+  return {
+    dateVente: dateStr(ouv),
+    ouverture: `${jour(ouv)} à ${heure}`,
+    retrait: jour(ret),
+  };
+}
+
 // « dimanche à 12h00 pour vos commandes du lendemain, lundi »
 function texteReouverture(ts) {
   if (!ts) return '';
@@ -1380,6 +1399,25 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-badge-neuf{display:inline-block;margin-left:7px;padding:1px 8px;border-radius:999px;
   font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:var(--green);
   vertical-align:0.08em}
+
+/* commandes hors horaires */
+.vp-badge-pre{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;
+  background:#EEEBFA;border:1px solid #D7D1EE;color:#4F3F8F;font-size:10px;font-weight:800;
+  letter-spacing:.04em;vertical-align:0.08em}
+[data-theme="sombre"] .vp-badge-pre{background:#241F38;border-color:#3B3356;color:#B9AEE8}
+
+.vp-prec{display:flex;align-items:flex-start;gap:12px;margin-top:14px;padding:13px 15px;
+  border-radius:13px;background:#F2F0FB;border:1px solid #D7D1EE;color:var(--ink)}
+.vp-prec b{display:block;font-size:14.5px}
+.vp-prec small{display:block;color:var(--muted);font-size:13px;margin-top:3px;line-height:1.55}
+.vp-prec small b{display:inline;color:var(--ink)}
+.vp-prec-ico{font-size:21px;line-height:1;flex:0 0 auto}
+[data-theme="sombre"] .vp-prec{background:#1E1B2B;border-color:#342E48}
+.vp-prec-panier{margin-top:12px;padding:12px 14px;border-radius:12px;
+  background:#F2F0FB;border:1px solid #D7D1EE;font-size:13px;line-height:1.6;color:var(--muted)}
+.vp-prec-panier > b{display:block;margin-bottom:3px;font-size:13.5px;color:var(--ink)}
+.vp-prec-panier b{color:var(--ink)}
+[data-theme="sombre"] .vp-prec-panier{background:#1E1B2B;border-color:#342E48}
 
 /* rubriques dépliables */
 .vp-rub{margin-top:8px}
@@ -2552,6 +2590,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   };
   const [vueCompte, setVueCompte] = useState(false);
   const connecte = !!(session && session.user);
+  // boutique fermée mais commandes acceptées pour la prochaine journée
+  const infoPre = infoPrecommande(prochaineAt);
+  const precommande = !ouvert && !!settings.precommande_active && !!infoPre;
+  const peutCommander = ouvert || precommande;
   // session valide mais fiche client absente : inscription à terminer
   const profilManquant = connecte && profilCharge && !profil;
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
@@ -2864,9 +2906,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       const { data: cmd, error } = await supabase.from('viande_commandes').insert({
         user_id: session.user.id,
         nom_client: profil.nom, telephone: profil.telephone, note: note.trim() || null,
+        precommande,
         total_estime: Math.round(total * 100) / 100,
         total_patrice: Math.round(totalPatrice * 100) / 100,
-        date_vente: settings.date_vente,
+        // hors horaires, la commande rejoint la prochaine journée d'ouverture
+        date_vente: precommande ? infoPre.dateVente : settings.date_vente,
       }).select().single();
       if (error) throw error;
       // on fige les valeurs effectives de la variante dans la ligne :
@@ -2917,19 +2961,21 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         ...demandes.map((d) => `• 📝 DEMANDE : ${d.nom} ${d.unite === 'kg' ? `${num(d.quantite)} kg` : `x${num(d.quantite)}`}`),
       ].join('\n');
       envoyerAlerteWhatsApp(settings,
-        `🥩 Nouvelle commande\n${profil.nom} — ${profil.telephone}\n\n${resume}\n\n`
+        `${precommande ? '🌙 PRÉCOMMANDE (hors horaires)' : '🥩 Nouvelle commande'}`
+        + `\n${profil.nom} — ${profil.telephone}`
+        + `${precommande ? `\nPour le ${infoPre.ouverture}` : ''}\n\n${resume}\n\n`
         + `Total estimé : ${eur(total)}`
         + (note.trim() ? `\nNote : ${note.trim()}` : ''));
 
       // mémorisé pour permettre une modification ultérieure
       const memo = {
-        date: settings.date_vente, id: cmd.id, nom: profil.nom,
+        date: precommande ? infoPre.dateVente : settings.date_vente, id: cmd.id, nom: profil.nom,
         heure: Date.now(), cart, choix, tel: profil.telephone, note: note.trim(),
       };
       ecrireCommandeStockee(memo);
       setMaCommande(memo);
 
-      setDone({ nom: profil.nom, total, aDuPese });
+      setDone({ nom: profil.nom, total, aDuPese, pre: precommande ? infoPre : null });
       setPanierOuvert(false);
       viderPanierStocke();
       setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
@@ -2992,6 +3038,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               au poids réel à la livraison. Tu recevras ta note définitive.</>
             )}
           </p>
+          {done.pre && (
+            <div className="vp-prec-panier" style={{ marginTop: 18, textAlign: 'left' }}>
+              <b>🌙 Enregistrée pour la réouverture</b>
+              Elle sera traitée <b>{done.pre.ouverture}</b>, pour un retrait
+              le <b>{done.pre.retrait}</b>.
+            </div>
+          )}
+
           <div className="vp-note" style={{ marginTop: 20, textAlign: 'left' }}>
             Besoin de changer quelque chose ? Reviens sur la boutique&nbsp;:
             tu pourras modifier ou annuler ta commande tant qu'elle est ouverte.
@@ -3101,7 +3155,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }
 
   return (
-    <div className={`vp-app ${ouvert && (panierPlein || panierOuvert) ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
+    <div className={`vp-app ${peutCommander && (panierPlein || panierOuvert) ? 'vp-avec-panier' : ''} ${settings.whatsapp_url ? 'vp-avec-wa' : ''}`}>
       <div className="vp-mini">
         <span className="vp-mini-m">{settings.titre}</span>
         <button className="vp-theme" onClick={basculerTheme}
@@ -3202,7 +3256,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         </div>
       )}
 
-      {!ouvert ? (
+      {!peutCommander ? (
         <div className="vp-ferme">
           <span className="vp-ferme-ico">🕑</span>
           <b>
@@ -3353,6 +3407,19 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             </div>
           )}
 
+          {precommande && (
+            <div className="vp-prec">
+              <span className="vp-prec-ico">🌙</span>
+              <div>
+                <b>La boutique est fermée, mais tu peux commander</b>
+                <small>
+                  Ta commande sera prise en compte <b>{infoPre.ouverture}</b>,
+                  à la réouverture, pour un retrait le <b>{infoPre.retrait}</b>.
+                </small>
+              </div>
+            </div>
+          )}
+
           {presse && (
             <div className="vp-urgence">
               <span className="vp-urgence-ico">⏳</span>
@@ -3466,7 +3533,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         </div>
       )}
 
-      <PastilleWhatsApp url={settings.whatsapp_url} haut={ouvert && (panierPlein || panierOuvert)} />
+      <PastilleWhatsApp url={settings.whatsapp_url} haut={peutCommander && (panierPlein || panierOuvert)} />
 
       <div className="vp-pied">
         <div className="vp-credit">
@@ -3476,7 +3543,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <div className="vp-ver">v{VERSION}</div>
       </div>
 
-      {ouvert && (panierPlein || panierOuvert) && (
+      {peutCommander && (panierPlein || panierOuvert) && (
         <>
           {panierOuvert && <div className="vp-backdrop" onClick={() => setPanierOuvert(false)} />}
 
@@ -3577,6 +3644,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   </div>
                 )}
 
+                {precommande && (
+                  <div className="vp-prec-panier">
+                    <b>🌙 Commande pour la réouverture</b>
+                    Elle sera traitée <b>{infoPre.ouverture}</b>, avec les autres commandes
+                    de la journée, pour un retrait le <b>{infoPre.retrait}</b>.
+                    Les prix et les produits disponibles peuvent évoluer d'ici là.
+                  </div>
+                )}
+
                 <div className="vp-tot"><span>Total estimé</span><span className="r">{lignes.length === 0 ? 'à confirmer' : `${aDuPese ? '≈ ' : ''}${eur(total)}`}</span></div>
                 {demandes.length > 0 && lignes.length > 0 && (
                   <div className="vp-mini">+ {demandes.length} demande(s) dont le prix te sera confirmé.</div>
@@ -3610,6 +3686,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     <button className="vp-cta" disabled={envoi} onClick={envoyer}>
                       {envoi ? 'Envoi…'
                         : lignes.length === 0 ? 'Envoyer ma demande'
+                        : precommande ? `Commander pour la réouverture · ${aDuPese ? '≈ ' : ''}${eur(total)}`
                         : `Envoyer ma commande · ${aDuPese ? '≈ ' : ''}${eur(total)}`}
                     </button>
                   </>
@@ -4264,7 +4341,9 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
           <div className="vp-cmd" key={c.id}>
             <div className="vp-cmd-head">
               <span className="vp-cmd-name">
-                {c.nom_client} {c.statut === 'finalisee' && <span className="vp-pill" style={{ color: 'var(--green)' }}>finalisée</span>}
+                {c.nom_client}
+                {c.precommande && <span className="vp-badge-pre">🌙 HORS HORAIRES</span>}
+                {c.statut === 'finalisee' && <span className="vp-pill" style={{ color: 'var(--green)' }}>finalisée</span>}
               </span>
               <span className="vp-cmd-time">{new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
@@ -6211,6 +6290,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     message_accueil: settings.message_accueil || '',
     pin_admin: settings.pin_admin,
     marge_defaut: String(settings.marge_defaut),
+    precommande_active: settings.precommande_active !== false,
     whatsapp_url: settings.whatsapp_url || '',
     email_alerte: settings.email_alerte || '',
     alerte_wa_numero: settings.alerte_wa_numero || '',
@@ -6220,6 +6300,17 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
   const todayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  const basculerPrecommande = async () => {
+    const nouveau = !f.precommande_active;
+    setF((x) => ({ ...x, precommande_active: nouveau }));
+    const { error } = await supabase.from('viande_settings')
+      .update({ precommande_active: nouveau, updated_at: new Date().toISOString() }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); setF((x) => ({ ...x, precommande_active: !nouveau })); return; }
+    reload();
+    showToast(nouveau ? 'Commandes hors horaires acceptées' : 'Commandes hors horaires refusées');
   };
 
   const forceeAuj = settings.ouverture_forcee_le === todayStr();
@@ -6285,6 +6376,22 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
             </div>
           </div>
           <div className={`vp-toggle ${f.vente_active ? 'on' : ''}`} onClick={toggleVente} />
+        </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 16 }}>
+              {f.precommande_active ? '🌙 Commandes hors horaires acceptées' : 'Commandes hors horaires refusées'}
+            </div>
+            <div className="vp-sub">
+              {f.precommande_active
+                ? "Boutique fermée, les voisins peuvent quand même commander. Leur commande rejoint la prochaine journée d'ouverture, et ils en sont prévenus."
+                : 'Boutique fermée, la commande est impossible : les voisins ne voient que les horaires de réouverture.'}
+            </div>
+          </div>
+          <div className={`vp-toggle ${f.precommande_active ? 'on' : ''}`} onClick={basculerPrecommande} />
         </div>
       </div>
 
