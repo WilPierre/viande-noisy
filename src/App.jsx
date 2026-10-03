@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-03b · photos allégées';
+const VERSION = '2026-10-03c · carrousel 30';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -577,6 +577,11 @@ function dlcDepassee(p) {
   const j = joursAvantDlc(p.dlc);
   return j !== null && j < 1;
 }
+
+// Nombre maximum de diapositives. Une seule source de vérité : la
+// boutique et le compteur de l'admin lisent la même valeur, donc le
+// rang affiché dans l'admin correspond toujours à la réalité.
+const MAX_CARROUSEL = 30;
 
 // Un produit n'entre dans le carrousel que s'il est en promo, visible
 // en boutique ET pourvu d'une photo — sans image, la diapositive serait
@@ -2727,10 +2732,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const resteMin = ouvert && !forcee && fermetureAt ? Math.floor((fermetureAt - now) / 60000) : null;
   const presse = resteMin != null && resteMin <= 60;
 
-  // Vitrine : jusqu'à trois promos avec photo, la plus forte remise en tête.
+  // Vitrine : les promos avec photo, la plus forte remise en tête.
   const vedettes = enPromo.filter((p) => p.photo_url)
     .sort((a, b) => remiseDe(b) - remiseDe(a))
-    .slice(0, 20);
+    .slice(0, MAX_CARROUSEL);
 
   useEffect(() => {
     if (filtreCat !== 'Tous' && filtreCat !== 'PROMOS' && !cats.includes(filtreCat)) setFiltreCat('Tous');
@@ -4464,7 +4469,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   // ordre exact du carrousel, pour afficher le rang de chaque produit
   const ordreCarrousel = produits.filter(auCarrousel)
     .sort((a, b) => remiseDe(b) - remiseDe(a))
-    .slice(0, 20);
+    .slice(0, MAX_CARROUSEL);
   const rangCarrousel = (p) => ordreCarrousel.findIndex((x) => x.id === p.id) + 1;
   const nbCarrousel = ordreCarrousel.length;
   // promos qui n'y entrent pas faute de photo
