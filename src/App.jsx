@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-05 · alerte doublon';
+const VERSION = '2026-10-05b · notes WhatsApp';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -5618,6 +5618,37 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 /* ---------- Admin : Pesées & notes (recalcul du lendemain) ---------- */
 function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const [vue, setVue] = useState('client');
+
+  /* ---- envoi des notes sur WhatsApp ----
+     Les noms WhatsApp servent à écrire « @Jeannot » plutôt que « Jean
+     Dupont » dans le récap du groupe. Attention : coller « @Jeannot »
+     n'crée PAS une vraie mention WhatsApp (voir plus bas dans l'écran),
+     c'est seulement plus lisible pour le groupe. */
+  const [alias, setAlias] = useState({});
+  useEffect(() => {
+    const charger = async () => {
+      const { data } = await supabase.from('viande_clients').select('id, alias_whatsapp');
+      const a = {};
+      (data || []).forEach((c) => { if (c.alias_whatsapp) a[String(c.id)] = c.alias_whatsapp; });
+      setAlias(a);
+    };
+    charger();
+  }, []);
+  const nomWa = (c) => alias[String(c.user_id)] || c.nom_client;
+
+  // numéro au format international sans « + », tel que l'attend wa.me
+  const telWa = (c) => {
+    const d = String(c.telephone || '').replace(/\D/g, '');
+    if (!d) return null;
+    if (d.startsWith('33')) return d;
+    if (d.startsWith('0')) return `33${d.slice(1)}`;
+    return d;
+  };
+
+  // envois déjà faits : avec quinze voisins, on perd vite le fil
+  const [envoyes, setEnvoyes] = useState([]);
+  const dejaEnvoye = (c) => envoyes.includes(c.id);
+  const marquerEnvoye = (c) => setEnvoyes((e) => (e.includes(c.id) ? e : [...e, c.id]));
   // ajout d'une ligne à la volée, pendant la pesée : il arrive que des
   // produits soient demandés par SMS après la clôture des commandes
   const [ajoutPour, setAjoutPour] = useState(null); // id de commande
@@ -5850,6 +5881,37 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     commandes.forEach((c) => { t += `${c.nom_client} : ${eur(totalCmd(c))}\n`; });
     t += `\nTotal groupe : ${eur(totalGroupe)}`;
     return t;
+  };
+
+  /* Même récap, mais avec les noms WhatsApp précédés d'un @ : chacun
+     retrouve sa ligne d'un coup d'œil. Ce n'est pas une vraie mention
+     WhatsApp (impossible par collage), seulement un repère visuel. */
+  const recapArobase = () => {
+    let t = `🥩 ${settings.titre} — notes du ${fmtDateCourt(settings.date_vente)}\n\n`;
+    commandes.forEach((c) => { t += `@${nomWa(c)} — ${eur(totalCmd(c))}\n`; });
+    t += `\nTotal du groupe : ${eur(totalGroupe)}`;
+    t += `\n\nLe détail de ta note est dans ton compte sur la boutique 🙂`;
+    return t;
+  };
+
+  /* Annonce sans aucun montant : chacun consulte sa note dans son compte.
+     C'est la version à privilégier — personne n'a à savoir ce que
+     dépensent les autres. */
+  const annonceNotes = () => (
+    `🥩 ${settings.titre}\n\n`
+    + `Vos notes du ${fmtDateCourt(settings.date_vente)} sont en ligne ✅\n\n`
+    + `Connectez-vous sur la boutique et ouvrez « Mon compte » : `
+    + `vous y trouverez le détail de votre commande et le montant à régler.\n\n`
+    + `À tout de suite pour la distribution !`
+  );
+
+  // Ouvre WhatsApp sur la conversation du voisin, message déjà écrit.
+  const ouvrirWa = (c) => {
+    const tel = telWa(c);
+    if (!tel) { showToast(`Pas de numéro pour ${c.nom_client}`); return; }
+    const url = `https://wa.me/${tel}?text=${encodeURIComponent(noteClient(c))}`;
+    marquerEnvoye(c);
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   /* ---- impressions ---- */
@@ -6251,6 +6313,87 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             <div className="vp-grid2" style={{ marginTop: 16 }}>
               <button className="vp-btn ghost" onClick={imprimer}>Détail + coûts (pour toi)</button>
               <button className="vp-btn green" onClick={async () => { (await copier(recapGlobal())) && showToast('Récap global copié'); }}>Copier le récap</button>
+            </div>
+          </div>
+
+          <div className="vp-section">
+            <div className="vp-srow">
+              <div>
+                <div className="vp-h2" style={{ fontSize: 16 }}>Envoyer les notes sur WhatsApp</div>
+                <div className="vp-sub">
+                  Un message privé par voisin, sa note déjà écrite. C'est la seule façon
+                  d'être réellement notifié — et personne ne voit ce que dépensent les autres.
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <div className="vp-h2" style={{ fontSize: 16, color: 'var(--green)' }}>
+                  {envoyes.length}/{commandes.length}
+                </div>
+                <div className="vp-marge">envoyés</div>
+              </div>
+            </div>
+
+            <div className="vp-liste" style={{ marginTop: 12 }}>
+              {commandes.map((c) => (
+                <div className="vp-liste-l" key={c.id}>
+                  <span>
+                    {dejaEnvoye(c) ? '✅ ' : ''}{c.nom_client}
+                    <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                      {alias[String(c.user_id)] ? `${alias[String(c.user_id)]} · ` : ''}
+                      {c.telephone || 'sans numéro'} · {eur(totalCmd(c))}
+                    </small>
+                  </span>
+                  <button className={`vp-btn sm ${dejaEnvoye(c) ? 'ghost' : 'green'}`}
+                    style={{ flex: '0 0 auto' }}
+                    disabled={!telWa(c)} onClick={() => ouvrirWa(c)}>
+                    {dejaEnvoye(c) ? 'Renvoyer' : 'Envoyer'}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {envoyes.length > 0 && (
+              <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
+                onClick={() => setEnvoyes([])}>
+                Remettre les coches à zéro
+              </button>
+            )}
+
+            <div className="vp-sub" style={{ marginTop: 12 }}>
+              Chaque bouton ouvre la conversation du voisin avec le message prêt&nbsp;:
+              il te reste à appuyer sur envoyer. Les coches ✅ te servent à ne pas
+              perdre le fil — elles disparaissent si tu recharges la page.
+            </div>
+          </div>
+
+          <div className="vp-section">
+            <div className="vp-h2" style={{ fontSize: 16 }}>Un seul message dans le groupe</div>
+            <div className="vp-sub">
+              Si tu préfères tout annoncer d'un coup, deux formulations à coller
+              dans le groupe WhatsApp.
+            </div>
+
+            <button className="vp-btn green" style={{ width: '100%', marginTop: 12 }}
+              onClick={async () => { (await copier(annonceNotes())) && showToast('Annonce copiée'); }}>
+              Copier « vos notes sont en ligne » (sans montants)
+            </button>
+            <div className="vp-sub" style={{ marginTop: 6 }}>
+              Recommandé : chacun ouvre « Mon compte » et voit sa note détaillée.
+              Aucun montant n'est étalé dans le groupe.
+            </div>
+
+            <button className="vp-btn" style={{ width: '100%', marginTop: 14 }}
+              onClick={async () => { (await copier(recapArobase())) && showToast('Récap avec @ copié'); }}>
+              Copier le récap avec les @noms
+            </button>
+            <div className="vp-rupt-note" style={{ marginTop: 8 }}>
+              <b>À savoir :</b> un «&nbsp;@nom&nbsp;» collé dans WhatsApp reste du
+              texte simple — il ne déclenche <b>aucune notification</b> et n'apparaît
+              pas en bleu. WhatsApp ne crée une vraie mention que si tu tapes le
+              «&nbsp;@&nbsp;» toi-même dans la zone de saisie et que tu choisis le
+              contact dans la liste qui s'ouvre. Ce récap sert donc juste à ce que
+              chacun repère sa ligne. Pour être sûr que les gens voient leur montant,
+              utilise les envois individuels juste au-dessus.
             </div>
           </div>
 
