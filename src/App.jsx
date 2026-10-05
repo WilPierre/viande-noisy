@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-03c · carrousel 30';
+const VERSION = '2026-10-05 · alerte doublon';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -734,6 +734,27 @@ input,select,textarea{font-family:inherit;font-size:16px}
   display:grid;place-items:center;backdrop-filter:blur(4px)}
 .vp-visionneuse-x:active{background:rgba(255,255,255,.3)}
 @media (prefers-reduced-motion:reduce){.vp-visionneuse{animation:none}}
+
+/* ===== ALERTE DOUBLON DE COMMANDE ===== */
+.vp-doublon{position:fixed;inset:0;z-index:70;background:rgba(36,30,27,.55);
+  display:flex;align-items:center;justify-content:center;padding:18px;
+  animation:vpfade .16s ease;overflow-y:auto}
+.vp-doublon-boite{background:var(--card);border-radius:18px;max-width:430px;width:100%;
+  padding:22px;box-shadow:0 22px 60px rgba(36,30,27,.4);border:1px solid var(--line);
+  max-height:calc(100vh - 36px);overflow-y:auto}
+.vp-doublon-tete{display:flex;gap:12px;align-items:flex-start}
+.vp-doublon-ico{font-size:30px;line-height:1;flex:0 0 auto}
+.vp-doublon-boite h3{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:19px;
+  line-height:1.25;margin:0}
+.vp-doublon-txt{color:var(--muted);font-size:14px;line-height:1.6;margin-top:10px}
+.vp-doublon-cmd{margin-top:14px;padding:12px 14px;border-radius:12px;
+  background:var(--bg);border:1px solid var(--line);font-size:13.5px;line-height:1.65}
+.vp-doublon-cmd b{font-size:14px}
+.vp-doublon-cmd ul{margin:6px 0 0;padding-left:18px}
+.vp-doublon-cmd .tot{margin-top:7px;font-weight:700}
+.vp-doublon-b{display:flex;flex-direction:column;gap:9px;margin-top:18px}
+.vp-doublon-b button{width:100%}
+@media (prefers-reduced-motion:reduce){.vp-doublon{animation:none}}
 .vp-pinfo{flex:1;min-width:0}
 .vp-pname{font-weight:700;font-size:16px}
 .vp-pmeta{color:var(--muted);font-size:13px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
@@ -1471,6 +1492,11 @@ textarea.vp-input{resize:vertical;min-height:64px}
   background:#EEEBFA;border:1px solid #D7D1EE;color:#4F3F8F;font-size:10px;font-weight:800;
   letter-spacing:.04em;vertical-align:0.08em}
 [data-theme="sombre"] .vp-badge-pre{background:#241F38;border-color:#3B3356;color:#B9AEE8}
+
+.vp-badge-dbl{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;
+  background:#FFF1E6;border:1px solid #FBD4B4;color:#9A4A12;font-size:10px;font-weight:800;
+  letter-spacing:.04em;vertical-align:0.08em}
+[data-theme="sombre"] .vp-badge-dbl{background:#36220F;border-color:#5A3A19;color:#F0B183}
 
 .vp-prec{display:flex;align-items:flex-start;gap:12px;margin-top:14px;padding:13px 15px;
   border-radius:13px;background:#F2F0FB;border:1px solid #D7D1EE;color:var(--ink)}
@@ -2669,6 +2695,30 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
   const [reprise, setReprise] = useState(false);
 
+  /* ---- doublons de commande ----
+     Le souvenir rangé dans le navigateur ne suffit pas : quelqu'un qui
+     commande depuis son téléphone puis depuis son ordinateur, ou qui a
+     vidé son cache, ne voit plus sa première commande et la refait en
+     croyant qu'elle n'est pas passée. On interroge donc la base, qui
+     seule connaît la vérité pour toute la personne et tous ses appareils. */
+  const dateCible = precommande && infoPre ? infoPre.dateVente : settings.date_vente;
+  const [dejaCommande, setDejaCommande] = useState([]);
+  const [alerteDoublon, setAlerteDoublon] = useState(false);
+
+  const chargerDeja = async () => {
+    if (!connecte || !session || !session.user || !dateCible) { setDejaCommande([]); return; }
+    const { data } = await supabase.from('viande_commandes')
+      .select('id, created_at, total_estime, note, lignes:viande_commande_lignes(produit_nom, variante_nom, quantite, mode_vente, emoji)')
+      .eq('user_id', session.user.id)
+      .eq('date_vente', dateCible)
+      .order('created_at', { ascending: true });
+    setDejaCommande(data || []);
+  };
+  useEffect(() => {
+    chargerDeja();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connecte, session ? session.user && session.user.id : null, dateCible]);
+
   const dispo = produits.filter((p) => p.disponible && !p.rupture && !dlcDepassee(p));
 
   // recherche : insensible à la casse et aux accents, sur le nom,
@@ -2965,12 +3015,30 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   };
   const retirerDemande = (id) => setDemandes((d) => d.filter((x) => x.id !== id));
 
-  const envoyer = async () => {
+  /* mode : undefined = envoi normal (on contrôle les doublons),
+     'supplement' = commande en plus de la précédente,
+     'remplacer'  = la précédente est supprimée puis remplacée. */
+  const envoyer = async (mode) => {
     if (!connecte || !profil) { showToast('Connecte-toi pour commander'); setModeAuth('connexion'); setAuthOuvert(true); return; }
     if (profil.bloque) { showToast('Ton compte ne permet pas de commander — contacte-nous'); return; }
     if (lignes.length === 0 && demandes.length === 0) { showToast('Ton panier est vide'); return; }
+    // une commande existe déjà pour cette journée : on demande ce qu'il faut en faire
+    if (!mode && dejaCommande.length > 0) { setAlerteDoublon(true); return; }
     setEnvoi(true);
     try {
+      if (mode === 'remplacer') {
+        // on efface d'abord : si la suite échoue, la personne garde son
+        // panier et peut renvoyer, plutôt que de se retrouver avec deux
+        // commandes sans l'avoir voulu.
+        for (const c of dejaCommande) {
+          const { error: eSup } = await supabase.from('viande_commande_lignes').delete().eq('commande_id', c.id);
+          if (eSup) throw eSup;
+          const { error: eSup2 } = await supabase.from('viande_commandes').delete().eq('id', c.id);
+          if (eSup2) throw eSup2;
+        }
+        viderCommandeStockee();
+        setMaCommande(null);
+      }
       const totalPatrice = lignes.reduce(
         (s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_patrice'), 0);
       const { data: cmd, error } = await supabase.from('viande_commandes').insert({
@@ -3030,8 +3098,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         ...lignes.map(({ p, v, q }) => `• ${p.nom}${v ? ` (${v.nom})` : ''} x${num(q)}`),
         ...demandes.map((d) => `• 📝 DEMANDE : ${d.nom} ${d.unite === 'kg' ? `${num(d.quantite)} kg` : `x${num(d.quantite)}`}`),
       ].join('\n');
+      const entete = mode === 'supplement'
+        ? `⚠️ COMMANDE EN SUPPLÉMENT (${dejaCommande.length + 1}ᵉ du jour)`
+        : mode === 'remplacer'
+          ? '♻️ COMMANDE REMPLACÉE (la précédente est supprimée)'
+          : (precommande ? '🌙 PRÉCOMMANDE (hors horaires)' : '🥩 Nouvelle commande');
       envoyerAlerteWhatsApp(settings,
-        `${precommande ? '🌙 PRÉCOMMANDE (hors horaires)' : '🥩 Nouvelle commande'}`
+        entete
         + `\n${profil.nom} — ${profil.telephone}`
         + `${precommande ? `\nPour le ${infoPre.ouverture}` : ''}\n\n${resume}\n\n`
         + `Total estimé : ${eur(total)}`
@@ -3045,15 +3118,22 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       ecrireCommandeStockee(memo);
       setMaCommande(memo);
 
-      setDone({ nom: profil.nom, total, aDuPese, pre: precommande ? infoPre : null });
+      setDone({
+        nom: profil.nom, total, aDuPese, pre: precommande ? infoPre : null,
+        mode: mode || null, rang: dejaCommande.length + 1,
+      });
+      setAlerteDoublon(false);
       setPanierOuvert(false);
       viderPanierStocke();
       setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
+      chargerDeja(); // la liste des commandes du jour est à relire
     } catch (e) {
       // le détail part dans la console pour le diagnostic ; le client garde
       // son panier intact et peut renvoyer
       console.error('Envoi de commande impossible :', e);
       showToast(`Commande non envoyée — ${messageErreur(e) || 'réessaie dans un instant'}. Ton panier est conservé.`);
+      setAlerteDoublon(false);
+      chargerDeja(); // l'état réel a peut-être changé entre-temps
     } finally { setEnvoi(false); }
   };
 
@@ -3082,6 +3162,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     setDone(null);
     setReprise(true);
     setPanierOuvert(true);
+    chargerDeja();
     showToast('Commande remise dans ton panier');
   };
 
@@ -3092,6 +3173,22 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     viderCommandeStockee();
     setMaCommande(null);
     setDone(null);
+    chargerDeja();
+    showToast('Commande annulée');
+  };
+
+  /* Annule une commande connue de la base mais pas du navigateur : le cas
+     de celle passée depuis un autre appareil. On ne peut pas la remettre
+     dans le panier (son contenu n'est pas mémorisé ici), mais on doit au
+     moins permettre de la supprimer. */
+  const annulerCommandeDistante = async (c) => {
+    if (!window.confirm(
+      `Annuler définitivement la commande de ${new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} `
+      + `(${eur(c.total_estime)}) ?`
+    )) return;
+    if (!(await supprimerMaCommande(c.id))) { showToast('Impossible pour le moment'); return; }
+    if (maCommande && maCommande.id === c.id) { viderCommandeStockee(); setMaCommande(null); }
+    chargerDeja();
     showToast('Commande annulée');
   };
 
@@ -3108,6 +3205,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               au poids réel à la livraison. Tu recevras ta note définitive.</>
             )}
           </p>
+          {done.mode === 'remplacer' && (
+            <div className="vp-rupt-note" style={{ marginTop: 18, textAlign: 'left' }}>
+              ♻️ Ta commande précédente a été <b>supprimée</b> : seule celle-ci compte.
+            </div>
+          )}
+          {done.mode === 'supplement' && (
+            <div className="vp-rupt-note" style={{ marginTop: 18, textAlign: 'left' }}>
+              ⚠️ Enregistrée <b>en supplément</b> : c'est ta {done.rang}ᵉ commande.
+              Tu auras donc tout à récupérer et à régler.
+            </div>
+          )}
           {done.pre && (
             <div className="vp-prec-panier" style={{ marginTop: 18, textAlign: 'left' }}>
               <b>🌙 Enregistrée pour la réouverture</b>
@@ -3319,6 +3427,28 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           )}
         </div>
       )}
+
+      {/* Commandes connues de la base mais pas de ce navigateur : passées
+          depuis un autre appareil, ou après un vidage du cache. Sans ce
+          rappel, la personne les croit perdues et recommande. */}
+      {dejaCommande
+        .filter((c) => !maCommande || maCommande.id !== c.id)
+        .map((c) => (
+          <div className={`vp-macmd ${ouvert ? '' : 'fermee'}`} key={c.id}>
+            <div>
+              <b>Commande enregistrée de {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</b>
+              <small>
+                {(c.lignes || []).length} article(s) · {eur(c.total_estime)}
+                {ouvert ? ' · passée depuis un autre appareil' : ' · les commandes sont closes'}
+              </small>
+            </div>
+            {ouvert && (
+              <div className="vp-macmd-b">
+                <button className="vp-btn ghost sm" onClick={() => annulerCommandeDistante(c)}>Annuler</button>
+              </div>
+            )}
+          </div>
+        ))}
 
       {reprise && !maCommande && lignes.length > 0 && (
         <div className="vp-rupt-note" style={{ marginTop: 12 }}>
@@ -3605,6 +3735,65 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         </div>
       )}
 
+      {alerteDoublon && dejaCommande.length > 0 && (
+        <div className="vp-doublon" role="dialog" aria-modal="true" aria-label="Commande déjà enregistrée">
+          <div className="vp-doublon-boite">
+            <div className="vp-doublon-tete">
+              <span className="vp-doublon-ico">⚠️</span>
+              <h3>
+                Tu as déjà {dejaCommande.length > 1 ? `${dejaCommande.length} commandes` : 'une commande'} enregistrée
+                {precommande ? ' pour la réouverture' : " aujourd'hui"}
+              </h3>
+            </div>
+
+            <div className="vp-doublon-txt">
+              Si tu valides maintenant, ce panier viendra <b>s'ajouter</b> à
+              {dejaCommande.length > 1 ? ' ces commandes' : ' cette commande'} : tu auras
+              tout à récupérer et à payer.
+            </div>
+
+            {dejaCommande.map((c) => (
+              <div className="vp-doublon-cmd" key={c.id}>
+                <b>
+                  Commande de {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </b>
+                <ul>
+                  {(c.lignes || []).map((l, i) => (
+                    <li key={i}>
+                      {l.emoji ? `${l.emoji} ` : ''}{nomLigne(l)}
+                      {' · '}
+                      {l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `x${num(l.quantite)}`}
+                    </li>
+                  ))}
+                  {(c.lignes || []).length === 0 && <li>détail indisponible</li>}
+                </ul>
+                <div className="tot">Total estimé : {eur(c.total_estime)}</div>
+              </div>
+            ))}
+
+            <div className="vp-doublon-b">
+              <button className="vp-cta" disabled={envoi} onClick={() => envoyer('remplacer')}>
+                {envoi ? 'Envoi…' : dejaCommande.length > 1
+                  ? 'Remplacer — ne garder que ce panier'
+                  : "Remplacer — c'était une erreur"}
+              </button>
+              <button className="vp-btn" disabled={envoi} onClick={() => envoyer('supplement')}>
+                Ajouter en supplément — je veux les deux
+              </button>
+              <button className="vp-btn ghost" disabled={envoi} onClick={() => setAlerteDoublon(false)}>
+                Revenir à mon panier
+              </button>
+            </div>
+
+            <div className="vp-doublon-txt" style={{ marginTop: 14, fontSize: 13 }}>
+              « Remplacer » supprime définitivement
+              {dejaCommande.length > 1 ? ' les commandes ci-dessus' : ' la commande ci-dessus'} et
+              ne garde que le panier en cours.
+            </div>
+          </div>
+        </div>
+      )}
+
       <PastilleWhatsApp url={settings.whatsapp_url} haut={peutCommander && (panierPlein || panierOuvert)} />
 
       <div className="vp-pied">
@@ -3755,7 +3944,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       <label className="vp-label">Un mot pour la commande (facultatif)</label>
                       <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : je passe vers 18h…" />
                     </div>
-                    <button className="vp-cta" disabled={envoi} onClick={envoyer}>
+                    {dejaCommande.length > 0 && (
+                      <div className="vp-rupt-note" style={{ marginBottom: 12 }}>
+                        ⚠️ Tu as déjà {dejaCommande.length > 1 ? `${dejaCommande.length} commandes` : 'une commande'} enregistrée
+                        {precommande ? ' pour la réouverture' : " aujourd'hui"}
+                        {' '}({eur(dejaCommande.reduce((s, c) => s + (Number(c.total_estime) || 0), 0))}).
+                        Au moment de valider, on te demandera si ce panier s'ajoute à
+                        {dejaCommande.length > 1 ? ' ces commandes' : ' cette commande'} ou s'il
+                        la remplace.
+                      </div>
+                    )}
+                    <button className="vp-cta" disabled={envoi} onClick={() => envoyer()}>
                       {envoi ? 'Envoi…'
                         : lignes.length === 0 ? 'Envoyer ma demande'
                         : precommande ? `Commander pour la réouverture · ${aDuPese ? '≈ ' : ''}${eur(total)}`
@@ -4333,6 +4532,18 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
     return t;
   };
 
+  /* ---- repérage des doublons ----
+     Une même personne qui apparaît deux fois sur la journée. C'est
+     parfois voulu (un ajout de dernière minute), souvent une erreur :
+     on le signale sans trancher, c'est à toi de vérifier avant de
+     donner la liste à Patrice. */
+  const cleClient = (c) => String(c.user_id || c.telephone || c.nom_client || '');
+  const cmdDuClient = (c) => commandes.filter((x) => cleClient(x) === cleClient(c));
+  const rangClient = (c) => cmdDuClient(c).findIndex((x) => x.id === c.id) + 1;
+  const clientsEnDouble = [...new Set(commandes.map(cleClient))]
+    .map((k) => commandes.filter((c) => cleClient(c) === k))
+    .filter((g) => g.length > 1);
+
   const suppr = async (c) => {
     if (!window.confirm(`Supprimer la commande de ${c.nom_client} ?`)) return;
     await supabase.from('viande_commandes').delete().eq('id', c.id);
@@ -4406,6 +4617,27 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
         </div>
       </div>
 
+      {clientsEnDouble.length > 0 && (
+        <div className="vp-rupt-note" style={{ marginTop: 14 }}>
+          <b>
+            ⚠️ {clientsEnDouble.length} personne(s) ont plusieurs commandes sur cette journée
+          </b>
+          <div style={{ marginTop: 6, lineHeight: 1.7 }}>
+            {clientsEnDouble.map((g) => (
+              <div key={g[0].id}>
+                {g[0].nom_client} — {g.length} commandes ·{' '}
+                {g.map((c) => new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })).join(' puis ')}
+                {' · '}{eur(g.reduce((s, c) => s + Number(c.total_estime || 0), 0))} au total
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            Vérifie avant d'envoyer la liste à Patrice : si c'est une erreur, supprime la
+            commande en trop ci-dessous.
+          </div>
+        </div>
+      )}
+
       {commandes.length === 0 ? (
         <div className="vp-empty">Aucune commande pour l'instant. Partage le lien dans ton groupe WhatsApp&nbsp;!</div>
       ) : (
@@ -4414,6 +4646,11 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
             <div className="vp-cmd-head">
               <span className="vp-cmd-name">
                 {c.nom_client}
+                {cmdDuClient(c).length > 1 && (
+                  <span className="vp-badge-dbl">
+                    {rangClient(c)}ᵉ / {cmdDuClient(c).length} — DOUBLON&nbsp;?
+                  </span>
+                )}
                 {c.precommande && <span className="vp-badge-pre">🌙 HORS HORAIRES</span>}
                 {c.statut === 'finalisee' && <span className="vp-pill" style={{ color: 'var(--green)' }}>finalisée</span>}
               </span>
