@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11b · noms WhatsApp';
+const VERSION = '2026-10-11c · droits admin fiches';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -142,6 +142,27 @@ async function recalculerTotauxCommande(commandeId) {
     statut: 'en_cours',
   }).eq('id', commandeId);
   if (e2) throw e2;
+}
+
+/* ---- écriture dans une fiche membre ----
+   Piège de Supabase : quand une règle de sécurité refuse une
+   modification, il ne renvoie AUCUNE erreur. Il met simplement zéro
+   ligne à jour et répond que tout va bien. L'application annonçait
+   donc « enregistré » alors que rien n'était écrit.
+   En demandant les lignes modifiées (.select()), on sait si quelque
+   chose a réellement changé, et on peut le dire. */
+async function majFicheClient(userId, champs) {
+  const { data, error } = await supabase.from('viande_clients')
+    .update(champs).eq('id', userId).select('id');
+  if (error) return { ok: false, message: messageErreur(error) };
+  if (!data || data.length === 0) {
+    return {
+      ok: false,
+      message: 'Refusé par la base : ton compte n\'a pas le droit de modifier '
+        + 'cette fiche. Lance migration-admin-clients.sql dans Supabase.',
+    };
+  }
+  return { ok: true };
 }
 
 function sousTotalFinal(l) {
@@ -5987,12 +6008,12 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       if (err) { showToast(err); return; }
       // Membre identifié : on corrige aussi sa fiche, sinon il faudrait
       // tout ressaisir à la commande suivante.
-      let fiche = false;
+      let fiche = null;
       if (c.user_id) {
-        const { error: e2 } = await supabase.from('viande_clients')
-          .update({ telephone: v || null, alias_whatsapp: ps || null }).eq('id', c.user_id);
-        fiche = !e2;
-        if (!e2) {
+        fiche = await majFicheClient(c.user_id, {
+          telephone: v || null, alias_whatsapp: ps || null,
+        });
+        if (fiche.ok) {
           setAlias((a) => {
             const n = { ...a };
             if (ps) n[String(c.user_id)] = ps; else delete n[String(c.user_id)];
@@ -6001,8 +6022,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         }
       }
       setTelEdit(null);
-      showToast(fiche ? 'Enregistré — et mis à jour dans sa fiche' : 'Enregistré');
       reload();
+      // La commande est enregistrée dans tous les cas ; seule la fiche
+      // peut être refusée, et il faut le dire plutôt que de l'avaler.
+      if (fiche && !fiche.ok) { showToast(`Commande à jour, mais sa fiche : ${fiche.message}`); return; }
+      showToast(fiche ? 'Enregistré — et mis à jour dans sa fiche' : 'Enregistré');
     } finally { setTelEnvoi(false); }
   };
   // ajout d'une ligne à la volée, pendant la pesée : il arrive que des
@@ -6854,10 +6878,8 @@ function AdminMembres({ showToast }) {
     const v = (aliasEdit && aliasEdit.valeur ? aliasEdit.valeur : '').trim();
     setAliasEnvoi(true);
     try {
-      const { error } = await supabase.from('viande_clients')
-        .update({ alias_whatsapp: v || null }).eq('id', m.id);
-      const err = messageErreur(error);
-      if (err) { showToast(err); return; }
+      const r = await majFicheClient(m.id, { alias_whatsapp: v || null });
+      if (!r.ok) { showToast(r.message); return; }
       setAliasEdit(null);
       charger();
       showToast(v ? 'Nom WhatsApp enregistré' : 'Nom WhatsApp effacé');
@@ -6868,10 +6890,8 @@ function AdminMembres({ showToast }) {
     if (!m.bloque && !window.confirm(
       `Bloquer ${m.nom} ?\n\nSon compte restera actif mais il ne pourra plus commander.`
     )) return;
-    const { error } = await supabase.from('viande_clients')
-      .update({ bloque: !m.bloque }).eq('id', m.id);
-    const err = messageErreur(error);
-    if (err) { showToast(err); return; }
+    const r = await majFicheClient(m.id, { bloque: !m.bloque });
+    if (!r.ok) { showToast(r.message); return; }
     charger();
     showToast(!m.bloque ? 'Compte bloqué' : 'Blocage levé');
   };
