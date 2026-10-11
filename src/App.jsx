@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11d · repères voisins';
+const VERSION = '2026-10-11e · anniversaires';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -142,6 +142,39 @@ async function recalculerTotauxCommande(commandeId) {
     statut: 'en_cours',
   }).eq('id', commandeId);
   if (e2) throw e2;
+}
+
+/* ---- anniversaires ----
+   Seuls le jour et le mois comptent. L'année est enregistrée mais
+   jamais affichée : personne n'a envie de voir son âge s'afficher
+   dans une boutique de viande. */
+function jourMois(d) {
+  if (!d) return null;
+  const x = new Date(`${String(d).slice(0, 10)}T00:00:00`);
+  if (isNaN(x.getTime())) return null;
+  return { j: x.getDate(), m: x.getMonth() + 1 };
+}
+function estAnniversaire(d, ref) {
+  const a = jourMois(d);
+  if (!a) return false;
+  const r = ref || new Date();
+  return a.j === r.getDate() && a.m === r.getMonth() + 1;
+}
+/* Jours restants avant le prochain anniversaire : 0 aujourd'hui,
+   1 demain, etc. Gère le passage d'une année à l'autre. */
+function joursAvantAnniv(d, ref) {
+  const a = jourMois(d);
+  if (!a) return null;
+  const r = ref || new Date();
+  const auj = new Date(r.getFullYear(), r.getMonth(), r.getDate());
+  let cible = new Date(r.getFullYear(), a.m - 1, a.j);
+  if (cible < auj) cible = new Date(r.getFullYear() + 1, a.m - 1, a.j);
+  return Math.round((cible - auj) / 86400000);
+}
+function annivLisible(d) {
+  const a = jourMois(d);
+  if (!a) return '';
+  return `${String(a.j).padStart(2, '0')}/${String(a.m).padStart(2, '0')}`;
 }
 
 /* ---- tes repères sur les voisins ----
@@ -2512,6 +2545,9 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const [nom, setNom] = useState((profil && profil.nom) || '');
   const [tel, setTel] = useState((profil && profil.telephone) || '');
   const [alias, setAlias] = useState((profil && profil.alias_whatsapp) || '');
+  const [anniv, setAnniv] = useState((profil && profil.date_naissance) || '');
+  const [ville, setVille] = useState((profil && profil.ville) || '');
+  const [cp, setCp] = useState((profil && profil.code_postal) || '');
 
   useEffect(() => {
     const charger = async () => {
@@ -2531,8 +2567,21 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const enregistrer = async () => {
     if (!nom.trim()) { showToast('Le prénom ne peut pas être vide'); return; }
     if (tel.replace(/\D/g, '').length < 10) { showToast('Numéro de téléphone invalide'); return; }
+    if (cp.trim() && !/^\d{5}$/.test(cp.trim())) { showToast('Code postal : 5 chiffres'); return; }
+    if (anniv) {
+      const d = new Date(`${anniv}T00:00:00`);
+      const an = d.getFullYear();
+      if (isNaN(d.getTime()) || an < 1900 || d > new Date()) {
+        showToast('Date de naissance invalide'); return;
+      }
+    }
     const { error } = await supabase.from('viande_clients')
-      .update({ nom: nom.trim(), telephone: tel.trim(), alias_whatsapp: alias.trim() || null })
+      .update({
+        nom: nom.trim(), telephone: tel.trim(), alias_whatsapp: alias.trim() || null,
+        date_naissance: anniv || null,
+        ville: ville.trim() || null,
+        code_postal: cp.trim() || null,
+      })
       .eq('id', profil.id);
     const err = messageErreur(error);
     if (err) { showToast(err); return; }
@@ -2595,6 +2644,13 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
         <button className="vp-btn ghost sm" onClick={deconnecter}>Se déconnecter</button>
       </div>
 
+      {profil && estAnniversaire(profil.date_naissance) && (
+        <div className="vp-prec-panier" style={{ marginBottom: 14 }}>
+          <b>🎂 Joyeux anniversaire {profil.nom} !</b>
+          Toute l'équipe de {settings.titre} vous souhaite une très belle journée.
+        </div>
+      )}
+
       <div className="vp-section">
         <div className="vp-srow">
           <div>
@@ -2619,19 +2675,54 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
               <input className="vp-input" value={alias} onChange={(e) => setAlias(e.target.value)}
                 placeholder="Ex : Marie D., Mimi 🌸…" />
             </div>
+            <div className="vp-field">
+              <label className="vp-label">Date d'anniversaire (facultatif)</label>
+              <input className="vp-input" type="date" value={anniv ? String(anniv).slice(0, 10) : ''}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setAnniv(e.target.value)} />
+              <div className="vp-sub" style={{ marginTop: 5 }}>
+                Uniquement pour vous souhaiter un bon anniversaire. Votre âge n'est
+                affiché nulle part, et rien n'est transmis à qui que ce soit.
+              </div>
+            </div>
+            <div className="vp-grid2">
+              <div className="vp-field">
+                <label className="vp-label">Commune (facultatif)</label>
+                <input className="vp-input" value={ville} onChange={(e) => setVille(e.target.value)}
+                  placeholder="Noisy-sur-École" autoComplete="address-level2" />
+              </div>
+              <div className="vp-field">
+                <label className="vp-label">Code postal</label>
+                <input className="vp-input" value={cp} onChange={(e) => setCp(e.target.value)}
+                  placeholder="77123" inputMode="numeric" maxLength={5} autoComplete="postal-code" />
+              </div>
+            </div>
             <div className="vp-grid2" style={{ marginTop: 12 }}>
               <button className="vp-btn ghost" onClick={() => {
                 setEdition(false); setNom(profil.nom); setTel(profil.telephone);
                 setAlias(profil.alias_whatsapp || '');
+                setAnniv(profil.date_naissance || '');
+                setVille(profil.ville || ''); setCp(profil.code_postal || '');
               }}>Annuler</button>
               <button className="vp-btn" onClick={enregistrer}>Enregistrer</button>
             </div>
           </>
         ) : (
-          <div className="vp-sub" style={{ marginTop: 6 }}>
-            {profil && profil.telephone}
-            {profil && profil.alias_whatsapp && <> · WhatsApp : {profil.alias_whatsapp}</>}
-          </div>
+          <>
+            <div className="vp-sub" style={{ marginTop: 6 }}>
+              {profil && profil.telephone}
+              {profil && profil.alias_whatsapp && <> · WhatsApp : {profil.alias_whatsapp}</>}
+              {profil && profil.ville && <> · {profil.ville}{profil.code_postal ? ` (${profil.code_postal})` : ''}</>}
+              {profil && profil.date_naissance && <> · 🎂 {annivLisible(profil.date_naissance)}</>}
+            </div>
+            {profil && !profil.date_naissance && (
+              <div className="vp-note" style={{ marginTop: 10 }}>
+                🎂 Vous n'avez pas indiqué votre date d'anniversaire. C'est facultatif,
+                et ça nous permet simplement de penser à vous le jour venu — appuyez
+                sur <b>Modifier</b>.
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -4286,7 +4377,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showTo
       {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settingsJour} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
-      {tab === 'membres' && <AdminMembres showToast={showToast} />}
+      {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} />}
       {tab === 'sondage' && <AdminSondage settings={settings} reload={reload} showToast={showToast} onLu={() => setNonLus(0)} />}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
@@ -6902,7 +6993,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
 }
 
 /* ---------- Admin : Membres ---------- */
-function AdminMembres({ showToast }) {
+function AdminMembres({ showToast, settings }) {
   const [membres, setMembres] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [recherche, setRecherche] = useState('');
@@ -6985,8 +7076,40 @@ function AdminMembres({ showToast }) {
 
   const texte = () => membres
     .filter((m) => !m.bloque)
-    .map((m) => `${m.nom}${m.alias_whatsapp ? ` (${m.alias_whatsapp})` : ''} : ${m.telephone}`)
+    .map((m) => `${m.nom}${repereDe(m) ? ` (${repereDe(m)})` : ''} : ${m.telephone}`)
     .join('\n');
+
+  /* ---- anniversaires ----
+     Pas d'envoi automatique possible : WhatsApp n'autorise l'écriture
+     qu'aux numéros qui ont donné leur accord, et ce n'est le cas que
+     du tien. L'app te prévient donc, et tu envoies d'un clic — ce qui
+     vaut mieux qu'un message robot, pour ce genre d'attention. */
+  const [annivOuvert, setAnnivOuvert] = useState(false);
+
+  const aFeter = membres
+    .filter((m) => !m.bloque && m.date_naissance)
+    .map((m) => ({ m, dans: joursAvantAnniv(m.date_naissance) }))
+    .filter((x) => x.dans !== null && x.dans <= 30)
+    .sort((a, b) => a.dans - b.dans);
+  const aujourdhui = aFeter.filter((x) => x.dans === 0);
+
+  const messageAnniv = (m) => (
+    `🎂 Joyeux anniversaire ${m.nom} !\n\n`
+    + `Une très belle journée à toi, de la part de ${(settings && settings.titre) || 'Viande Noisy'}. 🥩\n`
+    + `Profite bien, et à bientôt pour la prochaine commande !`
+  );
+
+  const envoyerAnniv = (m) => {
+    const d = String(m.telephone || '').replace(/\D/g, '');
+    if (!d) { showToast(`Pas de numéro pour ${m.nom}`); return; }
+    const tel = d.startsWith('33') ? d : d.startsWith('0') ? `33${d.slice(1)}` : d;
+    window.open(
+      `https://wa.me/${tel}?text=${encodeURIComponent(messageAnniv(m))}`,
+      '_blank', 'noopener,noreferrer'
+    );
+  };
+
+  const quand = (n) => (n === 0 ? "aujourd'hui" : n === 1 ? 'demain' : `dans ${n} jours`);
 
   return (
     <>
@@ -7021,6 +7144,52 @@ function AdminMembres({ showToast }) {
           </>
         )}
       </div>
+
+      {aFeter.length > 0 && (
+        <div className="vp-section" style={{ marginTop: 14 }}>
+          <div className="vp-srow">
+            <div>
+              <div className="vp-h2" style={{ fontSize: 16 }}>
+                🎂 {aujourdhui.length > 0
+                  ? `${aujourdhui.length} anniversaire${aujourdhui.length > 1 ? 's' : ''} aujourd'hui`
+                  : `Prochain anniversaire ${quand(aFeter[0].dans)}`}
+              </div>
+              <div className="vp-sub">{aFeter.length} dans les 30 jours qui viennent.</div>
+            </div>
+            <button className="vp-btn ghost sm" onClick={() => setAnnivOuvert(!annivOuvert)}>
+              {annivOuvert ? 'Masquer' : 'Voir'}
+            </button>
+          </div>
+
+          {(annivOuvert || aujourdhui.length > 0) && (
+            <div className="vp-liste" style={{ marginTop: 12 }}>
+              {(annivOuvert ? aFeter : aujourdhui).map(({ m, dans }) => (
+                <div className="vp-liste-l" key={m.id}>
+                  <span style={{ minWidth: 0 }}>
+                    {dans === 0 ? '🎉 ' : ''}{repereDe(m) || m.nom}
+                    <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                      {annivLisible(m.date_naissance)} · {quand(dans)}
+                      {m.telephone ? '' : ' · sans numéro'}
+                    </small>
+                  </span>
+                  <button className={`vp-btn sm ${dans === 0 ? 'green' : 'ghost'}`}
+                    style={{ flex: '0 0 auto' }}
+                    disabled={!m.telephone} onClick={() => envoyerAnniv(m)}>
+                    Souhaiter
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="vp-sub" style={{ marginTop: 10 }}>
+            Le bouton ouvre la conversation WhatsApp avec le message déjà écrit —
+            tu peux le retoucher avant d'envoyer. Pas d'envoi automatique&nbsp;:
+            WhatsApp n'autorise l'écriture qu'aux numéros qui l'ont accepté, et
+            un mot de ta main vaut mieux qu'un message de robot.
+          </div>
+        </div>
+      )}
 
       {membres.length > 3 && (
         <div className="vp-search">
@@ -7061,7 +7230,11 @@ function AdminMembres({ showToast }) {
                     {estHomonyme(m) ? '⚠️ homonyme — pas encore de repère' : 'pas de repère'}
                   </div>
                 )}
-              <div className="vp-sub">{m.telephone}</div>
+              <div className="vp-sub">
+                {m.telephone}
+                {m.ville && <> · {m.ville}{m.code_postal ? ` (${m.code_postal})` : ''}</>}
+                {m.date_naissance && <> · 🎂 {annivLisible(m.date_naissance)}</>}
+              </div>
               <div className="vp-sub">{m.email}</div>
             </div>
             <span className="vp-cmd-time">
