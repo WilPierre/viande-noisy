@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11i · profils membres';
+const VERSION = '2026-10-11j · export newsletter';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -146,6 +146,31 @@ async function recalculerTotauxCommande(commandeId) {
     statut: 'en_cours',
   }).eq('id', commandeId);
   if (e2) throw e2;
+}
+
+/* ---- export CSV ----
+   Point de vigilance franco-français : Excel attend le point-virgule
+   comme séparateur, et refuse les accents sans marque d'encodage en
+   tête de fichier (le « BOM »). Sans ces deux précautions, le fichier
+   s'ouvre en une seule colonne illisible pleine de « Ã© ». */
+function cellCsv(v) {
+  const t = v === null || v === undefined ? '' : String(v);
+  return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+function telecharger(nomFichier, contenu, type) {
+  try {
+    const blob = new Blob(['\uFEFF', contenu], { type: type || 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nomFichier;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  } catch (e) { return false; }
+}
+function versCsv(entetes, lignes) {
+  return [entetes, ...lignes].map((r) => r.map(cellCsv).join(';')).join('\r\n');
 }
 
 /* ---- remise portée par une commande ----
@@ -2587,6 +2612,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   }, [profil]);
   const [ville, setVille] = useState((profil && profil.ville) || '');
   const [cp, setCp] = useState((profil && profil.code_postal) || '');
+  const [news, setNews] = useState(!profil || profil.newsletter !== false);
 
   useEffect(() => {
     const charger = async () => {
@@ -2620,6 +2646,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
         date_naissance: anniv || null,
         ville: ville.trim() || null,
         code_postal: cp.trim() || null,
+        newsletter: news,
+        newsletter_maj_le: new Date().toISOString(),
       })
       .eq('id', profil.id);
     const err = messageErreur(error);
@@ -2763,12 +2791,24 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
                   placeholder="77123" inputMode="numeric" maxLength={5} autoComplete="postal-code" />
               </div>
             </div>
+            <div className="vp-srow" style={{ marginTop: 14 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14.5 }}>Recevoir nos annonces</div>
+                <div className="vp-sub">
+                  Les arrivages, les promos et les nouveautés, par e-mail. Vous pouvez
+                  vous désinscrire ici à tout moment — ça ne change rien à vos commandes.
+                </div>
+              </div>
+              <div className={`vp-toggle ${news ? 'on' : ''}`} onClick={() => setNews(!news)} />
+            </div>
+
             <div className="vp-grid2" style={{ marginTop: 12 }}>
               <button className="vp-btn ghost" onClick={() => {
                 setEdition(false); setNom(profil.nom); setTel(profil.telephone);
                 setAlias(profil.alias_whatsapp || '');
                 setAnniv(profil.date_naissance || '');
                 setVille(profil.ville || ''); setCp(profil.code_postal || '');
+                setNews(profil.newsletter !== false);
               }}>Annuler</button>
               <button className="vp-btn" onClick={enregistrer}>Enregistrer</button>
             </div>
@@ -7356,6 +7396,50 @@ function AdminMembres({ showToast, settings }) {
     .map((m) => `${m.nom}${repereDe(m) ? ` (${repereDe(m)})` : ''} : ${m.telephone}`)
     .join('\n');
 
+  /* ---- export de la base ----
+     Un seul fichier, lisible par Excel comme par les outils d'envoi
+     (Brevo, Mailchimp, Sendinblue…). La colonne « Newsletter » est
+     la première chose à filtrer avant d'écrire à qui que ce soit. */
+  const nbNews = membres.filter((m) => !m.bloque && m.newsletter !== false).length;
+  const nbRefus = membres.filter((m) => !m.bloque && m.newsletter === false).length;
+
+  const exporter = (seulementAbonnes) => {
+    const liste = membres
+      .filter((m) => !m.bloque)
+      .filter((m) => (seulementAbonnes ? m.newsletter !== false : true))
+      .filter((m) => (seulementAbonnes ? String(m.email || '').includes('@') : true));
+    if (!liste.length) { showToast('Personne à exporter'); return; }
+
+    const entetes = [
+      'Nom', 'Repere', 'Email', 'Telephone', 'Nom WhatsApp',
+      'Commune', 'Code postal', 'Anniversaire', 'Date de naissance',
+      'Newsletter', 'Inscrit le',
+    ];
+    const lignes = liste.map((m) => [
+      m.nom || '',
+      repereDe(m),
+      m.email || '',
+      m.telephone || '',
+      m.alias_whatsapp || '',
+      m.ville || '',
+      m.code_postal || '',
+      m.date_naissance ? annivLisible(m.date_naissance) : '',
+      m.date_naissance ? String(m.date_naissance).slice(0, 10) : '',
+      m.newsletter === false ? 'non' : 'oui',
+      m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR') : '',
+    ]);
+
+    const jour = new Date().toISOString().slice(0, 10);
+    const nomFichier = seulementAbonnes
+      ? `viande-noisy-newsletter-${jour}.csv`
+      : `viande-noisy-membres-${jour}.csv`;
+    if (telecharger(nomFichier, versCsv(entetes, lignes))) {
+      showToast(`${liste.length} contact(s) exporté(s)`);
+    } else {
+      showToast('Téléchargement impossible sur cet appareil');
+    }
+  };
+
   /* ---- anniversaires ----
      Pas d'envoi automatique possible : WhatsApp n'autorise l'écriture
      qu'aux numéros qui ont donné leur accord, et ce n'est le cas que
@@ -7402,6 +7486,22 @@ function AdminMembres({ showToast, settings }) {
             onClick={async () => { (await copier(texte())) && showToast('Liste copiée'); }}>
             Copier
           </button>
+        </div>
+
+        <div className="vp-grid2" style={{ marginTop: 12 }}>
+          <button className="vp-btn green sm" onClick={() => exporter(true)}>
+            ✉️ Export newsletter ({nbNews})
+          </button>
+          <button className="vp-btn ghost sm" onClick={() => exporter(false)}>
+            📄 Export complet
+          </button>
+        </div>
+        <div className="vp-sub" style={{ marginTop: 6 }}>
+          Fichier CSV, ouvrable dans Excel et importable dans Brevo ou Mailchimp.
+          L'export newsletter ne contient que les personnes ayant une adresse e-mail
+          et <b>n'ayant pas refusé</b> de recevoir tes annonces
+          {nbRefus > 0 ? ` (${nbRefus} refus à ce jour)` : ''}.
+          Pense à inclure un lien de désinscription dans tes envois.
         </div>
 
         <div className="vp-tabs" style={{ marginTop: 12 }}>
@@ -7629,6 +7729,7 @@ function AdminMembres({ showToast, settings }) {
                     modifiée {m.date_naissance_changements}×
                   </span></>
                 )}
+                {m.newsletter === false && <> · ✉️ <b>désabonné</b></>}
               </div>
               <div className="vp-sub">{m.email}</div>
               {manques(m).length > 0 && (
