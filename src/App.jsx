@@ -144,6 +144,43 @@ async function recalculerTotauxCommande(commandeId) {
   if (e2) throw e2;
 }
 
+/* ---- tes repères sur les voisins ----
+   Quatre Vincent, six Christophe, trois Amélie : le nom du compte ne
+   suffit pas pour envoyer la bonne note à la bonne personne. Ces
+   repères sont les tiens, pas les leurs — ils vivent donc dans ta
+   propre table (viande_reperes) et non dans la fiche du membre, qui
+   est verrouillée par construction et que tu ne peux pas modifier.
+   Table absente = aucun repère, et l'application fonctionne comme
+   avant : rien ne casse tant que la migration n'est pas lancée. */
+async function chargerReperes() {
+  const { data, error } = await supabase.from('viande_reperes')
+    .select('user_id, repere, telephone, note');
+  if (error) return {};
+  const m = {};
+  (data || []).forEach((r) => { m[String(r.user_id)] = r; });
+  return m;
+}
+
+async function enregistrerRepere(userId, champs) {
+  const { data, error } = await supabase.from('viande_reperes')
+    .upsert({ user_id: userId, ...champs, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' })
+    .select('user_id');
+  if (error) {
+    const m = messageErreur(error);
+    return {
+      ok: false,
+      message: /viande_reperes|relation|schema/i.test(String(m))
+        ? 'Table absente — lance migration-reperes.sql dans Supabase.'
+        : m,
+    };
+  }
+  if (!data || data.length === 0) {
+    return { ok: false, message: 'Refusé par la base — lance migration-reperes.sql dans Supabase.' };
+  }
+  return { ok: true };
+}
+
 /* ---- écriture dans une fiche membre ----
    Piège de Supabase : quand une règle de sécurité refuse une
    modification, il ne renvoie AUCUNE erreur. Il met simplement zéro
@@ -6854,16 +6891,27 @@ function AdminMembres({ showToast }) {
   const [chargement, setChargement] = useState(true);
   const [recherche, setRecherche] = useState('');
 
+  const [reperes, setReperes] = useState({});
+
   const charger = async () => {
-    const { data, error } = await supabase.from('viande_clients')
-      .select('*').order('created_at', { ascending: false });
+    const [{ data, error }, reps] = await Promise.all([
+      supabase.from('viande_clients').select('*').order('created_at', { ascending: false }),
+      chargerReperes(),
+    ]);
     if (error) showToast(messageErreur(error));
     setMembres(data || []);
+    setReperes(reps);
     setChargement(false);
   };
   useEffect(() => { charger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ton repère d'abord, le nom qu'il a donné à l'inscription ensuite
+  const repereDe = (m) => {
+    const r = reperes[String(m.id)];
+    return (r && r.repere) || m.alias_whatsapp || '';
+  };
 
   /* ---- pseudo WhatsApp ----
      Le champ est facultatif à l'inscription et beaucoup le laissent
@@ -6878,11 +6926,11 @@ function AdminMembres({ showToast }) {
     const v = (aliasEdit && aliasEdit.valeur ? aliasEdit.valeur : '').trim();
     setAliasEnvoi(true);
     try {
-      const r = await majFicheClient(m.id, { alias_whatsapp: v || null });
+      const r = await enregistrerRepere(m.id, { repere: v || null });
       if (!r.ok) { showToast(r.message); return; }
       setAliasEdit(null);
       charger();
-      showToast(v ? 'Nom WhatsApp enregistré' : 'Nom WhatsApp effacé');
+      showToast(v ? `Repère enregistré : ${v}` : 'Repère effacé');
     } finally { setAliasEnvoi(false); }
   };
 
@@ -6899,12 +6947,25 @@ function AdminMembres({ showToast }) {
   const q = normaliser(recherche.trim());
   const parRecherche = !q ? membres : membres.filter((m) =>
     normaliser(m.nom).includes(q) || normaliser(m.email).includes(q)
-    || normaliser(m.alias_whatsapp).includes(q)
+    || normaliser(repereDe(m)).includes(q)
     || String(m.telephone || '').includes(recherche.trim()));
-  const nbSansAlias = membres.filter((m) => !m.bloque && !m.alias_whatsapp).length;
+  const nbSansAlias = membres.filter((m) => !m.bloque && !repereDe(m)).length;
   const listeFiltree = sansAlias
-    ? parRecherche.filter((m) => !m.alias_whatsapp)
+    ? parRecherche.filter((m) => !repereDe(m))
     : parRecherche;
+
+  // Homonymes : c'est là que le repère devient indispensable.
+  const prenomsEnDouble = new Set(
+    Object.entries(
+      membres.reduce((acc, m) => {
+        const k = normaliser(String(m.nom || '').trim().split(/\s+/)[0]);
+        if (k) acc[k] = (acc[k] || 0) + 1;
+        return acc;
+      }, {})
+    ).filter(([, n]) => n > 1).map(([k]) => k)
+  );
+  const estHomonyme = (m) =>
+    prenomsEnDouble.has(normaliser(String(m.nom || '').trim().split(/\s+/)[0]));
 
   const texte = () => membres
     .filter((m) => !m.bloque)
@@ -6933,12 +6994,13 @@ function AdminMembres({ showToast }) {
               onClick={() => setSansAlias(!sansAlias)}>
               {sansAlias
                 ? `← Revoir tout le monde`
-                : `💬 ${nbSansAlias} sans nom WhatsApp`}
+                : `🏷️ ${nbSansAlias} sans repère`}
             </button>
             <div className="vp-sub" style={{ marginTop: 6 }}>
-              Le nom WhatsApp est facultatif à l'inscription, et rarement le même que
-              celui du compte. Le renseigner ici te permet de retrouver la bonne
-              conversation au moment d'envoyer les notes.
+              Un repère, c'est <b>ta</b> façon de reconnaître quelqu'un : nom de famille,
+              surnom, nom sur WhatsApp, lieu-dit. Il remplace le nom du compte partout
+              dans l'admin — indispensable quand quatre Vincent commandent le même jour.
+              Les comptes dont le prénom revient plusieurs fois sont signalés en rouge.
             </div>
           </>
         )}
@@ -6973,9 +7035,16 @@ function AdminMembres({ showToast }) {
                 {m.nom}
                 {m.bloque && <span className="vp-rupt-pill" style={{ marginLeft: 6 }}>BLOQUÉ</span>}
               </div>
-              {m.alias_whatsapp
-                ? <div className="vp-alias">WhatsApp : {m.alias_whatsapp}</div>
-                : <div className="vp-alias" style={{ opacity: 0.6 }}>WhatsApp : nom inconnu</div>}
+              {repereDe(m)
+                ? <div className="vp-alias">🏷️ {repereDe(m)}</div>
+                : (
+                  <div className="vp-alias" style={{
+                    opacity: estHomonyme(m) ? 1 : 0.6,
+                    color: estHomonyme(m) ? 'var(--wine)' : undefined,
+                  }}>
+                    {estHomonyme(m) ? '⚠️ homonyme — pas encore de repère' : 'pas de repère'}
+                  </div>
+                )}
               <div className="vp-sub">{m.telephone}</div>
               <div className="vp-sub">{m.email}</div>
             </div>
@@ -6986,9 +7055,9 @@ function AdminMembres({ showToast }) {
 
           {aliasEdit && aliasEdit.id === m.id ? (
             <div style={{ marginTop: 10 }}>
-              <label className="vp-label">Nom affiché sur WhatsApp</label>
+              <label className="vp-label">Ton repère pour cette personne</label>
               <input className="vp-input" autoFocus value={aliasEdit.valeur}
-                placeholder="Ex : Jeannot, Mamie Thérèse, Vincent Voisin…"
+                placeholder="Ex : Amélie Mouranchon, Vincent le grand, Christophe du moulin…"
                 onChange={(e) => setAliasEdit({ id: m.id, valeur: e.target.value })}
                 onKeyDown={(e) => { if (e.key === 'Enter') enregistrerAlias(m); }} />
               <div className="vp-grid2" style={{ marginTop: 8 }}>
@@ -7001,9 +7070,9 @@ function AdminMembres({ showToast }) {
             </div>
           ) : (
             <div className="vp-grid2" style={{ marginTop: 10 }}>
-              <button className="vp-btn ghost sm"
-                onClick={() => setAliasEdit({ id: m.id, valeur: m.alias_whatsapp || '' })}>
-                {m.alias_whatsapp ? '✎ Nom WhatsApp' : '＋ Nom WhatsApp'}
+              <button className={`vp-btn ${!repereDe(m) && estHomonyme(m) ? '' : 'ghost'} sm`}
+                onClick={() => setAliasEdit({ id: m.id, valeur: repereDe(m) })}>
+                {repereDe(m) ? '✎ Repère' : '🏷️ Repère'}
               </button>
               <button className={`vp-btn ${m.bloque ? '' : 'ghost'} sm`}
                 onClick={() => basculerBlocage(m)}>
