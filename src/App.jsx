@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11e · anniversaires';
+const VERSION = '2026-10-11f · lien direct compte';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2862,7 +2862,25 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     setTheme(t);
     ecrireTheme(t);
   };
-  const [vueCompte, setVueCompte] = useState(false);
+  /* « Mon compte » répond à l'adresse …/#compte : on peut donc en
+     donner le lien direct dans un message WhatsApp. Si la personne
+     n'est pas connectée, l'écran de connexion s'ouvre et elle arrive
+     sur son compte juste après. */
+  const [vueCompte, setVueCompte] = useState(
+    typeof window !== 'undefined' && window.location.hash.includes('compte')
+  );
+  const ouvrirCompte = (v) => {
+    setVueCompte(v);
+    try {
+      if (v) window.location.hash = 'compte';
+      else if (window.location.hash.includes('compte')) window.location.hash = '';
+    } catch (e) { /* adresse non modifiable : sans effet */ }
+  };
+  useEffect(() => {
+    const onHash = () => setVueCompte(window.location.hash.includes('compte'));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const connecte = !!(session && session.user);
   // boutique fermée mais commandes acceptées pour la prochaine journée
   const infoPre = infoPrecommande(prochaineAt);
@@ -2870,6 +2888,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const peutCommander = ouvert || precommande;
   // session valide mais fiche client absente : inscription à terminer
   const profilManquant = connecte && profilCharge && !profil;
+
+  // Arrivée sur …/#compte sans être connecté : on ouvre la connexion,
+  // et le compte s'affiche juste après.
+  useEffect(() => {
+    if (vueCompte && !connecte) { setModeAuth('connexion'); setAuthOuvert(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vueCompte, connecte]);
+
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
   const [reprise, setReprise] = useState(false);
 
@@ -3529,7 +3555,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   if (vueCompte && connecte && profil) {
     return (
       <MonCompte settings={settings} profil={profil} chargerProfil={chargerProfil}
-        onFermer={() => setVueCompte(false)} showToast={showToast} />
+        onFermer={() => ouvrirCompte(false)} showToast={showToast} />
     );
   }
 
@@ -3554,7 +3580,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       </div>
 
       {connecte && profil ? (
-        <button className="vp-compte-pill on" onClick={() => setVueCompte(true)}
+        <button className="vp-compte-pill on" onClick={() => ouvrirCompte(true)}
           aria-label={reponsesNonVues > 0 ? `Mon compte — ${reponsesNonVues} nouvelle(s) réponse(s)` : 'Mon compte'}>
           <span className="vp-initiale">
             {(profil.nom || '?').trim().charAt(0).toUpperCase()}
@@ -4135,7 +4161,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                         <small>{profil.telephone}</small>
                       </div>
                       <button className="vp-trash" style={{ marginTop: 0 }}
-                        onClick={() => { setPanierOuvert(false); setVueCompte(true); }}>
+                        onClick={() => { setPanierOuvert(false); ouvrirCompte(true); }}>
                         Mon compte
                       </button>
                     </div>
