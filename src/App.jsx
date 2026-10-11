@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11j · export newsletter';
+const VERSION = '2026-10-11k · parrainage';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -147,6 +147,12 @@ async function recalculerTotauxCommande(commandeId) {
   }).eq('id', commandeId);
   if (e2) throw e2;
 }
+
+const SOURCES = {
+  voisin: 'Un voisin', whatsapp: 'Groupe WhatsApp', famille: 'Famille',
+  affiche: 'Affiche / flyer', autre: 'Autrement',
+};
+const libelleSource = (s) => SOURCES[s] || s || '';
 
 /* ---- export CSV ----
    Point de vigilance franco-français : Excel attend le point-virgule
@@ -2237,6 +2243,8 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
   const [alias, setAlias] = useState('');
+  const [source, setSource] = useState('');
+  const [parrain, setParrain] = useState('');
   const [email, setEmail] = useState('');
   const [mdp, setMdp] = useState('');
   const [code, setCode] = useState('');
@@ -2283,6 +2291,8 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
     const { error } = await supabase.from('viande_clients').upsert({
       id: uid, nom: nom.trim(), telephone: tel.trim(), email: email.trim(),
       alias_whatsapp: alias.trim() || null,
+      source: source || null,
+      parrain: parrain.trim() || null,
     });
     if (error) showToast(messageErreur(error));
   };
@@ -2315,6 +2325,10 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
   const inscrire = async () => {
     if (!nom.trim()) { showToast('Indique ton prénom'); return; }
     if (tel.replace(/\D/g, '').length < 10) { showToast('Numéro de téléphone obligatoire'); return; }
+    if (!source) { showToast('Dis-nous comment tu as connu la boutique'); return; }
+    if (source === 'voisin' && parrain.trim().length < 2) {
+      showToast('Indique le nom de la personne qui t\'en a parlé'); return;
+    }
     if (!email.includes('@')) { showToast('Adresse e-mail invalide'); return; }
     if (mdp.length < 6) { showToast('Mot de passe : 6 caractères minimum'); return; }
     setEnvoi(true);
@@ -2462,6 +2476,34 @@ function EcranAuth({ onFait, onFermer, showToast, modeInitial }) {
             <div className="vp-sub" style={{ marginTop: 4 }}>
               Celui qui s'affiche dans le groupe, pour qu'on te reconnaisse.
             </div>
+          </div>
+          <div className="vp-field">
+            <label className="vp-label">Comment nous as-tu connus ? *</label>
+            <select className="vp-input" value={source}
+              onChange={(e) => setSource(e.target.value)}>
+              <option value="">— Choisis —</option>
+              <option value="voisin">Un voisin m'en a parlé</option>
+              <option value="whatsapp">Le groupe WhatsApp</option>
+              <option value="famille">Ma famille</option>
+              <option value="affiche">Une affiche, un flyer</option>
+              <option value="autre">Autrement</option>
+            </select>
+            {source === 'voisin' && (
+              <>
+                <input className="vp-input" style={{ marginTop: 8 }} value={parrain}
+                  onChange={(e) => setParrain(e.target.value)}
+                  placeholder="Son prénom et son nom" />
+                <div className="vp-sub" style={{ marginTop: 4 }}>
+                  On aime savoir qui fait vivre le groupe — et le remercier à
+                  l'occasion.
+                </div>
+              </>
+            )}
+            {source === 'autre' && (
+              <input className="vp-input" style={{ marginTop: 8 }} value={parrain}
+                onChange={(e) => setParrain(e.target.value)}
+                placeholder="Dis-nous en deux mots (facultatif)" />
+            )}
           </div>
         </>
       )}
@@ -7396,6 +7438,30 @@ function AdminMembres({ showToast, settings }) {
     .map((m) => `${m.nom}${repereDe(m) ? ` (${repereDe(m)})` : ''} : ${m.telephone}`)
     .join('\n');
 
+  /* ---- parrainages ----
+     Qui fait réellement grandir le groupe. Les noms sont regroupés
+     sans tenir compte de la casse ni des accents, sinon « Jean-Luc »
+     et « jean luc » comptent pour deux. */
+  const [parrainsOuvert, setParrainsOuvert] = useState(false);
+  const classementParrains = Object.values(
+    membres.reduce((acc, m) => {
+      const nomP = String(m.parrain || '').trim();
+      if (!nomP) return acc;
+      const k = normaliser(nomP);
+      if (!acc[k]) acc[k] = { nom: nomP, filleuls: [] };
+      acc[k].filleuls.push(m);
+      return acc;
+    }, {})
+  ).sort((a, b) => b.filleuls.length - a.filleuls.length);
+
+  const repartitionSources = Object.entries(
+    membres.reduce((acc, m) => {
+      const k = m.source || 'inconnu';
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1] - a[1]);
+
   /* ---- export de la base ----
      Un seul fichier, lisible par Excel comme par les outils d'envoi
      (Brevo, Mailchimp, Sendinblue…). La colonne « Newsletter » est
@@ -7413,7 +7479,7 @@ function AdminMembres({ showToast, settings }) {
     const entetes = [
       'Nom', 'Repere', 'Email', 'Telephone', 'Nom WhatsApp',
       'Commune', 'Code postal', 'Anniversaire', 'Date de naissance',
-      'Newsletter', 'Inscrit le',
+      'Newsletter', 'Connu par', 'Parrain', 'Inscrit le',
     ];
     const lignes = liste.map((m) => [
       m.nom || '',
@@ -7426,6 +7492,8 @@ function AdminMembres({ showToast, settings }) {
       m.date_naissance ? annivLisible(m.date_naissance) : '',
       m.date_naissance ? String(m.date_naissance).slice(0, 10) : '',
       m.newsletter === false ? 'non' : 'oui',
+      libelleSource(m.source),
+      m.parrain || '',
       m.created_at ? new Date(m.created_at).toLocaleDateString('fr-FR') : '',
     ]);
 
@@ -7595,6 +7663,53 @@ function AdminMembres({ showToast, settings }) {
         </div>
       )}
 
+      {classementParrains.length > 0 && (
+        <div className="vp-section" style={{ marginTop: 14 }}>
+          <div className="vp-srow">
+            <div>
+              <div className="vp-h2" style={{ fontSize: 16 }}>
+                🤝 {classementParrains.length} parrain(s)
+              </div>
+              <div className="vp-sub">
+                {classementParrains.reduce((n, p2) => n + p2.filleuls.length, 0)} inscriptions
+                amenées par un voisin.
+              </div>
+            </div>
+            <button className="vp-btn ghost sm" onClick={() => setParrainsOuvert(!parrainsOuvert)}>
+              {parrainsOuvert ? 'Masquer' : 'Voir'}
+            </button>
+          </div>
+
+          {parrainsOuvert && (
+            <>
+              <div className="vp-liste" style={{ marginTop: 12 }}>
+                {classementParrains.map((p2, i) => (
+                  <div className="vp-liste-l" key={p2.nom + i}>
+                    <span style={{ minWidth: 0 }}>
+                      {i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : ''}{p2.nom}
+                      <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                        {p2.filleuls.map((f) => f.nom).join(', ')}
+                      </small>
+                    </span>
+                    <b>{p2.filleuls.length}</b>
+                  </div>
+                ))}
+              </div>
+
+              <div className="vp-h2" style={{ fontSize: 15, marginTop: 16 }}>D'où viennent les inscrits</div>
+              <div className="vp-liste" style={{ marginTop: 8 }}>
+                {repartitionSources.map(([k, n]) => (
+                  <div className="vp-liste-l" key={k}>
+                    <span>{k === 'inconnu' ? 'Inscrits avant la question' : libelleSource(k)}</span>
+                    <b>{n}</b>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {(codes.length > 0 || changements.length > 0) && (
         <div className="vp-section" style={{ marginTop: 14 }}>
           <div className="vp-srow">
@@ -7732,6 +7847,12 @@ function AdminMembres({ showToast, settings }) {
                 {m.newsletter === false && <> · ✉️ <b>désabonné</b></>}
               </div>
               <div className="vp-sub">{m.email}</div>
+              {(m.source || m.parrain) && (
+                <div className="vp-sub" style={{ marginTop: 3 }}>
+                  🤝 {libelleSource(m.source)}
+                  {m.parrain && <> — <b>{m.parrain}</b></>}
+                </div>
+              )}
               {manques(m).length > 0 && (
                 <div className="vp-sub" style={{ marginTop: 3, opacity: 0.75 }}>
                   📋 manque : {manques(m).join(', ')}
