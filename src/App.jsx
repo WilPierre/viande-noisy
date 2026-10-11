@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11h · codes promo admin';
+const VERSION = '2026-10-11i · profils membres';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -7222,7 +7222,8 @@ function AdminMembres({ showToast, settings }) {
      conversation au moment d'envoyer les notes. */
   const [aliasEdit, setAliasEdit] = useState(null); // { id, valeur }
   const [aliasEnvoi, setAliasEnvoi] = useState(false);
-  const [sansAlias, setSansAlias] = useState(false);  // ne montrer que ceux à compléter
+  // 'tous' | 'repere' | 'anniv' | 'incomplet'
+  const [filtre, setFiltre] = useState('tous');
 
   /* ---- codes promo ----
      Tu peux en créer un à la main (dépannage, geste commercial) et
@@ -7317,9 +7318,25 @@ function AdminMembres({ showToast, settings }) {
     || normaliser(repereDe(m)).includes(q)
     || String(m.telephone || '').includes(recherche.trim()));
   const nbSansAlias = membres.filter((m) => !m.bloque && !repereDe(m)).length;
-  const listeFiltree = sansAlias
-    ? parRecherche.filter((m) => !repereDe(m))
+  // Un profil « complet » a de quoi envoyer une facture et penser à la
+  // personne le jour venu.
+  const profilComplet = (m) => !!(m.nom && m.telephone && m.date_naissance && m.ville);
+  const manques = (m) => [
+    !repereDe(m) && 'repère',
+    !m.date_naissance && 'anniversaire',
+    !m.ville && 'commune',
+    !m.telephone && 'téléphone',
+  ].filter(Boolean);
+
+  const listeFiltree =
+      filtre === 'repere'    ? parRecherche.filter((m) => !repereDe(m))
+    : filtre === 'anniv'     ? parRecherche.filter((m) => !m.date_naissance)
+    : filtre === 'incomplet' ? parRecherche.filter((m) => !profilComplet(m))
     : parRecherche;
+
+  const nbSansAnniv = membres.filter((m) => !m.bloque && !m.date_naissance).length;
+  const nbIncomplets = membres.filter((m) => !m.bloque && !profilComplet(m)).length;
+  const nbAnnivAuj = membres.filter((m) => estAnniversaire(m.date_naissance)).length;
 
   // Homonymes : c'est là que le repère devient indispensable.
   const prenomsEnDouble = new Set(
@@ -7387,22 +7404,49 @@ function AdminMembres({ showToast, settings }) {
           </button>
         </div>
 
-        {nbSansAlias > 0 && (
-          <>
-            <button className={`vp-btn ${sansAlias ? '' : 'ghost'} sm`} style={{ marginTop: 12 }}
-              onClick={() => setSansAlias(!sansAlias)}>
-              {sansAlias
-                ? `← Revoir tout le monde`
-                : `🏷️ ${nbSansAlias} sans repère`}
+        <div className="vp-tabs" style={{ marginTop: 12 }}>
+          <button className={filtre === 'tous' ? 'on' : ''} onClick={() => setFiltre('tous')}>
+            Tous ({membres.length})
+          </button>
+          {nbIncomplets > 0 && (
+            <button className={filtre === 'incomplet' ? 'on' : ''} onClick={() => setFiltre('incomplet')}>
+              📋 Profil à compléter ({nbIncomplets})
             </button>
-            <div className="vp-sub" style={{ marginTop: 6 }}>
-              Un repère, c'est <b>ta</b> façon de reconnaître quelqu'un : nom de famille,
-              surnom, nom sur WhatsApp, lieu-dit. Il remplace le nom du compte partout
-              dans l'admin — indispensable quand quatre Vincent commandent le même jour.
-              Les comptes dont le prénom revient plusieurs fois sont signalés en rouge.
-            </div>
-          </>
-        )}
+          )}
+          {nbSansAnniv > 0 && (
+            <button className={filtre === 'anniv' ? 'on' : ''} onClick={() => setFiltre('anniv')}>
+              🎂 Sans date ({nbSansAnniv})
+            </button>
+          )}
+          {nbSansAlias > 0 && (
+            <button className={filtre === 'repere' ? 'on' : ''} onClick={() => setFiltre('repere')}>
+              🏷️ Sans repère ({nbSansAlias})
+            </button>
+          )}
+        </div>
+
+        <div className="vp-sub" style={{ marginTop: 8 }}>
+          {filtre === 'repere' ? (
+            <>Un repère, c'est <b>ta</b> façon de reconnaître quelqu'un : nom de famille,
+            surnom, lieu-dit. Il remplace le nom du compte partout dans l'admin —
+            indispensable quand quatre Vincent commandent le même jour.</>
+          ) : filtre === 'anniv' ? (
+            <>Ceux qui n'ont pas renseigné leur date de naissance. Elle est facultative,
+            mais sans elle pas de remise d'anniversaire — un petit rappel dans le groupe
+            suffit souvent.</>
+          ) : filtre === 'incomplet' ? (
+            <>Il manque à ces comptes au moins un élément parmi : repère, date
+            d'anniversaire, commune, téléphone. Le détail est indiqué sur chaque fiche.</>
+          ) : (
+            <>
+              {membres.filter((m) => profilComplet(m)).length} profil(s) complet(s)
+              sur {membres.length}.
+              {nbAnnivAuj > 0 && <> · <b style={{ color: 'var(--wine)' }}>
+                🎉 {nbAnnivAuj} anniversaire{nbAnnivAuj > 1 ? 's' : ''} aujourd'hui
+              </b></>}
+            </>
+          )}
+        </div>
       </div>
 
       {aFeter.length > 0 && (
@@ -7550,6 +7594,9 @@ function AdminMembres({ showToast, settings }) {
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700 }}>
                 {m.nom}
+                {estAnniversaire(m.date_naissance) && (
+                  <span className="vp-badge-dbl">🎉 ANNIVERSAIRE AUJOURD'HUI</span>
+                )}
                 {m.bloque && <span className="vp-rupt-pill" style={{ marginLeft: 6 }}>BLOQUÉ</span>}
               </div>
               {repereDe(m)
@@ -7563,16 +7610,32 @@ function AdminMembres({ showToast, settings }) {
                   </div>
                 )}
               <div className="vp-sub">
-                {m.telephone}
+                {m.telephone || <span style={{ color: 'var(--wine)', fontWeight: 700 }}>sans téléphone</span>}
                 {m.ville && <> · {m.ville}{m.code_postal ? ` (${m.code_postal})` : ''}</>}
-                {m.date_naissance && <> · 🎂 {annivLisible(m.date_naissance)}</>}
+              </div>
+              <div className="vp-sub">
+                {m.date_naissance ? (
+                  <b style={estAnniversaire(m.date_naissance)
+                    ? { color: 'var(--wine)' } : undefined}>
+                    🎂 {annivLisible(m.date_naissance)}
+                    {!estAnniversaire(m.date_naissance) && joursAvantAnniv(m.date_naissance) <= 30
+                      && ` · dans ${joursAvantAnniv(m.date_naissance)} j`}
+                  </b>
+                ) : (
+                  <span style={{ opacity: 0.6 }}>🎂 date non renseignée</span>
+                )}
                 {m.date_naissance_changements > 0 && (
                   <> · <span style={{ color: 'var(--wine)', fontWeight: 700 }}>
-                    date modifiée {m.date_naissance_changements}×
+                    modifiée {m.date_naissance_changements}×
                   </span></>
                 )}
               </div>
               <div className="vp-sub">{m.email}</div>
+              {manques(m).length > 0 && (
+                <div className="vp-sub" style={{ marginTop: 3, opacity: 0.75 }}>
+                  📋 manque : {manques(m).join(', ')}
+                </div>
+              )}
             </div>
             <span className="vp-cmd-time">
               {new Date(m.created_at).toLocaleDateString('fr-FR')}
