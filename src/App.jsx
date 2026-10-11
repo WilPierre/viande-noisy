@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11l · parrainage simple';
+const VERSION = '2026-10-11m · produit libre en commande';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -4999,10 +4999,19 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
   const [aProduit, setAProduit] = useState(null);
   const [aVar, setAVar] = useState('');
   const [aQte, setAQte] = useState('1');
+  // produit hors catalogue : le nom est libre, les prix doivent être saisis
+  const [aPat, setAPat] = useState('');
+  const [aWil, setAWil] = useState('');
+  const [aKilo, setAKilo] = useState(false);
+
+  const videAjout = () => {
+    setANom(''); setAProduit(null); setAVar(''); setAQte('1');
+    setAPat(''); setAWil(''); setAKilo(false);
+  };
 
   const fermerEdition = () => {
     setEditId(null); setModifs({}); setAjouts([]);
-    setANom(''); setAProduit(null); setAVar(''); setAQte('1');
+    videAjout();
   };
   const ouvrirEdition = (c) => { fermerEdition(); setEditId(c.id); };
 
@@ -5013,7 +5022,19 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
   const prendreProduit = (p) => {
     setAProduit(p); setANom(p.nom);
     const vs = variantesDe(p);
-    setAVar(vs.length ? String(vs[0].id) : '');
+    const v = vs.length ? vs[0] : null;
+    setAVar(v ? String(v.id) : '');
+    setAKilo(p.mode_vente !== 'piece_fixe');
+    setAPat(String(prixVariante(p, v, 'prix_patrice') ?? ''));
+    setAWil(String(prixVariante(p, v, 'prix_william') ?? ''));
+  };
+  // changer de variante change les prix affichés
+  const choisirVariante = (idv) => {
+    setAVar(idv);
+    if (!aProduit) return;
+    const v = variantesDe(aProduit).find((x) => String(x.id) === String(idv)) || null;
+    setAPat(String(prixVariante(aProduit, v, 'prix_patrice') ?? ''));
+    setAWil(String(prixVariante(aProduit, v, 'prix_william') ?? ''));
   };
 
   const litQte = (l) => {
@@ -5036,16 +5057,28 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
   };
 
   const ajouterAuBrouillon = () => {
-    if (!aProduit) { showToast('Choisis un produit dans la liste'); return; }
+    if (aNom.trim().length < 2) { showToast('Indique le produit'); return; }
     const n = nombre(aQte);
     if (isNaN(n) || n <= 0) { showToast('Quantité invalide'); return; }
-    const vs = variantesDe(aProduit);
+    const wil = nombre(aWil);
+    if (isNaN(wil) || wil <= 0) { showToast('Indique ton prix de vente'); return; }
+    const pat = aPat.trim() === '' ? 0 : nombre(aPat);
+    if (isNaN(pat) || pat < 0) { showToast('Prix Patrice illisible'); return; }
+
+    const vs = aProduit ? variantesDe(aProduit) : [];
     const v = vs.length ? vs.find((x) => String(x.id) === String(aVar)) || vs[0] : null;
     setAjouts((a) => [...a, {
       cle: `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
-      produit: aProduit, variante: v, quantite: n,
+      produit: aProduit,                 // null si hors catalogue
+      nom: aProduit ? aProduit.nom : aNom.trim(),
+      variante: v,
+      quantite: n,
+      kilo: aKilo,
+      prixPat: cts(pat),
+      prixWil: cts(wil),
+      libre: !aProduit,
     }]);
-    setANom(''); setAProduit(null); setAVar(''); setAQte('1');
+    videAjout();
   };
   const retirerAjout = (cle) => setAjouts((a) => a.filter((x) => x.cle !== cle));
 
@@ -5094,20 +5127,29 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
       }
       // 3) lignes ajoutées
       if (ajouts.length) {
-        const rows = ajouts.map(({ produit: p, variante: v, quantite }) => {
-          const q = p.mode_vente === 'piece_fixe' ? Math.round(quantite) : cts(quantite);
+        const rows = ajouts.map((aj) => {
+          const p = aj.produit;
+          const v = aj.variante;
+          // hors catalogue : « au poids » devient un prix au kilo, sinon
+          // un prix à la pièce. Le poids réel sera saisi à la pesée.
+          const mode = p ? p.mode_vente : (aj.kilo ? 'kg' : 'piece_fixe');
+          const q = mode === 'piece_fixe' ? Math.round(aj.quantite) : cts(aj.quantite);
+          const poidsM = p && p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null;
           return {
-            commande_id: c.id, produit_id: p.id, produit_nom: p.nom,
-            mode_vente: p.mode_vente, emoji: p.emoji,
+            commande_id: c.id,
+            produit_id: p ? p.id : null,
+            produit_nom: aj.nom,
+            mode_vente: mode,
+            emoji: p ? p.emoji : '➕',
             variante_id: v ? String(v.id) : null,
             variante_nom: v ? v.nom : null,
-            prix_patrice: prixVariante(p, v, 'prix_patrice'),
-            prix_william: prixVariante(p, v, 'prix_william'),
-            poids_moyen: p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null,
+            prix_patrice: aj.prixPat,
+            prix_william: aj.prixWil,
+            poids_moyen: poidsM,
             quantite: q,
             quantite_livree: null,
             poids_reel: null,
-            sous_total_estime: cts(sousTotalLigne(p, v, q, 'prix_william')),
+            sous_total_estime: cts(sousTotal(mode, q, aj.prixWil, poidsM)),
             sous_total_final: null,
             demande: false,
             demande_origine: null,
@@ -5280,12 +5322,17 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                 {ajouts.map((a) => (
                   <div className="vp-cmd-l" key={a.cle} style={{ color: 'var(--green)' }}>
                     <span>
-                      {a.produit.emoji} {a.produit.nom}
+                      {a.produit ? a.produit.emoji : '➕'} {a.nom}
                       {a.variante ? ` — ${a.variante.nom}` : ''}
                       <span className="vp-pill" style={{ marginLeft: 6 }}>
-                        {num(a.quantite)} {a.produit.mode_vente === 'kg' ? 'kg' : 'pc'}
+                        {num(a.quantite)} {(a.produit ? a.produit.mode_vente === 'kg' : a.kilo) ? 'kg' : 'pc'}
                       </span>
-                      <span className="vp-badge-dbl">À AJOUTER</span>
+                      <span className="vp-badge-dbl">
+                        {a.libre ? 'HORS CATALOGUE' : 'À AJOUTER'}
+                      </span>
+                      <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                        {eur(a.prixWil)}{(a.produit ? a.produit.mode_vente !== 'piece_fixe' : a.kilo) ? '/kg' : ' pièce'}
+                      </small>
                     </span>
                     <button className="vp-btn ghost sm" style={{ flex: '0 0 auto' }}
                       onClick={() => retirerAjout(a.cle)}>Annuler</button>
@@ -5299,12 +5346,13 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                   </div>
 
                   <div className="vp-field">
-                    <label className="vp-label">Produit du catalogue</label>
+                    <label className="vp-label">Produit</label>
                     <input className="vp-input" value={aNom} autoComplete="off"
                       onChange={(e) => { setANom(e.target.value); setAProduit(null); }}
-                      placeholder="Tape les premières lettres…" />
+                      placeholder="Tape un nom du catalogue, ou écris-le librement" />
                     {!aProduit && suggestionsAjout.length > 0 && (
                       <div className="vp-sugg" style={{ marginTop: 8 }}>
+                        <span className="vp-sugg-t">Au catalogue :</span>
                         {suggestionsAjout.map((p) => (
                           <button key={p.id} className="vp-sugg-b" onClick={() => prendreProduit(p)}>
                             {p.emoji} {p.nom}
@@ -5312,9 +5360,15 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                         ))}
                       </div>
                     )}
+                    {!aProduit && aNom.trim().length >= 2 && (
+                      <div className="vp-sub" style={{ marginTop: 6 }}>
+                        ➕ <b>Hors catalogue</b> — indique les prix ci-dessous. La ligne
+                        n'ajoute rien au catalogue, elle ne vaut que pour cette commande.
+                      </div>
+                    )}
                     {aProduit && variantesDe(aProduit).length > 0 && (
                       <select className="vp-input" style={{ marginTop: 8 }} value={aVar}
-                        onChange={(e) => setAVar(e.target.value)}>
+                        onChange={(e) => choisirVariante(e.target.value)}>
                         {variantesDe(aProduit).map((v) => (
                           <option key={v.id} value={v.id}>{v.nom}</option>
                         ))}
@@ -5322,21 +5376,45 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                     )}
                   </div>
 
-                  <div className="vp-pl-g" style={{ gridTemplateColumns: 'minmax(120px,190px)' }}>
+                  {!aProduit && (
+                    <div className="vp-seg" style={{ marginTop: 10 }}>
+                      <button className={!aKilo ? 'on' : ''} onClick={() => setAKilo(false)}>À la pièce</button>
+                      <button className={aKilo ? 'on' : ''} onClick={() => setAKilo(true)}>Au kilo</button>
+                    </div>
+                  )}
+
+                  <div className="vp-pl-g">
                     <label>
-                      <span>Quantité {aProduit && aProduit.mode_vente === 'kg' ? '(kg)' : '(pièces)'}</span>
+                      <span>Quantité {(aProduit ? aProduit.mode_vente === 'kg' : aKilo) ? '(kg)' : '(pièces)'}</span>
                       <input className="vp-winput" inputMode="decimal" value={aQte}
                         onChange={(e) => setAQte(e.target.value)} />
                     </label>
+                    <label>
+                      <span>Prix Patrice</span>
+                      <input className="vp-winput" inputMode="decimal" value={aPat}
+                        onChange={(e) => setAPat(e.target.value)} placeholder="0" />
+                    </label>
+                    <label>
+                      <span>Ton prix {(aProduit ? aProduit.mode_vente !== 'piece_fixe' : aKilo) ? '/kg' : ''}</span>
+                      <input className="vp-winput" inputMode="decimal" value={aWil}
+                        onChange={(e) => setAWil(e.target.value)} placeholder="0" />
+                    </label>
                   </div>
 
+                  {!aProduit && aPat.trim() !== '' && !isNaN(nombre(aPat)) && (
+                    <button className="vp-approx" style={{ marginTop: 8 }}
+                      onClick={() => setAWil(String(cts(nombre(aPat) + 2)))}>
+                      Appliquer ta marge habituelle (+2,00 €)
+                    </button>
+                  )}
+
                   <button className="vp-btn" style={{ width: '100%', marginTop: 10 }}
-                    disabled={!aProduit} onClick={ajouterAuBrouillon}>
-                    {aProduit ? 'Mettre dans la liste' : 'Choisis un produit ci-dessus'}
+                    onClick={ajouterAuBrouillon}>
+                    Mettre dans la liste
                   </button>
                   <div className="vp-sub" style={{ marginTop: 6 }}>
-                    Prix repris du catalogue. Pour un produit hors catalogue ou un prix
-                    particulier, passe par l'onglet <b>Pesées</b>.
+                    Un produit du catalogue arrive avec ses prix déjà remplis — tu peux
+                    les corriger pour cette commande seulement.
                   </div>
                 </div>
               </>
