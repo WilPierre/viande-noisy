@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11g · remise anniversaire';
+const VERSION = '2026-10-11h · codes promo admin';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2575,6 +2575,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
       const { data, error } = await supabase.rpc('generer_code_anniversaire');
       if (error || !data || !data.length) { setCode(null); return; }
       const c = data[0];
+      if (c.refus) { setCode({ refus: c.refus, utilisable: false }); return; }
+      if (!c.code) { setCode(null); return; }
       setCode({
         ...c,
         jours: Math.ceil((new Date(c.expire_le) - new Date()) / 86400000),
@@ -2695,7 +2697,9 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
 
       {code && (
         <div className={code.utilisable ? 'vp-prec-panier' : 'vp-note'} style={{ marginBottom: 14 }}>
-          {code.utilisable ? (
+          {code.refus ? (
+            <>🎂 {code.refus}</>
+          ) : code.utilisable ? (
             <>
               <b>🎁 Votre cadeau d'anniversaire : {code.code}</b>
               <b>−{num(code.pct)} %</b> sur une commande, appliqué tout seul au moment
@@ -2969,6 +2973,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     const { data, error } = await supabase.rpc('generer_code_anniversaire');
     if (error || !data || !data.length) { setCodeAnniv(null); return; }
     const c = data[0];
+    if (c.refus) { setCodeAnniv({ refus: c.refus, utilisable: false }); return; }
+    if (!c.code) { setCodeAnniv(null); return; }
     const reste = Math.ceil((new Date(c.expire_le) - new Date()) / 86400000);
     setCodeAnniv({
       ...c,
@@ -3752,6 +3758,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               onFait={() => { setAuthOuvert(false); setPanierOuvert(true); }} />
           </div>
         </>
+      )}
+
+      {codeAnniv && codeAnniv.refus && (
+        <div className="vp-rupt-note" style={{ marginTop: 14 }}>🎂 {codeAnniv.refus}</div>
       )}
 
       {codeAnniv && codeAnniv.utilisable && (
@@ -7214,6 +7224,71 @@ function AdminMembres({ showToast, settings }) {
   const [aliasEnvoi, setAliasEnvoi] = useState(false);
   const [sansAlias, setSansAlias] = useState(false);  // ne montrer que ceux à compléter
 
+  /* ---- codes promo ----
+     Tu peux en créer un à la main (dépannage, geste commercial) et
+     voir tous ceux qui circulent. Les fonctions sont protégées par
+     ton code PIN, vérifié côté base. */
+  const PIN = (settings && settings.pin_admin) || '';
+  const [codes, setCodes] = useState([]);
+  const [codesOuvert, setCodesOuvert] = useState(false);
+  const [changements, setChangements] = useState([]);
+  const [codeEnCours, setCodeEnCours] = useState(false);
+
+  const chargerCodes = async () => {
+    const [{ data: cs }, { data: ch }] = await Promise.all([
+      supabase.rpc('admin_lister_codes', { p_pin: PIN }),
+      supabase.rpc('admin_changements_naissance', { p_pin: PIN }),
+    ]);
+    setCodes(cs || []);
+    setChangements(ch || []);
+  };
+  useEffect(() => { if (PIN) chargerCodes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [PIN]);
+
+  const etatCode = (c) => {
+    if (c.utilise_le) return { txt: 'utilisé', coul: 'var(--muted)' };
+    if (new Date(c.expire_le) <= new Date()) return { txt: 'expiré', coul: 'var(--muted)' };
+    const j = Math.ceil((new Date(c.expire_le) - new Date()) / 86400000);
+    return { txt: `actif · ${j} j`, coul: 'var(--green)' };
+  };
+
+  const creerCodePour = async (m) => {
+    const pct = window.prompt(`Remise pour ${m.nom} — pourcentage ?`, '5');
+    if (pct === null) return;
+    const n = nombre(pct);
+    if (isNaN(n) || n <= 0 || n >= 100) { showToast('Pourcentage invalide'); return; }
+    const jours = window.prompt('Valable combien de jours ?', '7');
+    if (jours === null) return;
+    const j = Math.round(nombre(jours));
+    if (isNaN(j) || j < 1) { showToast('Durée invalide'); return; }
+    setCodeEnCours(true);
+    try {
+      const { data, error } = await supabase.rpc('admin_creer_code', {
+        p_pin: PIN, p_user: m.id, p_pct: n, p_jours: j, p_motif: 'geste',
+      });
+      if (error) { showToast(messageErreur(error)); return; }
+      if (!data) { showToast('Refusé — vérifie ton code PIN dans Réglages'); return; }
+      await chargerCodes();
+      setCodesOuvert(true);
+      showToast(`Code ${data} créé pour ${m.nom} — ${n} % pendant ${j} j`);
+    } finally { setCodeEnCours(false); }
+  };
+
+  const supprimerCode = async (c) => {
+    if (!window.confirm(`Supprimer le code ${c.code} de ${c.nom} ?`)) return;
+    const { error } = await supabase.rpc('admin_supprimer_code', { p_pin: PIN, p_code: c.code });
+    if (error) { showToast(messageErreur(error)); return; }
+    chargerCodes(); showToast('Code supprimé');
+  };
+
+  const reactiverCode = async (c) => {
+    if (!window.confirm(`Rendre le code ${c.code} à nouveau utilisable pendant 7 jours ?`)) return;
+    const { error } = await supabase.rpc('admin_reactiver_code', { p_pin: PIN, p_code: c.code, p_jours: 7 });
+    if (error) { showToast(messageErreur(error)); return; }
+    chargerCodes(); showToast('Code réactivé');
+  };
+
   const enregistrerAlias = async (m) => {
     const v = (aliasEdit && aliasEdit.valeur ? aliasEdit.valeur : '').trim();
     setAliasEnvoi(true);
@@ -7376,6 +7451,78 @@ function AdminMembres({ showToast, settings }) {
         </div>
       )}
 
+      {(codes.length > 0 || changements.length > 0) && (
+        <div className="vp-section" style={{ marginTop: 14 }}>
+          <div className="vp-srow">
+            <div>
+              <div className="vp-h2" style={{ fontSize: 16 }}>
+                🎁 {codes.filter((c) => !c.utilise_le && new Date(c.expire_le) > new Date()).length} code(s) actif(s)
+              </div>
+              <div className="vp-sub">
+                {codes.length} au total · {codes.filter((c) => c.utilise_le).length} utilisé(s)
+                {changements.length > 0 && ` · ${changements.length} changement(s) de date`}
+              </div>
+            </div>
+            <button className="vp-btn ghost sm" onClick={() => setCodesOuvert(!codesOuvert)}>
+              {codesOuvert ? 'Masquer' : 'Voir'}
+            </button>
+          </div>
+
+          {codesOuvert && (
+            <>
+              <div className="vp-liste" style={{ marginTop: 12 }}>
+                {codes.map((c) => {
+                  const e = etatCode(c);
+                  return (
+                    <div className="vp-liste-l" key={c.code}>
+                      <span style={{ minWidth: 0 }}>
+                        <b>{c.code}</b> · {num(c.pct)} %
+                        <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                          {c.nom} · <span style={{ color: e.coul, fontWeight: 700 }}>{e.txt}</span>
+                          {c.motif !== 'anniversaire' ? ` · ${c.motif}` : ' · anniversaire'}
+                        </small>
+                      </span>
+                      <div className="vp-macmd-b">
+                        {c.utilise_le && (
+                          <button className="vp-btn ghost sm" onClick={() => reactiverCode(c)}>Rendre</button>
+                        )}
+                        <button className="vp-btn ghost sm" onClick={() => supprimerCode(c)}>Suppr.</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {codes.length === 0 && <div className="vp-liste-l"><span>Aucun code émis.</span></div>}
+              </div>
+
+              {changements.length > 0 && (
+                <>
+                  <div className="vp-h2" style={{ fontSize: 15, marginTop: 16 }}>
+                    Dates de naissance modifiées
+                  </div>
+                  <div className="vp-sub">
+                    Un code par personne et par an, quoi qu'il arrive — mais une date
+                    qui bouge souvent mérite un coup d'œil.
+                  </div>
+                  <div className="vp-liste" style={{ marginTop: 10 }}>
+                    {changements.map((h, i) => (
+                      <div className="vp-liste-l" key={i}>
+                        <span style={{ minWidth: 0 }}>
+                          {h.nom}
+                          <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                            {h.ancienne ? annivLisible(h.ancienne) : '(vide)'} → {h.nouvelle ? annivLisible(h.nouvelle) : '(vide)'}
+                            {' · '}{new Date(h.change_le).toLocaleDateString('fr-FR')}
+                          </small>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {membres.length > 3 && (
         <div className="vp-search">
           <span className="vp-search-ico">
@@ -7419,6 +7566,11 @@ function AdminMembres({ showToast, settings }) {
                 {m.telephone}
                 {m.ville && <> · {m.ville}{m.code_postal ? ` (${m.code_postal})` : ''}</>}
                 {m.date_naissance && <> · 🎂 {annivLisible(m.date_naissance)}</>}
+                {m.date_naissance_changements > 0 && (
+                  <> · <span style={{ color: 'var(--wine)', fontWeight: 700 }}>
+                    date modifiée {m.date_naissance_changements}×
+                  </span></>
+                )}
               </div>
               <div className="vp-sub">{m.email}</div>
             </div>
@@ -7454,6 +7606,13 @@ function AdminMembres({ showToast, settings }) {
               </button>
             </div>
           )}
+
+          {!aliasEdit || aliasEdit.id !== m.id ? (
+            <button className="vp-btn ghost sm" style={{ width: '100%', marginTop: 8 }}
+              disabled={codeEnCours} onClick={() => creerCodePour(m)}>
+              🎁 Lui offrir un code promo
+            </button>
+          ) : null}
         </div>
       ))}
     </>
