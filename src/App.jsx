@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11c · droits admin fiches';
+const VERSION = '2026-10-11d · repères voisins';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -4595,10 +4595,13 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
 
   useEffect(() => {
     const charger = async () => {
-      const { data: clients } = await supabase.from('viande_clients')
-        .select('id, nom, telephone, bloque, alias_whatsapp');
+      const [{ data: clients }, reps] = await Promise.all([
+        supabase.from('viande_clients').select('id, nom, telephone, bloque, alias_whatsapp'),
+        chargerReperes(),
+      ]);
       const a = {};
       (clients || []).forEach((c) => { if (c.alias_whatsapp) a[String(c.id)] = c.alias_whatsapp; });
+      Object.keys(reps).forEach((k) => { if (reps[k].repere) a[k] = reps[k].repere; });
       setAlias(a);
       const { data: histo } = await supabase.from('viande_commandes')
         .select('user_id, created_at');
@@ -4911,7 +4914,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
               </span>
               <span className="vp-cmd-time">{new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
-            {alias[String(c.user_id)] && <div className="vp-alias">WhatsApp : {alias[String(c.user_id)]}</div>}
+            {alias[String(c.user_id)] && <div className="vp-alias">🏷️ {alias[String(c.user_id)]}</div>}
             {c.telephone && <div className="vp-sub">{c.telephone}</div>}
             {(c.lignes || []).map((l) => {
               const m = MODES[l.mode_vente];
@@ -5990,21 +5993,32 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
      Dupont » dans le récap du groupe. Attention : coller « @Jeannot »
      n'crée PAS une vraie mention WhatsApp (voir plus bas dans l'écran),
      c'est seulement plus lisible pour le groupe. */
-  const [alias, setAlias] = useState({});
-  useEffect(() => {
-    const charger = async () => {
-      const { data } = await supabase.from('viande_clients').select('id, alias_whatsapp');
-      const a = {};
-      (data || []).forEach((c) => { if (c.alias_whatsapp) a[String(c.id)] = c.alias_whatsapp; });
-      setAlias(a);
-    };
-    charger();
+  const [alias, setAlias] = useState({});   // user_id -> repère affiché
+  const [repTel, setRepTel] = useState({}); // user_id -> numéro corrigé
+  const chargerAlias = async () => {
+    const [{ data }, reps] = await Promise.all([
+      supabase.from('viande_clients').select('id, alias_whatsapp'),
+      chargerReperes(),
+    ]);
+    const a = {};
+    (data || []).forEach((c) => { if (c.alias_whatsapp) a[String(c.id)] = c.alias_whatsapp; });
+    const t = {};
+    Object.keys(reps).forEach((k) => {
+      if (reps[k].repere) a[k] = reps[k].repere;   // ton repère l'emporte
+      if (reps[k].telephone) t[k] = reps[k].telephone;
+    });
+    setAlias(a); setRepTel(t);
+  };
+  useEffect(() => { chargerAlias();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const nomWa = (c) => alias[String(c.user_id)] || c.nom_client;
+  // numéro de la commande, à défaut celui que tu as corrigé une fois pour toutes
+  const telDe = (c) => c.telephone || repTel[String(c.user_id)] || '';
 
   // numéro au format international sans « + », tel que l'attend wa.me
   const telWa = (c) => {
-    const d = String(c.telephone || '').replace(/\D/g, '');
+    const d = String(telDe(c) || '').replace(/\D/g, '');
     if (!d) return null;
     if (d.startsWith('33')) return d;
     if (d.startsWith('0')) return `33${d.slice(1)}`;
@@ -6025,7 +6039,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
 
   const ouvrirTel = (c) => setTelEdit({
     id: c.id,
-    tel: c.telephone || '',
+    tel: telDe(c),
     pseudo: alias[String(c.user_id)] || '',
   });
 
@@ -6043,27 +6057,28 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         .update({ telephone: v || null }).eq('id', c.id);
       const err = messageErreur(error);
       if (err) { showToast(err); return; }
-      // Membre identifié : on corrige aussi sa fiche, sinon il faudrait
-      // tout ressaisir à la commande suivante.
-      let fiche = null;
+      // Membre identifié : le repère et le numéro sont rangés dans ta
+      // table à toi, pour ne pas les ressaisir à chaque commande.
+      let rep = null;
       if (c.user_id) {
-        fiche = await majFicheClient(c.user_id, {
-          telephone: v || null, alias_whatsapp: ps || null,
-        });
-        if (fiche.ok) {
+        rep = await enregistrerRepere(c.user_id, { repere: ps || null, telephone: v || null });
+        if (rep.ok) {
           setAlias((a) => {
             const n = { ...a };
             if (ps) n[String(c.user_id)] = ps; else delete n[String(c.user_id)];
+            return n;
+          });
+          setRepTel((t) => {
+            const n = { ...t };
+            if (v) n[String(c.user_id)] = v; else delete n[String(c.user_id)];
             return n;
           });
         }
       }
       setTelEdit(null);
       reload();
-      // La commande est enregistrée dans tous les cas ; seule la fiche
-      // peut être refusée, et il faut le dire plutôt que de l'avaler.
-      if (fiche && !fiche.ok) { showToast(`Commande à jour, mais sa fiche : ${fiche.message}`); return; }
-      showToast(fiche ? 'Enregistré — et mis à jour dans sa fiche' : 'Enregistré');
+      if (rep && !rep.ok) { showToast(`Commande à jour, mais le repère : ${rep.message}`); return; }
+      showToast(rep ? 'Enregistré — et retenu pour les prochaines fois' : 'Enregistré');
     } finally { setTelEnvoi(false); }
   };
   // ajout d'une ligne à la volée, pendant la pesée : il arrive que des
@@ -6765,14 +6780,14 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                       onKeyDown={(e) => { if (e.key === 'Enter') enregistrerTel(c); }} />
                     {c.user_id && (
                       <>
-                        <label className="vp-label" style={{ marginTop: 10 }}>Nom affiché sur WhatsApp</label>
+                        <label className="vp-label" style={{ marginTop: 10 }}>Ton repère pour cette personne</label>
                         <input className="vp-input" value={telEdit.pseudo}
-                          placeholder="Ex : Jeannot, Mamie Thérèse…"
+                          placeholder="Ex : Amélie Mouranchon, Vincent le grand…"
                           onChange={(e) => setTelEdit({ ...telEdit, pseudo: e.target.value })}
                           onKeyDown={(e) => { if (e.key === 'Enter') enregistrerTel(c); }} />
                         <div className="vp-sub" style={{ marginTop: 5 }}>
-                          Sert à te repérer dans tes conversations, et apparaît dans le
-                          récap du groupe à la place du nom du compte.
+                          Remplace le nom du compte partout dans l'admin, et dans le
+                          récap du groupe. Retenu pour les prochaines commandes.
                         </div>
                       </>
                     )}
@@ -6787,13 +6802,14 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                 ) : (
                   <div className="vp-liste-l" key={c.id}>
                     <span style={{ minWidth: 0 }}>
-                      {dejaEnvoye(c) ? '✅ ' : ''}{c.nom_client}
+                      {dejaEnvoye(c) ? '✅ ' : ''}
+                      {alias[String(c.user_id)] || c.nom_client}
                       <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
                         {alias[String(c.user_id)]
-                          ? `${alias[String(c.user_id)]} · `
-                          : (c.user_id ? '💬 nom WhatsApp inconnu · ' : '')}
-                        {c.telephone
-                          ? c.telephone
+                          ? `compte : ${c.nom_client} · `
+                          : (c.user_id ? '🏷️ sans repère · ' : '')}
+                        {telDe(c)
+                          ? telDe(c)
                           : <span style={{ color: 'var(--wine)', fontWeight: 700 }}>sans numéro</span>}
                         {' · '}{eur(totalCmd(c))}
                       </small>
