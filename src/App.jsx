@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-07b · numéro modifiable';
+const VERSION = '2026-10-11 · pied allégé';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -3849,7 +3849,6 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
       <div className="vp-pied">
         <div className="vp-credit">
-          Créé et développé par Wil ·{' '}
           <a href="https://enkraj.fr" target="_blank" rel="noreferrer noopener">Enkraj.fr</a>
         </div>
         <div className="vp-ver">v{VERSION}</div>
