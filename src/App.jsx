@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11 · pied allégé';
+const VERSION = '2026-10-11b · noms WhatsApp';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -5962,13 +5962,18 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
      Une commande saisie à la main n'a pas toujours de numéro, et il
      arrive qu'un voisin en change. Plutôt que d'aller le chercher dans
      l'onglet Membres, on le règle ici, au moment où ça bloque. */
-  const [telEdit, setTelEdit] = useState(null);  // { id, valeur }
+  const [telEdit, setTelEdit] = useState(null);  // { id, tel, pseudo }
   const [telEnvoi, setTelEnvoi] = useState(false);
 
-  const ouvrirTel = (c) => setTelEdit({ id: c.id, valeur: c.telephone || '' });
+  const ouvrirTel = (c) => setTelEdit({
+    id: c.id,
+    tel: c.telephone || '',
+    pseudo: alias[String(c.user_id)] || '',
+  });
 
   const enregistrerTel = async (c) => {
-    const v = (telEdit && telEdit.valeur ? telEdit.valeur : '').trim();
+    const v = (telEdit && telEdit.tel ? telEdit.tel : '').trim();
+    const ps = (telEdit && telEdit.pseudo ? telEdit.pseudo : '').trim();
     const chiffres = v.replace(/\D/g, '');
     if (v && (chiffres.length < 9 || chiffres.length > 15)) {
       showToast('Numéro invalide — 10 chiffres, ou +33…');
@@ -5981,17 +5986,22 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       const err = messageErreur(error);
       if (err) { showToast(err); return; }
       // Membre identifié : on corrige aussi sa fiche, sinon il faudrait
-      // ressaisir le numéro à chaque commande.
+      // tout ressaisir à la commande suivante.
       let fiche = false;
       if (c.user_id) {
         const { error: e2 } = await supabase.from('viande_clients')
-          .update({ telephone: v || null }).eq('id', c.user_id);
+          .update({ telephone: v || null, alias_whatsapp: ps || null }).eq('id', c.user_id);
         fiche = !e2;
+        if (!e2) {
+          setAlias((a) => {
+            const n = { ...a };
+            if (ps) n[String(c.user_id)] = ps; else delete n[String(c.user_id)];
+            return n;
+          });
+        }
       }
       setTelEdit(null);
-      showToast(v
-        ? (fiche ? 'Numéro enregistré — et mis à jour dans sa fiche' : 'Numéro enregistré')
-        : 'Numéro effacé');
+      showToast(fiche ? 'Enregistré — et mis à jour dans sa fiche' : 'Enregistré');
       reload();
     } finally { setTelEnvoi(false); }
   };
@@ -6684,14 +6694,28 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                     <div className="vp-sub" style={{ marginTop: 2 }}>
                       {c.user_id
                         ? 'Enregistré sur la commande et dans sa fiche membre.'
-                        : "Commande saisie à la main : le numéro reste sur cette commande."}
+                        : "Commande saisie à la main : ça ne vaut que pour cette commande."}
                     </div>
-                    <input className="vp-input" style={{ marginTop: 8 }} autoFocus
+                    <label className="vp-label" style={{ marginTop: 8 }}>Téléphone</label>
+                    <input className="vp-input" autoFocus
                       inputMode="tel" type="tel" placeholder="06 12 34 56 78"
-                      value={telEdit.valeur}
-                      onChange={(e) => setTelEdit({ id: c.id, valeur: e.target.value })}
+                      value={telEdit.tel}
+                      onChange={(e) => setTelEdit({ ...telEdit, tel: e.target.value })}
                       onKeyDown={(e) => { if (e.key === 'Enter') enregistrerTel(c); }} />
-                    <div className="vp-grid2" style={{ marginTop: 8 }}>
+                    {c.user_id && (
+                      <>
+                        <label className="vp-label" style={{ marginTop: 10 }}>Nom affiché sur WhatsApp</label>
+                        <input className="vp-input" value={telEdit.pseudo}
+                          placeholder="Ex : Jeannot, Mamie Thérèse…"
+                          onChange={(e) => setTelEdit({ ...telEdit, pseudo: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === 'Enter') enregistrerTel(c); }} />
+                        <div className="vp-sub" style={{ marginTop: 5 }}>
+                          Sert à te repérer dans tes conversations, et apparaît dans le
+                          récap du groupe à la place du nom du compte.
+                        </div>
+                      </>
+                    )}
+                    <div className="vp-grid2" style={{ marginTop: 10 }}>
                       <button className="vp-btn ghost sm" onClick={() => setTelEdit(null)}>Annuler</button>
                       <button className="vp-btn green sm" disabled={telEnvoi}
                         onClick={() => enregistrerTel(c)}>
@@ -6704,7 +6728,9 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                     <span style={{ minWidth: 0 }}>
                       {dejaEnvoye(c) ? '✅ ' : ''}{c.nom_client}
                       <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
-                        {alias[String(c.user_id)] ? `${alias[String(c.user_id)]} · ` : ''}
+                        {alias[String(c.user_id)]
+                          ? `${alias[String(c.user_id)]} · `
+                          : (c.user_id ? '💬 nom WhatsApp inconnu · ' : '')}
                         {c.telephone
                           ? c.telephone
                           : <span style={{ color: 'var(--wine)', fontWeight: 700 }}>sans numéro</span>}
@@ -6713,7 +6739,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                     </span>
                     <div className="vp-macmd-b">
                       <button className="vp-btn ghost sm" onClick={() => ouvrirTel(c)}
-                        aria-label={`Modifier le numéro de ${c.nom_client}`}>
+                        aria-label={`Modifier le numéro et le nom WhatsApp de ${c.nom_client}`}>
                         {c.telephone ? '✎' : '＋ numéro'}
                       </button>
                       <button className={`vp-btn sm ${dejaEnvoye(c) ? 'ghost' : 'green'}`}
@@ -6738,9 +6764,10 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
               il te reste à appuyer sur envoyer. Les coches ✅ te servent à ne pas
               perdre le fil — elles disparaissent si tu recharges la page.
               <br />
-              <b>＋ numéro</b> ou <b>✎</b> pour ajouter ou corriger un téléphone sur place.
-              Pour un membre, la correction va aussi dans sa fiche&nbsp;: tu ne la
-              refais pas à la commande suivante.
+              <b>＋ numéro</b> ou <b>✎</b> pour corriger sur place le téléphone et le
+              nom WhatsApp. Pour un membre, la correction va aussi dans sa fiche&nbsp;:
+              tu ne la refais pas à la commande suivante. L'onglet <b>Membres</b> permet
+              de compléter tous les noms WhatsApp d'un coup.
             </div>
           </div>
 
@@ -6814,6 +6841,29 @@ function AdminMembres({ showToast }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ---- pseudo WhatsApp ----
+     Le champ est facultatif à l'inscription et beaucoup le laissent
+     vide, ou s'inscrivent sous un nom qui n'est pas celui affiché sur
+     WhatsApp. Sans ce repère, impossible de retrouver la bonne
+     conversation au moment d'envoyer les notes. */
+  const [aliasEdit, setAliasEdit] = useState(null); // { id, valeur }
+  const [aliasEnvoi, setAliasEnvoi] = useState(false);
+  const [sansAlias, setSansAlias] = useState(false);  // ne montrer que ceux à compléter
+
+  const enregistrerAlias = async (m) => {
+    const v = (aliasEdit && aliasEdit.valeur ? aliasEdit.valeur : '').trim();
+    setAliasEnvoi(true);
+    try {
+      const { error } = await supabase.from('viande_clients')
+        .update({ alias_whatsapp: v || null }).eq('id', m.id);
+      const err = messageErreur(error);
+      if (err) { showToast(err); return; }
+      setAliasEdit(null);
+      charger();
+      showToast(v ? 'Nom WhatsApp enregistré' : 'Nom WhatsApp effacé');
+    } finally { setAliasEnvoi(false); }
+  };
+
   const basculerBlocage = async (m) => {
     if (!m.bloque && !window.confirm(
       `Bloquer ${m.nom} ?\n\nSon compte restera actif mais il ne pourra plus commander.`
@@ -6827,10 +6877,14 @@ function AdminMembres({ showToast }) {
   };
 
   const q = normaliser(recherche.trim());
-  const listeFiltree = !q ? membres : membres.filter((m) =>
+  const parRecherche = !q ? membres : membres.filter((m) =>
     normaliser(m.nom).includes(q) || normaliser(m.email).includes(q)
     || normaliser(m.alias_whatsapp).includes(q)
     || String(m.telephone || '').includes(recherche.trim()));
+  const nbSansAlias = membres.filter((m) => !m.bloque && !m.alias_whatsapp).length;
+  const listeFiltree = sansAlias
+    ? parRecherche.filter((m) => !m.alias_whatsapp)
+    : parRecherche;
 
   const texte = () => membres
     .filter((m) => !m.bloque)
@@ -6852,6 +6906,22 @@ function AdminMembres({ showToast }) {
             Copier
           </button>
         </div>
+
+        {nbSansAlias > 0 && (
+          <>
+            <button className={`vp-btn ${sansAlias ? '' : 'ghost'} sm`} style={{ marginTop: 12 }}
+              onClick={() => setSansAlias(!sansAlias)}>
+              {sansAlias
+                ? `← Revoir tout le monde`
+                : `💬 ${nbSansAlias} sans nom WhatsApp`}
+            </button>
+            <div className="vp-sub" style={{ marginTop: 6 }}>
+              Le nom WhatsApp est facultatif à l'inscription, et rarement le même que
+              celui du compte. Le renseigner ici te permet de retrouver la bonne
+              conversation au moment d'envoyer les notes.
+            </div>
+          </>
+        )}
       </div>
 
       {membres.length > 3 && (
@@ -6883,9 +6953,9 @@ function AdminMembres({ showToast }) {
                 {m.nom}
                 {m.bloque && <span className="vp-rupt-pill" style={{ marginLeft: 6 }}>BLOQUÉ</span>}
               </div>
-              {m.alias_whatsapp && (
-                <div className="vp-alias">WhatsApp : {m.alias_whatsapp}</div>
-              )}
+              {m.alias_whatsapp
+                ? <div className="vp-alias">WhatsApp : {m.alias_whatsapp}</div>
+                : <div className="vp-alias" style={{ opacity: 0.6 }}>WhatsApp : nom inconnu</div>}
               <div className="vp-sub">{m.telephone}</div>
               <div className="vp-sub">{m.email}</div>
             </div>
@@ -6893,10 +6963,34 @@ function AdminMembres({ showToast }) {
               {new Date(m.created_at).toLocaleDateString('fr-FR')}
             </span>
           </div>
-          <button className={`vp-btn ${m.bloque ? '' : 'ghost'} sm`} style={{ marginTop: 10 }}
-            onClick={() => basculerBlocage(m)}>
-            {m.bloque ? 'Débloquer' : 'Bloquer'}
-          </button>
+
+          {aliasEdit && aliasEdit.id === m.id ? (
+            <div style={{ marginTop: 10 }}>
+              <label className="vp-label">Nom affiché sur WhatsApp</label>
+              <input className="vp-input" autoFocus value={aliasEdit.valeur}
+                placeholder="Ex : Jeannot, Mamie Thérèse, Vincent Voisin…"
+                onChange={(e) => setAliasEdit({ id: m.id, valeur: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') enregistrerAlias(m); }} />
+              <div className="vp-grid2" style={{ marginTop: 8 }}>
+                <button className="vp-btn ghost sm" onClick={() => setAliasEdit(null)}>Annuler</button>
+                <button className="vp-btn green sm" disabled={aliasEnvoi}
+                  onClick={() => enregistrerAlias(m)}>
+                  {aliasEnvoi ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="vp-grid2" style={{ marginTop: 10 }}>
+              <button className="vp-btn ghost sm"
+                onClick={() => setAliasEdit({ id: m.id, valeur: m.alias_whatsapp || '' })}>
+                {m.alias_whatsapp ? '✎ Nom WhatsApp' : '＋ Nom WhatsApp'}
+              </button>
+              <button className={`vp-btn ${m.bloque ? '' : 'ghost'} sm`}
+                onClick={() => basculerBlocage(m)}>
+                {m.bloque ? 'Débloquer' : 'Bloquer'}
+              </button>
+            </div>
+          )}
         </div>
       ))}
     </>
