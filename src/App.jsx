@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11f · lien direct compte';
+const VERSION = '2026-10-11g · remise anniversaire';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -121,8 +121,10 @@ function sousTotal(mode, quantite, prixUnite, poidsMoyen) {
    fil de l'eau finit toujours par mentir — et c'est la marge affichée
    qui s'en trouve fausse. */
 async function recalculerTotauxCommande(commandeId) {
-  const { data: lignes, error } = await supabase.from('viande_commande_lignes')
-    .select('*').eq('commande_id', commandeId);
+  const [{ data: lignes, error }, { data: cmd }] = await Promise.all([
+    supabase.from('viande_commande_lignes').select('*').eq('commande_id', commandeId),
+    supabase.from('viande_commandes').select('remise_pct').eq('id', commandeId).maybeSingle(),
+  ]);
   if (error) throw error;
   let est = 0;
   let pat = 0;
@@ -135,13 +137,32 @@ async function recalculerTotauxCommande(commandeId) {
         : poidsEstime(l.mode_vente, l.quantite, l.poids_moyen));
     pat += (Number(l.prix_patrice) || 0) * q;
   });
+  // la remise d'anniversaire porte sur le total client, jamais sur le
+  // coût Patrice : elle se prend intégralement sur la marge
   const { error: e2 } = await supabase.from('viande_commandes').update({
-    total_estime: cts(est),
+    total_estime: apresRemise(est, cmd || {}),
     total_patrice: cts(pat),
     total_final: null,   // sera refait à la pesée
     statut: 'en_cours',
   }).eq('id', commandeId);
   if (e2) throw e2;
+}
+
+/* ---- remise portée par une commande ----
+   Une seule fonction pour toute l'application : le panier, la note du
+   client, la feuille de pesée et la liste d'encaissement doivent
+   impérativement donner le même chiffre. Une remise recalculée à
+   plusieurs endroits finit toujours par diverger d'un centime, et
+   c'est le client qui le remarque. */
+function pctRemise(c) {
+  const p = Number(c && c.remise_pct) || 0;
+  return p > 0 && p < 100 ? p : 0;
+}
+function montantRemise(brut, c) {
+  return cts((Number(brut) || 0) * pctRemise(c) / 100);
+}
+function apresRemise(brut, c) {
+  return cts((Number(brut) || 0) - montantRemise(brut, c));
 }
 
 /* ---- anniversaires ----
@@ -2546,6 +2567,22 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const [tel, setTel] = useState((profil && profil.telephone) || '');
   const [alias, setAlias] = useState((profil && profil.alias_whatsapp) || '');
   const [anniv, setAnniv] = useState((profil && profil.date_naissance) || '');
+  // Le code d'anniversaire, tel que la base le connaît. C'est ici que
+  // la personne le découvre : « notification » à l'ouverture du compte.
+  const [code, setCode] = useState(null);
+  useEffect(() => {
+    const lire = async () => {
+      const { data, error } = await supabase.rpc('generer_code_anniversaire');
+      if (error || !data || !data.length) { setCode(null); return; }
+      const c = data[0];
+      setCode({
+        ...c,
+        jours: Math.ceil((new Date(c.expire_le) - new Date()) / 86400000),
+        utilisable: !c.deja_utilise && new Date(c.expire_le) > new Date(),
+      });
+    };
+    lire();
+  }, [profil]);
   const [ville, setVille] = useState((profil && profil.ville) || '');
   const [cp, setCp] = useState((profil && profil.code_postal) || '');
 
@@ -2608,6 +2645,10 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
 
   const derniere = commandes[0];
   const totalDe = (c) => (c.total_final != null ? Number(c.total_final) : Number(c.total_estime || 0));
+  // somme des lignes avant remise : sert uniquement à afficher le
+  // montant retiré, le total enregistré étant déjà net
+  const totalLignes = (c) => (c.lignes || []).reduce((s2, l) =>
+    s2 + Number(l.sous_total_final != null ? l.sous_total_final : l.sous_total_estime || 0), 0);
 
   const imprimerFacture = (c) => {
     const rows = (c.lignes || []).map((l) => {
@@ -2632,6 +2673,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
         <thead><tr><th>Produit</th><th>Quantité</th><th class="n">Montant</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      ${pctRemise(c) > 0 ? `<div class="grand" style="opacity:.75"><span>🎂 Remise anniversaire −${esc(num(pctRemise(c)))} %</span><span>−${esc(eur(montantRemise(totalLignes(c), c)))}</span></div>` : ''}
       <div class="grand"><span>Total</span><span>${esc(eur(totalDe(c)))}</span></div>
       ${c.total_final == null ? '<div class="pied">Montant estimé — les produits au kilo seront ajustés après pesée.</div>' : ''}`;
     if (!imprimerDocument('Ma commande', corps)) showToast('Autorise les fenêtres pop-up');
@@ -2648,6 +2690,26 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
         <div className="vp-prec-panier" style={{ marginBottom: 14 }}>
           <b>🎂 Joyeux anniversaire {profil.nom} !</b>
           Toute l'équipe de {settings.titre} vous souhaite une très belle journée.
+        </div>
+      )}
+
+      {code && (
+        <div className={code.utilisable ? 'vp-prec-panier' : 'vp-note'} style={{ marginBottom: 14 }}>
+          {code.utilisable ? (
+            <>
+              <b>🎁 Votre cadeau d'anniversaire : {code.code}</b>
+              <b>−{num(code.pct)} %</b> sur une commande, appliqué tout seul au moment
+              de valider votre panier : rien à saisir.{' '}
+              {code.jours > 0
+                ? `Valable encore ${code.jours} jour${code.jours > 1 ? 's' : ''}, puis il disparaît.`
+                : "C'est le dernier jour !"}
+              {' '}Une seule utilisation.
+            </>
+          ) : code.deja_utilise ? (
+            <>🎁 Votre remise d'anniversaire a bien été utilisée cette année. À l'année prochaine&nbsp;!</>
+          ) : (
+            <>🎁 Votre remise d'anniversaire a expiré — elle n'était valable que 7 jours. On y repense l'an prochain.</>
+          )}
         </div>
       )}
 
@@ -2895,6 +2957,28 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     if (vueCompte && !connecte) { setModeAuth('connexion'); setAuthOuvert(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vueCompte, connecte]);
+
+  /* ---- code d'anniversaire ----
+     C'est la base qui décide s'il y a un code et lequel : la fonction
+     le crée au premier passage de la semaine d'anniversaire, et se
+     contente de le relire ensuite. Le navigateur ne fait que
+     l'afficher — il ne peut pas s'en inventer un. */
+  const [codeAnniv, setCodeAnniv] = useState(null);
+  const chargerCodeAnniv = async () => {
+    if (!connecte) { setCodeAnniv(null); return; }
+    const { data, error } = await supabase.rpc('generer_code_anniversaire');
+    if (error || !data || !data.length) { setCodeAnniv(null); return; }
+    const c = data[0];
+    const reste = Math.ceil((new Date(c.expire_le) - new Date()) / 86400000);
+    setCodeAnniv({
+      ...c,
+      jours: reste,
+      utilisable: !c.deja_utilise && new Date(c.expire_le) > new Date(),
+    });
+  };
+  useEffect(() => { chargerCodeAnniv();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connecte, profil && profil.date_naissance]);
 
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
   const [reprise, setReprise] = useState(false);
@@ -3175,7 +3259,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     return { k, p, v, q };
   }).filter(Boolean);
 
-  const total = lignes.reduce((s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_william'), 0);
+  const totalBrut = lignes.reduce((s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_william'), 0);
+  // La remise d'anniversaire s'applique d'elle-même : rien à taper,
+  // donc rien à mal taper.
+  const remise = codeAnniv && codeAnniv.utilisable
+    ? cts(totalBrut * Number(codeAnniv.pct) / 100) : 0;
+  const total = cts(totalBrut - remise);
   // Nombre d'articles réel : on additionne les quantités.
   // Une ligne « au kilo » compte pour 1 (c'est une demande de poids,
   // pas un nombre de pièces).
@@ -3245,16 +3334,36 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       }
       const totalPatrice = lignes.reduce(
         (s, { p, v, q }) => s + sousTotalLigne(p, v, q, 'prix_patrice'), 0);
+
+      /* Le code est consommé AVANT la commande, et c'est la base qui
+         renvoie le pourcentage réellement accordé — pas le navigateur.
+         Si la commande échoue ensuite, on rend le code. */
+      let pctAccorde = 0;
+      let codeUtilise = null;
+      if (codeAnniv && codeAnniv.utilisable && lignes.length > 0) {
+        const { data: p } = await supabase.rpc('utiliser_code_promo', { p_code: codeAnniv.code });
+        pctAccorde = Number(p) || 0;
+        if (pctAccorde > 0) codeUtilise = codeAnniv.code;
+      }
+      const brut = Math.round(totalBrut * 100) / 100;
+      const net = Math.round((brut - brut * pctAccorde / 100) * 100) / 100;
+
       const { data: cmd, error } = await supabase.from('viande_commandes').insert({
         user_id: session.user.id,
         nom_client: profil.nom, telephone: profil.telephone, note: note.trim() || null,
         precommande,
-        total_estime: Math.round(total * 100) / 100,
+        total_estime: net,
         total_patrice: Math.round(totalPatrice * 100) / 100,
+        code_promo: codeUtilise,
+        remise_pct: pctAccorde,
         // hors horaires, la commande rejoint la prochaine journée d'ouverture
         date_vente: precommande ? infoPre.dateVente : settings.date_vente,
       }).select().single();
-      if (error) throw error;
+      if (error) {
+        // la commande n'existe pas : le code doit redevenir utilisable
+        if (codeUtilise) await supabase.rpc('liberer_code_promo', { p_code: codeUtilise });
+        throw error;
+      }
       // on fige les valeurs effectives de la variante dans la ligne :
       // l'admin, l'export et les pesées n'ont ensuite rien à recalculer
       const rows = lignes.map(({ p, v, q }) => ({
@@ -3295,6 +3404,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         // L'en-tête est déjà enregistré : sans ses lignes, il deviendrait une
         // commande vide dans l'admin. On le retire avant de signaler l'erreur.
         await supabase.from('viande_commandes').delete().eq('id', cmd.id);
+        if (codeUtilise) await supabase.rpc('liberer_code_promo', { p_code: codeUtilise });
         throw e2;
       }
       // alerte (ne bloque jamais la commande)
@@ -3311,7 +3421,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         entete
         + `\n${profil.nom} — ${profil.telephone}`
         + `${precommande ? `\nPour le ${infoPre.ouverture}` : ''}\n\n${resume}\n\n`
-        + `Total estimé : ${eur(total)}`
+        + (pctAccorde > 0 ? `Sous-total : ${eur(brut)}\n🎂 Remise anniversaire −${num(pctAccorde)} % : −${eur(brut - net)}\n` : '')
+        + `Total estimé : ${eur(net)}`
         + (note.trim() ? `\nNote : ${note.trim()}` : ''));
 
       // mémorisé pour permettre une modification ultérieure
@@ -3320,15 +3431,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         heure: Date.now(), cart, choix, tel: profil.telephone, note: note.trim(),
         // total au moment de l'envoi : sert à détecter une retouche faite
         // depuis l'admin avant que la personne ne reprenne sa commande
-        total: Math.round(total * 100) / 100,
+        total: net,
       };
       ecrireCommandeStockee(memo);
       setMaCommande(memo);
 
       setDone({
-        nom: profil.nom, total, aDuPese, pre: precommande ? infoPre : null,
+        nom: profil.nom, total: net, aDuPese, pre: precommande ? infoPre : null,
         mode: mode || null, rang: dejaCommande.length + 1,
+        remise: pctAccorde > 0 ? { pct: pctAccorde, montant: cts(brut - net) } : null,
       });
+      if (codeUtilise) chargerCodeAnniv(); // le code vient d'être consommé
       setAlerteDoublon(false);
       setPanierOuvert(false);
       viderPanierStocke();
@@ -3431,6 +3544,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               au poids réel à la livraison. Tu recevras ta note définitive.</>
             )}
           </p>
+          {done.remise && (
+            <div className="vp-prec-panier" style={{ marginTop: 18, textAlign: 'left' }}>
+              <b>🎂 Remise anniversaire appliquée</b>
+              −{num(done.remise.pct)} % sur ta commande, soit {eur(done.remise.montant)} en moins.
+              Joyeux anniversaire&nbsp;!
+            </div>
+          )}
           {done.mode === 'remplacer' && (
             <div className="vp-rupt-note" style={{ marginTop: 18, textAlign: 'left' }}>
               ♻️ Ta commande précédente a été <b>supprimée</b> : seule celle-ci compte.
@@ -3632,6 +3752,17 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               onFait={() => { setAuthOuvert(false); setPanierOuvert(true); }} />
           </div>
         </>
+      )}
+
+      {codeAnniv && codeAnniv.utilisable && (
+        <div className="vp-prec-panier" style={{ marginTop: 14 }}>
+          <b>🎂 Joyeux anniversaire {profil ? profil.nom : ''} !</b>
+          Ton code <b>{codeAnniv.code}</b> t'offre <b>−{num(codeAnniv.pct)} %</b> sur
+          une commande. Il s'applique tout seul au moment de valider — rien à saisir.
+          {codeAnniv.jours > 0
+            ? ` Valable encore ${codeAnniv.jours} jour${codeAnniv.jours > 1 ? 's' : ''}.`
+            : " Dernier jour !"}
+        </div>
       )}
 
       {maCommande && (
@@ -4165,6 +4296,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                         Mon compte
                       </button>
                     </div>
+                    {remise > 0 && (
+                      <div className="vp-prec-panier" style={{ marginTop: 10 }}>
+                        <b>🎂 Remise anniversaire −{num(codeAnniv.pct)} %</b>
+                        Sous-total {eur(totalBrut)} · remise −{eur(remise)} ·
+                        <b> à payer {eur(total)}</b>.
+                        Appliquée automatiquement, rien à saisir.
+                      </div>
+                    )}
                     <div className="vp-field">
                       <label className="vp-label">Un mot pour la commande (facultatif)</label>
                       <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : je passe vers 18h…" />
@@ -5025,6 +5164,9 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                   <span className="vp-badge-dbl">
                     {rangClient(c)}ᵉ / {cmdDuClient(c).length} — DOUBLON&nbsp;?
                   </span>
+                )}
+                {pctRemise(c) > 0 && (
+                  <span className="vp-badge-pre">🎂 −{num(pctRemise(c))} %</span>
                 )}
                 {c.precommande && <span className="vp-badge-pre">🌙 HORS HORAIRES</span>}
                 {c.statut === 'finalisee' && <span className="vp-pill" style={{ color: 'var(--green)' }}>finalisée</span>}
@@ -6339,7 +6481,10 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const stLive = (l) => montant(l, valWil(l));
   const stPatriceLive = (l) => montant(l, valPat(l));
 
-  const totalCmd = (c) => (c.lignes || []).reduce((s, l) => s + stLive(l), 0);
+  // brut = somme des lignes ; net = après la remise d'anniversaire.
+  // Tout ce qui est montré au client passe par totalCmd.
+  const totalBrutCmd = (c) => (c.lignes || []).reduce((s, l) => s + stLive(l), 0);
+  const totalCmd = (c) => apresRemise(totalBrutCmd(c), c);
   const totalPatriceCmd = (c) => (c.lignes || []).reduce((s, l) => s + stPatriceLive(l), 0);
   const totalGroupe = commandes.reduce((s, c) => s + totalCmd(c), 0);
   const totalPatriceGroupe = commandes.reduce((s, c) => s + totalPatriceCmd(c), 0);
@@ -6419,6 +6564,10 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const noteClient = (c) => {
     let t = `🥩 ${settings.titre} — ${fmtDateCourt(settings.date_vente)}\nNote de ${c.nom_client}\n\n`;
     (c.lignes || []).forEach((l) => { t += ligneTxt(l); });
+    if (pctRemise(c) > 0) {
+      t += `\nSous-total : ${eur(totalBrutCmd(c))}`;
+      t += `\n🎂 Remise anniversaire −${num(pctRemise(c))} % : −${eur(montantRemise(totalBrutCmd(c), c))}`;
+    }
     t += `\nTotal : ${eur(totalCmd(c))}\nMerci ! 😊`;
     return t;
   };
@@ -6484,6 +6633,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         <colgroup><col class="n-prod"><col class="n-det"><col class="n-tot"></colgroup>
         <thead><tr><th>Produit</th><th>Détail</th><th class="n">Montant</th></tr></thead>
         <tbody>${rows}
+          ${pctRemise(c) > 0 ? `<tr>
+            <td class="prod"><span class="nom">🎂 Remise anniversaire −${esc(num(pctRemise(c)))} %</span></td>
+            <td class="qte">sur ${esc(eur(totalBrutCmd(c)))}</td>
+            <td class="n">−${esc(eur(montantRemise(totalBrutCmd(c), c)))}</td>
+          </tr>` : ''}
           <tr class="ligne-tot">
             <td class="tot">Total à régler</td><td></td>
             <td class="n tot">${esc(eur(totalCmd(c)))}</td>
@@ -6706,6 +6860,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div className="vp-h2" style={{ fontSize: 17, color: 'var(--wine)' }}>{eur(totalCmd(c))}</div>
+                {pctRemise(c) > 0 && (
+                  <div className="vp-marge" style={{ color: 'var(--wine)' }}>
+                    🎂 −{num(pctRemise(c))} % ({eur(montantRemise(totalBrutCmd(c), c))})
+                  </div>
+                )}
                 <div className="vp-marge">marge {eur(totalCmd(c) - totalPatriceCmd(c))}</div>
               </div>
             </div>
