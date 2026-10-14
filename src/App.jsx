@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-11m · produit libre en commande';
+const VERSION = '2026-10-14 · carrousel 40';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -747,7 +747,7 @@ function dlcDepassee(p) {
 // Nombre maximum de diapositives. Une seule source de vérité : la
 // boutique et le compteur de l'admin lisent la même valeur, donc le
 // rang affiché dans l'admin correspond toujours à la réalité.
-const MAX_CARROUSEL = 30;
+const MAX_CARROUSEL = 40;
 
 // Un produit n'entre dans le carrousel que s'il est en promo, visible
 // en boutique ET pourvu d'une photo — sans image, la diapositive serait
