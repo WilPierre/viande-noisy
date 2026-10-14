@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-14 · carrousel 40';
+const VERSION = '2026-10-14b · emoji des messages';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -367,7 +367,7 @@ function envoyerAlerteWhatsApp(settings, texte) {
   const cle = (settings.alerte_wa_cle || '').trim();
   if (!tel || !cle) return;
   const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(tel)}`
-    + `&apikey=${encodeURIComponent(cle)}&text=${encodeURIComponent(texte)}`;
+    + `&apikey=${encodeURIComponent(cle)}&text=${encodeURIComponent(texteSortant(texte))}`;
   try {
     fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
   } catch (e) { /* alerte non bloquante */ }
@@ -777,14 +777,47 @@ function normaliser(s) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+/* ---- texte qui quitte l'application ----
+   Les emoji « modernes » (🥩, 😊, 🎂…) s'écrivent sur quatre octets,
+   là où •, ≈, € et les accents en occupent deux ou trois. Certains
+   maillons de la chaîne — presse-papier d'un vieux navigateur, passage
+   par wa.me, passerelle d'alerte — tronquent ces quatre octets et
+   laissent un « ◆ » noir à la place.
+   Plutôt que de chercher lequel est fautif, on n'envoie plus que des
+   caractères sûrs : les emoji utiles sont remplacés par un équivalent
+   ancien qui s'affiche partout, les autres sont simplement retirés.
+   L'affichage DANS l'application n'est pas touché — seuls les textes
+   copiés ou envoyés passent par ici. */
+const EMOJI_SURS = {
+  '🥩': '', '🍖': '', '🍗': '', '🥓': '', '🌭': '',
+  '😊': '☺', '🙂': '☺',
+  '🎂': '', '🎁': '', '🎉': '', '🥂': '',
+  '🌙': '☾', '🔥': '', '⚡': '⚡',
+  '📝': '✎', '📋': '', '📄': '', '📣': '', '💬': '',
+  '🤝': '', '🏷': '', '🛒': '', '💰': '', '📦': '',
+  '🥇': '1.', '🥈': '2.', '🥉': '3.',
+  '👉': '→', '🔁': '↻', '🕑': '', '🕒': '',
+  '🟢': '', '🔴': '', '📷': '', '🇫': '', '🇷': '',
+};
+function texteSortant(t) {
+  let x = String(t === null || t === undefined ? '' : t);
+  Object.keys(EMOJI_SURS).forEach((k) => { x = x.split(k).join(EMOJI_SURS[k]); });
+  // tout ce qui reste hors du jeu de caractères sûr est retiré,
+  // y compris les sélecteurs de variante laissés orphelins
+  x = x.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').replace(/[\uFE0F\uFE0E]/g, '');
+  // les retraits laissent des espaces en trop
+  return x.replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+/gm, '').trim();
+}
+
 async function copier(texte) {
+  const t = texteSortant(texte);
   try {
-    await navigator.clipboard.writeText(texte);
+    await navigator.clipboard.writeText(t);
     return true;
   } catch {
     try {
       const ta = document.createElement('textarea');
-      ta.value = texte; document.body.appendChild(ta); ta.select();
+      ta.value = t; document.body.appendChild(ta); ta.select();
       document.execCommand('copy'); document.body.removeChild(ta);
       return true;
     } catch { return false; }
@@ -6746,7 +6779,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const ouvrirWa = (c) => {
     const tel = telWa(c);
     if (!tel) { showToast(`Pas de numéro pour ${c.nom_client}`); return; }
-    const url = `https://wa.me/${tel}?text=${encodeURIComponent(noteClient(c))}`;
+    const url = `https://wa.me/${tel}?text=${encodeURIComponent(texteSortant(noteClient(c)))}`;
     marquerEnvoye(c);
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -7586,7 +7619,7 @@ function AdminMembres({ showToast, settings }) {
     if (!d) { showToast(`Pas de numéro pour ${m.nom}`); return; }
     const tel = d.startsWith('33') ? d : d.startsWith('0') ? `33${d.slice(1)}` : d;
     window.open(
-      `https://wa.me/${tel}?text=${encodeURIComponent(messageAnniv(m))}`,
+      `https://wa.me/${tel}?text=${encodeURIComponent(texteSortant(messageAnniv(m)))}`,
       '_blank', 'noopener,noreferrer'
     );
   };
