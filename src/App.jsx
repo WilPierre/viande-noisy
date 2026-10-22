@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-22 · produits en attente';
+const VERSION = '2026-10-22b · boutique allégée';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1933,13 +1933,34 @@ export default function App() {
   }, []);
 
   // chargement initial + realtime produits/settings
+  /* La boutique ne télécharge QUE les produits publiés. Sans ce
+     filtre, chaque visiteur recevrait aussi les centaines de produits
+     en attente de préparation — à chaque visite et à chaque
+     rafraîchissement — pour un catalogue qu'il ne verra jamais.
+     L'admin, lui, a besoin de tout voir. */
+  const vueRef = useRef(view);
   const loadBase = async () => {
     if (!supabase) return;
     const { data: s } = await supabase.from('viande_settings').select('*').eq('id', 1).single();
     if (s) setSettings(s);
-    const { data: p } = await supabase.from('viande_produits').select('*').order('ordre');
+    const pourAdmin = vueRef.current === 'admin';
+    let req = supabase.from('viande_produits').select('*').order('ordre');
+    if (!pourAdmin) req = req.eq('brouillon', false);
+    let { data: p, error } = await req;
+    // colonne absente (migration pas encore passée) : on reprend tout
+    // plutôt que de laisser la boutique vide
+    if (error && !pourAdmin) {
+      const retour = await supabase.from('viande_produits').select('*').order('ordre');
+      p = retour.data;
+    }
     if (p) setProduits(p);
   };
+  // changer de vue change ce qu'il faut charger
+  useEffect(() => {
+    vueRef.current = view;
+    loadBase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
   useEffect(() => {
     loadBase();
     if (!supabase) return;
