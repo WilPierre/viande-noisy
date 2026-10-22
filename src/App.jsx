@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-22b · boutique allégée';
+const VERSION = '2026-10-22c · liste par tranches';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -5544,6 +5544,21 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const rangCarrousel = (p) => ordreCarrousel.findIndex((x) => x.id === p.id) + 1;
   const nbCarrousel = ordreCarrousel.length;
   const [voirAttente, setVoirAttente] = useState(false);
+
+  /* ---- affichage par tranches ----
+     À plusieurs centaines de produits, dessiner toutes les fiches
+     d'un coup fige le téléphone plusieurs secondes. On n'en montre
+     donc qu'une partie, avec un bouton pour la suite. Chaque colonne
+     a son propre compteur : charger la suite de l'une ne touche pas
+     aux autres.
+     Ces deux crochets sont déclarés ICI, avant le retour anticipé du
+     formulaire plus bas : React exige que les crochets soient
+     toujours appelés dans le même ordre, à chaque rendu. */
+  const PAS_LISTE = 50;
+  const [limites, setLimites] = useState({});
+  // une recherche ou un filtre rebat les cartes : on repart du début
+  useEffect(() => { setLimites({}); },
+    [recherche, filtreCat, sansPhoto, filtreDlc, filtreCar, voirAttente]);
   // promos qui n'y entrent pas faute de photo
   const promosSansPhoto = produits.filter(
     (p) => p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && !p.photo_url);
@@ -6133,6 +6148,29 @@ function AdminProduits({ produits, settings, reload, showToast }) {
 
   // « voirAttente » masque les deux autres colonnes pour se concentrer
   // sur ce qu'il reste à préparer
+  /* ---- affichage par tranches ----
+     À plusieurs centaines de produits, dessiner toutes les fiches
+     d'un coup fige le téléphone plusieurs secondes. On n'en montre
+     donc qu'une partie, avec un bouton pour la suite. Chaque colonne
+     a son propre compteur : charger la suite de l'une ne touche pas
+     aux autres. */
+  // bouton de suite, affiché seulement s'il reste quelque chose
+  const boutonSuite = (cle, total) => {
+    const reste = total - limiteDe(cle);
+    if (reste <= 0) return null;
+    return (
+      <button className="vp-btn ghost" style={{ width: '100%', marginTop: 4 }}
+        onClick={() => voirPlus(cle)}>
+        Voir les {Math.min(reste, PAS_LISTE)} produits suivants
+        <span style={{ opacity: 0.6 }}> · {reste} restant{reste > 1 ? 's' : ''}</span>
+      </button>
+    );
+  };
+
+  const limiteDe = (cle) => limites[cle] || PAS_LISTE;
+  const voirPlus = (cle) =>
+    setLimites((l) => ({ ...l, [cle]: limiteDe(cle) + PAS_LISTE }));
+
   const enAttente = produitsAffiches.filter((p) => p.brouillon);
   const actifs = voirAttente ? [] : produitsAffiches.filter((p) => !p.brouillon && p.disponible);
   const inactifs = voirAttente ? [] : produitsAffiches.filter((p) => !p.brouillon && !p.disponible);
@@ -6314,7 +6352,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 Importés mais pas encore prêts. Invisibles sur la boutique tant que
                 tu ne les publies pas.
               </div>
-              {enAttente.map((p) => (
+              {enAttente.slice(0, limiteDe('attente')).map((p) => (
                 <div key={`att-${p.id}`}>
                   {carte(p)}
                   <div className="vp-attente-pied">
@@ -6326,6 +6364,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                   </div>
                 </div>
               ))}
+              {boutonSuite('attente', enAttente.length)}
             </div>
           )}
           {!voirAttente && (
@@ -6337,7 +6376,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 </div>
                 {actifs.length === 0
                   ? <div className="vp-col-empty">Aucun produit en vente.</div>
-                  : actifs.map(carte)}
+                  : actifs.slice(0, limiteDe('actifs')).map(carte)}
+                {boutonSuite('actifs', actifs.length)}
               </div>
               <div className="vp-col off">
                 <div className="vp-col-head">
@@ -6346,7 +6386,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
                 </div>
                 {inactifs.length === 0
                   ? <div className="vp-col-empty">Rien de désactivé.</div>
-                  : inactifs.map(carte)}
+                  : inactifs.slice(0, limiteDe('inactifs')).map(carte)}
+                {boutonSuite('inactifs', inactifs.length)}
               </div>
             </>
           )}
