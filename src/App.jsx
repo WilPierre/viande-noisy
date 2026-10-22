@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-14b · emoji des messages';
+const VERSION = '2026-10-22 · produits en attente';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -753,7 +753,7 @@ const MAX_CARROUSEL = 40;
 // en boutique ET pourvu d'une photo — sans image, la diapositive serait
 // un rectangle vide. Même règle que côté boutique.
 function auCarrousel(p) {
-  return !!(p && p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && p.photo_url);
+  return !!(p && !p.brouillon && p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && p.photo_url);
 }
 // remise affichée, pour l'ordre d'apparition
 function remiseDe(p) {
@@ -1086,6 +1086,15 @@ textarea.vp-input{resize:vertical;min-height:64px}
   box-shadow:0 8px 24px rgba(0,0,0,.25);animation:vptoast .2s ease-out}
 @keyframes vptoast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 @media (prefers-reduced-motion:reduce){.vp-toast{animation:none}}
+
+.vp-col.attente{background:#FFF8EC;border-color:#F0DCBB}
+[data-theme="sombre"] .vp-col.attente{background:#2A2318;border-color:#4A3A22}
+.vp-col.attente .vp-col-dot{background:var(--amber)}
+.vp-col-aide{font-size:12px;color:var(--muted);line-height:1.5;margin:-4px 0 10px}
+.vp-attente-pied{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin:-6px 0 12px;padding:7px 11px;border-radius:0 0 11px 11px;
+  background:rgba(224,162,60,.12);font-size:12px;color:var(--muted)}
+.vp-attente-pied .pret{color:var(--green);font-weight:700}
 
 /* deux colonnes produits : en vente / désactivés */
 .vp-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
@@ -3100,7 +3109,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connecte, session ? session.user && session.user.id : null, dateCible]);
 
-  const dispo = produits.filter((p) => p.disponible && !p.rupture && !dlcDepassee(p));
+  // un produit en attente de préparation n'existe pas pour les voisins
+  const dispo = produits.filter((p) => !p.brouillon && p.disponible && !p.rupture && !dlcDepassee(p));
 
   // recherche : insensible à la casse et aux accents, sur le nom,
   // la catégorie et les options (parfums, contenances)
@@ -3371,7 +3381,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
   // Produits qu'on ne vend pas en ce moment : ils servent de suggestions,
   // un voisin qui les a déjà achetés les reconnaîtra.
-  const horsVente = produits.filter((p) => !p.disponible || p.rupture);
+  const horsVente = produits.filter((p) => !p.brouillon && (!p.disponible || p.rupture));
 
   const suggestions = (() => {
     const q2 = normaliser(demNom.trim());
@@ -5492,7 +5502,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
 
 /* ---------- Admin : Produits ---------- */
 function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, rupture: false, origine_fr: false, promo: false, prix_barre: '', ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, brouillon: false, rupture: false, origine_fr: false, promo: false, prix_barre: '', ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -5512,6 +5522,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     .slice(0, MAX_CARROUSEL);
   const rangCarrousel = (p) => ordreCarrousel.findIndex((x) => x.id === p.id) + 1;
   const nbCarrousel = ordreCarrousel.length;
+  const [voirAttente, setVoirAttente] = useState(false);
   // promos qui n'y entrent pas faute de photo
   const promosSansPhoto = produits.filter(
     (p) => p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && !p.photo_url);
@@ -5669,7 +5680,8 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       nom: form.nom.trim(), categorie: form.categorie, mode_vente: form.mode_vente,
       prix_patrice: cts(nombre(form.prix_patrice) || 0), prix_william: cts(nombre(form.prix_william) || 0),
       poids_moyen: form.mode_vente === 'piece_pesee' ? (nombre(form.poids_moyen) || null) : null,
-      emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible, ordre: Number(form.ordre) || 0,
+      emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible,
+      brouillon: !!form.brouillon, ordre: Number(form.ordre) || 0,
       dlc: form.dlc || null,
       rupture: !!form.rupture,
       origine_fr: !!form.origine_fr,
@@ -5963,6 +5975,19 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <div className={`vp-toggle ${form.disponible ? 'on' : ''}`} onClick={() => setForm({ ...form, disponible: !form.disponible })} />
         </div>
 
+        <div className="vp-srow" style={{ marginTop: 10 }}>
+          <div>
+            <span className="vp-label" style={{ margin: 0 }}>En attente de préparation</span>
+            <div className="vp-sub">
+              {form.brouillon
+                ? 'Invisible sur la boutique, quel que soit l\'état ci-dessus.'
+                : 'Le produit suit l\'état « Disponible ».'}
+            </div>
+          </div>
+          <div className={`vp-toggle ${form.brouillon ? 'on' : ''}`}
+            onClick={() => setForm({ ...form, brouillon: !form.brouillon })} />
+        </div>
+
         <label className={`vp-promo-case ${form.promo ? 'on' : ''}`}>
           <input type="checkbox" checked={!!form.promo}
             onChange={(e) => setForm({ ...form, promo: e.target.checked })} />
@@ -6085,8 +6110,45 @@ function AdminProduits({ produits, settings, reload, showToast }) {
     produitsAffiches.sort((a, b) => rangCarrousel(a) - rangCarrousel(b));
   }
 
-  const actifs = produitsAffiches.filter((p) => p.disponible);
-  const inactifs = produitsAffiches.filter((p) => !p.disponible);
+  // « voirAttente » masque les deux autres colonnes pour se concentrer
+  // sur ce qu'il reste à préparer
+  const enAttente = produitsAffiches.filter((p) => p.brouillon);
+  const actifs = voirAttente ? [] : produitsAffiches.filter((p) => !p.brouillon && p.disponible);
+  const inactifs = voirAttente ? [] : produitsAffiches.filter((p) => !p.brouillon && !p.disponible);
+  const nbAttente = produits.filter((p) => p.brouillon).length;
+
+  // Ce qui manque encore pour qu'un produit soit présentable
+  const manqueProduit = (p) => [
+    !(Number(p.prix_william) > 0) && 'ton prix',
+    !p.photo_url && 'une photo',
+    p.mode_vente === 'piece_pesee' && !(Number(p.poids_moyen) > 0) && 'le poids moyen',
+  ].filter(Boolean);
+
+  const publier = async (p) => {
+    const m = manqueProduit(p);
+    if (m.length && !window.confirm(
+      `Publier « ${p.nom} » ?\n\nIl manque encore : ${m.join(', ')}.\n`
+      + 'Sans ton prix, il s\'affichera à 0 € dans la boutique.'
+    )) return;
+    const { error } = await supabase.from('viande_produits')
+      .update({ brouillon: false, disponible: true }).eq('id', p.id);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    reload(); showToast(`« ${p.nom} » est en vente`);
+  };
+
+  const publierTout = async () => {
+    const prets = produits.filter((p) => p.brouillon && manqueProduit(p).length === 0);
+    if (!prets.length) { showToast('Aucun produit prêt à publier'); return; }
+    if (!window.confirm(`Mettre en vente ${prets.length} produit(s) prêt(s) ?`)) return;
+    const { error } = await supabase.from('viande_produits')
+      .update({ brouillon: false, disponible: true })
+      .in('id', prets.map((p) => p.id));
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    reload(); showToast(`${prets.length} produit(s) en vente`);
+  };
+
 
   return (
     <>
@@ -6137,6 +6199,34 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           <b>{nbDlc} produit(s) retiré(s) de la boutique</b> — leur DLC ne couvre plus le retrait
           du lendemain. Appuie pour les afficher.
         </button>
+      )}
+
+      {nbAttente > 0 && (
+        <div className="vp-section" style={{ marginTop: 0 }}>
+          <div className="vp-srow">
+            <div>
+              <div className="vp-h2" style={{ fontSize: 16 }}>
+                📦 {nbAttente} produit(s) en attente
+              </div>
+              <div className="vp-sub">
+                Importés, mais invisibles sur la boutique tant qu'ils ne sont pas publiés.
+                {produits.filter((p) => p.brouillon && manqueProduit(p).length === 0).length > 0
+                  && ` ${produits.filter((p) => p.brouillon && manqueProduit(p).length === 0).length} sont prêts.`}
+              </div>
+            </div>
+            <button className={`vp-btn ${voirAttente ? '' : 'ghost'} sm`}
+              onClick={() => setVoirAttente(!voirAttente)}>
+              {voirAttente ? 'Tout revoir' : 'Les voir'}
+            </button>
+          </div>
+          {produits.filter((p) => p.brouillon && manqueProduit(p).length === 0).length > 0 && (
+            <button className="vp-btn green" style={{ width: '100%', marginTop: 10 }}
+              onClick={publierTout}>
+              Mettre en vente les{' '}
+              {produits.filter((p) => p.brouillon && manqueProduit(p).length === 0).length} produit(s) prêt(s)
+            </button>
+          )}
+        </div>
       )}
 
       {(nbSansPhoto > 0 || nbDlc > 0 || nbCarrousel > 0) && (
@@ -6193,24 +6283,52 @@ function AdminProduits({ produits, settings, reload, showToast }) {
         </div>
       ) : (
         <div className="vp-cols">
-          <div className="vp-col">
-            <div className="vp-col-head">
-              <span className="vp-col-dot" />En vente
-              <span className="vp-col-count">{actifs.length}</span>
+          {enAttente.length > 0 && (
+            <div className="vp-col attente">
+              <div className="vp-col-head">
+                <span className="vp-col-dot" />En attente
+                <span className="vp-col-count">{enAttente.length}</span>
+              </div>
+              <div className="vp-col-aide">
+                Importés mais pas encore prêts. Invisibles sur la boutique tant que
+                tu ne les publies pas.
+              </div>
+              {enAttente.map((p) => (
+                <div key={`att-${p.id}`}>
+                  {carte(p)}
+                  <div className="vp-attente-pied">
+                    {manqueProduit(p).length > 0
+                      ? <span>Manque : {manqueProduit(p).join(', ')}</span>
+                      : <span className="pret">Prêt à publier</span>}
+                    <button className={`vp-btn sm ${manqueProduit(p).length ? 'ghost' : 'green'}`}
+                      onClick={() => publier(p)}>Publier</button>
+                  </div>
+                </div>
+              ))}
             </div>
-            {actifs.length === 0
-              ? <div className="vp-col-empty">Aucun produit en vente.</div>
-              : actifs.map(carte)}
-          </div>
-          <div className="vp-col off">
-            <div className="vp-col-head">
-              <span className="vp-col-dot" />Désactivés
-              <span className="vp-col-count">{inactifs.length}</span>
-            </div>
-            {inactifs.length === 0
-              ? <div className="vp-col-empty">Rien de désactivé.</div>
-              : inactifs.map(carte)}
-          </div>
+          )}
+          {!voirAttente && (
+            <>
+              <div className="vp-col">
+                <div className="vp-col-head">
+                  <span className="vp-col-dot" />En vente
+                  <span className="vp-col-count">{actifs.length}</span>
+                </div>
+                {actifs.length === 0
+                  ? <div className="vp-col-empty">Aucun produit en vente.</div>
+                  : actifs.map(carte)}
+              </div>
+              <div className="vp-col off">
+                <div className="vp-col-head">
+                  <span className="vp-col-dot" />Désactivés
+                  <span className="vp-col-count">{inactifs.length}</span>
+                </div>
+                {inactifs.length === 0
+                  ? <div className="vp-col-empty">Rien de désactivé.</div>
+                  : inactifs.map(carte)}
+              </div>
+            </>
+          )}
         </div>
       )}
     </>
