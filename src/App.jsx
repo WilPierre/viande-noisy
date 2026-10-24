@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-22c · liste par tranches';
+const VERSION = '2026-10-24 · détail des factures';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -171,6 +171,32 @@ function telecharger(nomFichier, contenu, type) {
 }
 function versCsv(entetes, lignes) {
   return [entetes, ...lignes].map((r) => r.map(cellCsv).join(';')).join('\r\n');
+}
+
+/* ---- détail d'une ligne, côté client ----
+   Ce que le voisin doit lire sur sa facture : le poids réellement
+   pesé quand il existe, la quantité sinon, et TON prix unitaire.
+   Jamais le prix Patrice — cette fonction ne le lit même pas.
+   Écrite une seule fois pour que l'écran « Mon compte » et la
+   facture imprimée disent exactement la même chose. */
+function detailLigneClient(l) {
+  if (!l) return '';
+  if (l.rupture) return 'non fourni';
+  if (l.demande && !(Number(l.sous_total_final) > 0)) return 'prix à confirmer';
+
+  const pu = Number(l.prix_william) || 0;
+
+  if (l.mode_vente === 'piece_fixe') {
+    const cmd = Number(l.quantite) || 0;
+    const livree = l.quantite_livree != null ? Number(l.quantite_livree) : cmd;
+    const q = livree !== cmd ? `${num(livree)} sur ${num(cmd)}` : num(cmd);
+    return `${q} × ${eur(pu)}`;
+  }
+
+  // vendu au poids : pesé, ou encore à peser
+  if (l.poids_reel != null) return `${num(l.poids_reel)} kg × ${eur(pu)}/kg`;
+  const unite = l.mode_vente === 'kg' ? 'kg' : 'pièce(s)';
+  return `${num(l.quantite)} ${unite} × ${eur(pu)}/kg · poids à confirmer`;
 }
 
 /* ---- remise portée par une commande ----
@@ -2690,6 +2716,9 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   const [ville, setVille] = useState((profil && profil.ville) || '');
   const [cp, setCp] = useState((profil && profil.code_postal) || '');
   const [news, setNews] = useState(!profil || profil.newsletter !== false);
+  // facture dépliée dans l'historique : seules les lignes de celle-ci
+  // sont dessinées, inutile de construire tout l'historique d'un coup
+  const [detailOuvert, setDetailOuvert] = useState(null);
 
   useEffect(() => {
     const charger = async () => {
@@ -2759,13 +2788,14 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
 
   const imprimerFacture = (c) => {
     const rows = (c.lignes || []).map((l) => {
-      const q = l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pièce(s)`;
-      const montant = l.demande && !(Number(l.sous_total_final) > 0) ? 'prix à confirmer'
+      const detail = detailLigneClient(l);
+      const montant = l.rupture ? '—'
+        : l.demande && !(Number(l.sous_total_final) > 0) ? 'à confirmer'
         : l.sous_total_final != null ? eur(l.sous_total_final)
         : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime);
-      return `<tr>
-        <td class="prod">${esc(nomLigne(l))}</td>
-        <td class="qte">${esc(q)}</td>
+      return `<tr class="${l.rupture ? 'rupture' : ''}">
+        <td class="prod"><span class="nom">${esc(nomLigne(l))}</span></td>
+        <td class="qte">${esc(detail)}</td>
         <td class="n">${esc(montant)}</td>
       </tr>`;
     }).join('');
@@ -2777,7 +2807,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
       </div></div>
       <table class="liste">
         <colgroup><col class="s-nom"><col class="s-date"><col class="l-tot"></colgroup>
-        <thead><tr><th>Produit</th><th>Quantité</th><th class="n">Montant</th></tr></thead>
+        <thead><tr><th>Produit</th><th>Détail</th><th class="n">Montant</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${pctRemise(c) > 0 ? `<div class="grand" style="opacity:.75"><span>🎂 Remise anniversaire −${esc(num(pctRemise(c)))} %</span><span>−${esc(eur(montantRemise(totalLignes(c), c)))}</span></div>` : ''}
@@ -2949,12 +2979,17 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
               <span className="vp-cmd-time">{new Date(derniere.created_at).toLocaleDateString('fr-FR')}</span>
             </div>
             {(derniere.lignes || []).map((l) => (
-              <div className="vp-cmd-l" key={l.id}>
-                <span>{l.emoji} {nomLigne(l)} <span className="vp-pill">
-                  {l.mode_vente === 'kg' ? `${num(l.quantite)} kg` : `${num(l.quantite)} pc`}
-                </span></span>
-                <span style={{ fontWeight: 700 }}>
-                  {l.demande && !(Number(l.sous_total_final) > 0) ? 'prix à confirmer'
+              <div className="vp-cmd-l" key={l.id}
+                style={l.rupture ? { opacity: 0.55 } : undefined}>
+                <span style={{ minWidth: 0 }}>
+                  {l.emoji} {nomLigne(l)}
+                  <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                    {detailLigneClient(l)}
+                  </small>
+                </span>
+                <span style={{ fontWeight: 700, flex: '0 0 auto' }}>
+                  {l.rupture ? '—'
+                    : l.demande && !(Number(l.sous_total_final) > 0) ? 'à confirmer'
                     : l.sous_total_final != null ? eur(l.sous_total_final)
                     : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime)}
                 </span>
@@ -2989,11 +3024,64 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
 
           <div className="vp-section">
             <div className="vp-h2" style={{ fontSize: 16 }}>Mes commandes</div>
+            <div className="vp-sub">Appuie sur une ligne pour voir le détail et l'imprimer.</div>
             {commandes.map((c) => (
-              <div className="vp-liste-l" key={c.id} style={{ border: 'none', borderBottom: '1px dotted var(--line)' }}>
-                <span>{new Date(c.created_at).toLocaleDateString('fr-FR')}
-                  {' '}<span className="vp-pill">{(c.lignes || []).length} produit(s)</span></span>
-                <b>{c.total_final == null ? '≈ ' : ''}{eur(totalDe(c))}</b>
+              <div key={c.id}>
+                <button
+                  className="vp-liste-l"
+                  style={{
+                    border: 'none', borderBottom: '1px dotted var(--line)',
+                    width: '100%', textAlign: 'left', background: 'none',
+                  }}
+                  onClick={() => setDetailOuvert(detailOuvert === c.id ? null : c.id)}
+                  aria-expanded={detailOuvert === c.id}>
+                  <span>
+                    {detailOuvert === c.id ? '▾ ' : '▸ '}
+                    {new Date(c.created_at).toLocaleDateString('fr-FR')}
+                    {' '}<span className="vp-pill">{(c.lignes || []).length} produit(s)</span>
+                    {pctRemise(c) > 0 && <span className="vp-pill">−{num(pctRemise(c))} %</span>}
+                  </span>
+                  <b>{c.total_final == null ? '≈ ' : ''}{eur(totalDe(c))}</b>
+                </button>
+
+                {detailOuvert === c.id && (
+                  <div style={{ padding: '10px 0 14px' }}>
+                    {(c.lignes || []).map((l) => (
+                      <div className="vp-cmd-l" key={l.id}
+                        style={l.rupture ? { opacity: 0.55 } : undefined}>
+                        <span style={{ minWidth: 0 }}>
+                          {l.emoji} {nomLigne(l)}
+                          <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
+                            {detailLigneClient(l)}
+                          </small>
+                        </span>
+                        <span style={{ fontWeight: 700, flex: '0 0 auto' }}>
+                          {l.rupture ? '—'
+                            : l.demande && !(Number(l.sous_total_final) > 0) ? 'à confirmer'
+                            : l.sous_total_final != null ? eur(l.sous_total_final)
+                            : (l.mode_vente === 'piece_fixe' ? '' : '≈ ') + eur(l.sous_total_estime)}
+                        </span>
+                      </div>
+                    ))}
+                    {pctRemise(c) > 0 && (
+                      <div className="vp-cmd-l" style={{ color: 'var(--green)' }}>
+                        <span>Remise anniversaire −{num(pctRemise(c))} %</span>
+                        <span style={{ fontWeight: 700 }}>
+                          −{eur(montantRemise(totalLignes(c), c))}
+                        </span>
+                      </div>
+                    )}
+                    <div className="vp-tot" style={{ fontSize: 15 }}>
+                      <span>Total</span>
+                      <span className="r">{c.total_final == null ? '≈ ' : ''}{eur(totalDe(c))}</span>
+                    </div>
+                    {c.total_final == null && (
+                      <div className="vp-mini">Montant estimé — il sera ajusté après la pesée.</div>
+                    )}
+                    <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
+                      onClick={() => imprimerFacture(c)}>Imprimer / PDF</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
