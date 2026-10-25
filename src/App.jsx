@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-25c · prix a fixer plus tard';
+const VERSION = '2026-10-25d · bouton de purge honnete';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -8810,12 +8810,50 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     reload(); showToast('Réglages enregistrés');
   };
 
-  const nouvelleVente = async () => {
-    if (!window.confirm('Démarrer une NOUVELLE vente ? Cela supprime toutes les commandes en cours (les produits sont conservés).')) return;
-    const today = todayStr();
-    await supabase.from('viande_commandes').delete().eq('date_vente', settings.date_vente);
-    await supabase.from('viande_settings').update({ date_vente: today, vente_active: true, updated_at: new Date().toISOString() }).eq('id', 1);
-    reload(); showToast('Nouvelle vente prête');
+  /* ---- suppression des commandes d'une journée ----
+     Ce bouton s'appelait « Démarrer une nouvelle vente », ce qui
+     laissait croire à une remise à zéro inoffensive. Il ne fait
+     pourtant qu'une chose : EFFACER les commandes d'une journée.
+     Depuis que les voisins retrouvent leurs factures dans leur
+     compte, les effacer leur fait perdre leur historique. Le bouton
+     reste — il sert après une série d'essais — mais il dit
+     maintenant ce qu'il fait, et demande une confirmation écrite. */
+  const [purgeEnCours, setPurgeEnCours] = useState(false);
+
+  const supprimerJournee = async () => {
+    const jour = settings.date_vente;
+    setPurgeEnCours(true);
+    try {
+      const { data: cmds, error } = await supabase.from('viande_commandes')
+        .select('id, nom_client, total_estime').eq('date_vente', jour);
+      const err = messageErreur(error);
+      if (err) { showToast(err); return; }
+      const liste = cmds || [];
+      if (liste.length === 0) { showToast('Aucune commande sur cette journée'); return; }
+
+      const noms = [...new Set(liste.map((c) => c.nom_client))].slice(0, 8).join(', ');
+      const total = liste.reduce((t, c) => t + (Number(c.total_estime) || 0), 0);
+      const reponse = window.prompt(
+        `⚠️ SUPPRESSION DÉFINITIVE\n\n`
+        + `${liste.length} commande(s) du ${fmtDateCourt(jour)}, soit ${eur(total)}.\n`
+        + `${noms}${liste.length > 8 ? '…' : ''}\n\n`
+        + `Ces personnes perdront la facture correspondante dans leur compte.\n`
+        + `Cette action est irréversible.\n\n`
+        + `Tape SUPPRIMER pour confirmer :`
+      );
+      if ((reponse || '').trim().toUpperCase() !== 'SUPPRIMER') {
+        showToast('Annulé — rien n\'a été supprimé');
+        return;
+      }
+
+      const ids = liste.map((c) => c.id);
+      await supabase.from('viande_commande_lignes').delete().in('commande_id', ids);
+      const { error: e2 } = await supabase.from('viande_commandes').delete().in('id', ids);
+      const err2 = messageErreur(e2);
+      if (err2) { showToast(err2); return; }
+      reload();
+      showToast(`${liste.length} commande(s) supprimée(s)`);
+    } finally { setPurgeEnCours(false); }
   };
 
   const JOURS = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
@@ -9045,9 +9083,21 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       </div>
 
       <div className="vp-section">
-        <div className="vp-h2" style={{ fontSize: 16 }}>Nouvelle vente</div>
-        <div className="vp-sub">Quand la promo est terminée et les notes envoyées, repars sur une base propre.</div>
-        <button className="vp-btn ghost" style={{ marginTop: 12 }} onClick={nouvelleVente}>Démarrer une nouvelle vente</button>
+        <div className="vp-h2" style={{ fontSize: 16 }}>Effacer les commandes du jour</div>
+        <div className="vp-sub">
+          Supprime définitivement toutes les commandes du <b>{fmtDateCourt(settings.date_vente)}</b>.
+          Les produits et les comptes ne sont pas touchés.
+        </div>
+        <div className="vp-rupt-note" style={{ marginTop: 10 }}>
+          <b>À n'utiliser qu'après une série d'essais.</b> Les voisins concernés
+          perdront la facture correspondante dans leur compte, et tu perdras la
+          trace de ce qu'ils doivent. Une nouvelle journée de vente démarre toute
+          seule chaque jour : tu n'as rien à faire pour repartir à zéro.
+        </div>
+        <button className="vp-btn ghost" style={{ marginTop: 12 }}
+          disabled={purgeEnCours} onClick={supprimerJournee}>
+          {purgeEnCours ? 'Un instant…' : 'Effacer les commandes du jour'}
+        </button>
       </div>
     </>
   );
