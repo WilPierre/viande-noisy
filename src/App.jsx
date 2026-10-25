@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-25b · rayons d accueil';
+const VERSION = '2026-10-25c · prix a fixer plus tard';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -5353,8 +5353,16 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
     if (aNom.trim().length < 2) { showToast('Indique le produit'); return; }
     const n = nombre(aQte);
     if (isNaN(n) || n <= 0) { showToast('Quantité invalide'); return; }
-    const wil = nombre(aWil);
-    if (isNaN(wil) || wil <= 0) { showToast('Indique ton prix de vente'); return; }
+    /* Les prix sont FACULTATIFS. Un voisin demande un produit par SMS
+       bien avant que tu saches ce que Patrice le facture : t'obliger à
+       inventer un chiffre maintenant, c'est garantir une erreur.
+       Sans prix, la ligne devient une « demande » — le mécanisme qui
+       existe déjà pour les produits hors catalogue. Elle s'affiche
+       « prix à confirmer » chez le voisin, et t'attend dans l'onglet
+       Pesées avec ses champs de prix. */
+    const aucunPrix = aWil.trim() === '' && aPat.trim() === '';
+    const wil = aWil.trim() === '' ? 0 : nombre(aWil);
+    if (isNaN(wil) || wil < 0) { showToast('Ton prix est illisible'); return; }
     const pat = aPat.trim() === '' ? 0 : nombre(aPat);
     if (isNaN(pat) || pat < 0) { showToast('Prix Patrice illisible'); return; }
 
@@ -5370,6 +5378,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
       prixPat: cts(pat),
       prixWil: cts(wil),
       libre: !aProduit,
+      aChiffrer: aucunPrix,              // à tarifer dans l'onglet Pesées
     }]);
     videAjout();
   };
@@ -5442,10 +5451,12 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
             quantite: q,
             quantite_livree: null,
             poids_reel: null,
-            sous_total_estime: cts(sousTotal(mode, q, aj.prixWil, poidsM)),
+            sous_total_estime: aj.aChiffrer ? 0 : cts(sousTotal(mode, q, aj.prixWil, poidsM)),
             sous_total_final: null,
-            demande: false,
-            demande_origine: null,
+            // une ligne sans prix emprunte le circuit des demandes :
+            // elle apparaît « prix à confirmer » et attend la pesée
+            demande: !!aj.aChiffrer,
+            demande_origine: aj.aChiffrer ? aj.nom : null,
           };
         });
         const { error } = await supabase.from('viande_commande_lignes').insert(rows);
@@ -5621,10 +5632,12 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                         {num(a.quantite)} {(a.produit ? a.produit.mode_vente === 'kg' : a.kilo) ? 'kg' : 'pc'}
                       </span>
                       <span className="vp-badge-dbl">
-                        {a.libre ? 'HORS CATALOGUE' : 'À AJOUTER'}
+                        {a.aChiffrer ? 'PRIX À FIXER' : a.libre ? 'HORS CATALOGUE' : 'À AJOUTER'}
                       </span>
                       <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
-                        {eur(a.prixWil)}{(a.produit ? a.produit.mode_vente !== 'piece_fixe' : a.kilo) ? '/kg' : ' pièce'}
+                        {a.aChiffrer
+                          ? 'à chiffrer dans l\'onglet Pesées'
+                          : `${eur(a.prixWil)}${(a.produit ? a.produit.mode_vente !== 'piece_fixe' : a.kilo) ? '/kg' : ' pièce'}`}
                       </small>
                     </span>
                     <button className="vp-btn ghost sm" style={{ flex: '0 0 auto' }}
@@ -5685,14 +5698,23 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                     <label>
                       <span>Prix Patrice</span>
                       <input className="vp-winput" inputMode="decimal" value={aPat}
-                        onChange={(e) => setAPat(e.target.value)} placeholder="0" />
+                        onChange={(e) => setAPat(e.target.value)} placeholder="—" />
                     </label>
                     <label>
                       <span>Ton prix {(aProduit ? aProduit.mode_vente !== 'piece_fixe' : aKilo) ? '/kg' : ''}</span>
                       <input className="vp-winput" inputMode="decimal" value={aWil}
-                        onChange={(e) => setAWil(e.target.value)} placeholder="0" />
+                        onChange={(e) => setAWil(e.target.value)} placeholder="—" />
                     </label>
                   </div>
+
+                  {aWil.trim() === '' && aPat.trim() === '' && (
+                    <div className="vp-rupt-note" style={{ marginTop: 8 }}>
+                      Prix inconnus&nbsp;? <b>Laisse les deux cases vides.</b> La ligne
+                      partira en « prix à confirmer » et t'attendra dans l'onglet
+                      <b> Pesées</b>, où tu la chiffreras une fois Patrice passé.
+                      Le voisin verra que le montant reste à fixer.
+                    </div>
+                  )}
 
                   {!aProduit && aPat.trim() !== '' && !isNaN(nombre(aPat)) && (
                     <button className="vp-approx" style={{ marginTop: 8 }}
@@ -5707,7 +5729,8 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                   </button>
                   <div className="vp-sub" style={{ marginTop: 6 }}>
                     Un produit du catalogue arrive avec ses prix déjà remplis — tu peux
-                    les corriger pour cette commande seulement.
+                    les corriger pour cette commande seulement. Pour un produit que tu
+                    ne sais pas encore tarifer, laisse les prix vides.
                   </div>
                 </div>
               </>
