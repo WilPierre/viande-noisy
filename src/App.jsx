@@ -10,14 +10,14 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-25 · rayons d accueil';
+const VERSION = '2026-10-25b · rayons d accueil';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const supabase = SB_URL && SB_KEY ? createClient(SB_URL, SB_KEY) : null;
+
 /* ============================================================
    MODES DE VENTE
-
 ============================================================ */
 const MODES = {
   // prixUnite : pour les libellés de champs (« Prix Patrice (€/kg) »)
@@ -1623,7 +1623,9 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-rail-img{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--paper);
   display:block}
 .vp-rail-vide{width:100%;aspect-ratio:1/1;display:grid;place-items:center;
-  background:var(--paper);font-size:34px}
+  position:relative;overflow:hidden}
+.vp-rail-emoji{font-size:40px;line-height:1;position:relative;z-index:1;
+  filter:drop-shadow(0 2px 4px rgba(36,30,27,.18))}
 .vp-rail-b{padding:9px 10px 10px;display:flex;flex-direction:column;gap:5px;flex:1}
 .vp-rail-nom{font-size:13px;font-weight:700;line-height:1.3;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -3354,7 +3356,16 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         aria-label={`${p.nom}, voir la fiche`}>
         {p.photo_url
           ? <img className="vp-rail-img" src={p.photo_url} alt="" loading="lazy" decoding="async" />
-          : <div className="vp-rail-vide">{p.emoji || '🧺'}</div>}
+          : (
+            // même tuile dégradée que dans la liste : un produit sans
+            // photo doit avoir l'air voulu, pas inachevé
+            <div className="vp-rail-vide" style={{
+              background: `linear-gradient(135deg, ${teintesDe(p)[0]} 0%, ${teintesDe(p)[1]} 100%)`,
+            }}>
+              <span className="vp-tuile-f" />
+              <span className="vp-rail-emoji">{p.emoji || '🧺'}</span>
+            </div>
+          )}
         {p.promo
           ? <span className="vp-rail-eti">PROMO</span>
           : estNouveau(p) ? <span className="vp-rail-eti neuf">NOUVEAU</span> : null}
