@@ -10,14 +10,14 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-24 · détail des factures';
+const VERSION = '2026-10-25 · rayons d accueil';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const supabase = SB_URL && SB_KEY ? createClient(SB_URL, SB_KEY) : null;
-
 /* ============================================================
    MODES DE VENTE
+
 ============================================================ */
 const MODES = {
   // prixUnite : pour les libellés de champs (« Prix Patrice (€/kg) »)
@@ -1593,6 +1593,50 @@ textarea.vp-input{resize:vertical;min-height:64px}
 @media (prefers-reduced-motion:reduce){.vp-car-eclair{animation:none}}
 
 /* carrousel des promos — flèches et points rendent visible ce qui est hors écran */
+/* ===== RAYONS PAR CATÉGORIE =====
+   Un défilement horizontal de petites cartes, un par catégorie.
+   Donne un aperçu de chaque rayon sans noyer la page : avec 500
+   produits, une liste verticale complète est inutilisable. */
+.vp-rayon{margin-top:26px}
+.vp-rayon-sep{margin:30px 2px 4px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:12.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--muted);text-align:center}
+.vp-rayon-t{display:flex;align-items:center;gap:9px;margin:0 2px 11px}
+.vp-rayon-ico{font-size:22px;line-height:1;flex:0 0 auto}
+.vp-rayon-nom{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:18px;
+  font-weight:700;letter-spacing:-.01em;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.vp-rayon-nb{font-size:12px;font-weight:800;color:var(--muted);flex:0 0 auto}
+.vp-rayon-voir{margin-left:auto;flex:0 0 auto;padding:6px 12px;border-radius:999px;
+  background:var(--blanc);border:1px solid var(--line);color:var(--wine);
+  font-size:12.5px;font-weight:800;white-space:nowrap}
+.vp-rayon-voir:active{background:var(--paper);transform:scale(.96)}
+
+.vp-rail{display:flex;gap:11px;overflow-x:auto;scroll-snap-type:x proximity;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 2px 6px}
+.vp-rail::-webkit-scrollbar{display:none}
+
+.vp-rail-c{flex:0 0 150px;scroll-snap-align:start;background:var(--card);
+  border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  display:flex;flex-direction:column;text-align:left;position:relative}
+.vp-rail-c:active{transform:scale(.98)}
+.vp-rail-img{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--paper);
+  display:block}
+.vp-rail-vide{width:100%;aspect-ratio:1/1;display:grid;place-items:center;
+  background:var(--paper);font-size:34px}
+.vp-rail-b{padding:9px 10px 10px;display:flex;flex-direction:column;gap:5px;flex:1}
+.vp-rail-nom{font-size:13px;font-weight:700;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vp-rail-prix{font-size:14px;font-weight:800;color:var(--wine);margin-top:auto}
+.vp-rail-unite{font-size:11px;font-weight:600;color:var(--muted)}
+.vp-rail-plus{position:absolute;top:7px;right:7px;width:31px;height:31px;border-radius:50%;
+  background:var(--wine);color:#fff;font-size:19px;line-height:1;display:grid;
+  place-items:center;box-shadow:0 2px 8px rgba(36,30,27,.28)}
+.vp-rail-plus:active{transform:scale(.9)}
+.vp-rail-eti{position:absolute;top:7px;left:7px;padding:2px 7px;border-radius:999px;
+  background:var(--wine);color:#fff;font-size:10px;font-weight:800;letter-spacing:.03em}
+.vp-rail-eti.neuf{background:var(--green)}
+
 .vp-car{position:relative;margin-top:20px}
 .vp-car-piste{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;
   border-radius:20px;box-shadow:0 10px 30px rgba(36,30,27,.16);
@@ -3271,6 +3315,80 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     ajouter(p, null);
   };
 
+  /* ---- rayons de la page d'accueil ----
+     Un défilement horizontal par catégorie. Écrit comme une fonction
+     et non comme un composant : un composant déclaré ici serait
+     recréé à chaque frappe dans la recherche, et ferait sauter le
+     défilement en cours. */
+  const MAX_RAYON = 12;
+
+  // Ce qu'on met en avant dans un rayon, dans l'ordre : les promos
+  // (remise la plus forte d'abord), puis les nouveautés, puis le
+  // reste dans l'ordre du catalogue.
+  const produitsDuRayon = (cat) => {
+    const liste = dispo.filter((p) => catDe(p) === cat);
+    const score = (p) => (p.promo ? 0 : estNouveau(p) ? 1 : 2);
+    return [...liste].sort((a2, b2) => {
+      const d = score(a2) - score(b2);
+      if (d !== 0) return d;
+      if (a2.promo && b2.promo) return remiseDe(b2) - remiseDe(a2);
+      return (Number(a2.ordre) || 0) - (Number(b2.ordre) || 0);
+    }).slice(0, MAX_RAYON);
+  };
+
+  const ouvrirRayon = (cat) => {
+    setFiltreCat(cat);
+    if (!ouvertes.includes(cat)) basculerRubrique(cat);
+    try { window.scrollTo({ top: 0, behavior: mouvementDoux() ? 'smooth' : 'auto' }); }
+    catch (e) { /* sans effet */ }
+  };
+
+  const carteRail = (p) => {
+    const v = varianteActive(p);
+    const prix = prixVariante(p, v, 'prix_william');
+    const auKilo = p.mode_vente !== 'piece_fixe';
+    return (
+      <div className="vp-rail-c" key={`rail-${p.id}`} role="button" tabIndex={0}
+        onClick={() => allerAuProduit(p)}
+        onKeyDown={(e) => { if (e.key === 'Enter') allerAuProduit(p); }}
+        aria-label={`${p.nom}, voir la fiche`}>
+        {p.photo_url
+          ? <img className="vp-rail-img" src={p.photo_url} alt="" loading="lazy" decoding="async" />
+          : <div className="vp-rail-vide">{p.emoji || '🧺'}</div>}
+        {p.promo
+          ? <span className="vp-rail-eti">PROMO</span>
+          : estNouveau(p) ? <span className="vp-rail-eti neuf">NOUVEAU</span> : null}
+        <button className="vp-rail-plus" onClick={(e) => ajouterDepuisCarrousel(e, p)}
+          aria-label={`Ajouter ${p.nom} au panier`}>+</button>
+        <div className="vp-rail-b">
+          <span className="vp-rail-nom">{p.nom}</span>
+          <span className="vp-rail-prix">
+            {eur(prix)}<span className="vp-rail-unite">{auKilo ? ' /kg' : ''}</span>
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const rayon = (cat) => {
+    const prods = produitsDuRayon(cat);
+    if (prods.length < 3) return null;   // un rayon de deux articles ne vaut pas la place
+    const total = dispo.filter((p) => catDe(p) === cat).length;
+    return (
+      <div className="vp-rayon" key={`rayon-${cat}`}>
+        <div className="vp-rayon-t">
+          <span className="vp-rayon-ico">{iconeCat(cat)}</span>
+          <span className="vp-rayon-nom">{libelleCat(cat)}</span>
+          <span className="vp-rayon-nb">{total}</span>
+          <button className="vp-rayon-voir" onClick={() => ouvrirRayon(cat)}>
+            Tout voir →
+          </button>
+        </div>
+        <div className="vp-rail">{prods.map(carteRail)}</div>
+      </div>
+    );
+  };
+
   const surDefilement = () => {
     const el = pisteRef.current;
     if (!el || !el.clientWidth) return;
@@ -4257,6 +4375,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 {ouvertes.length >= catsAffichees.length ? 'Tout replier' : 'Tout déplier'}
               </button>
             </div>
+          )}
+
+          {/* Les rayons ne s'affichent que sur l'accueil : pendant une
+              recherche ou dans une catégorie, on veut la liste, pas
+              une vitrine. */}
+          {!q && filtreCat === 'Tous' && (
+            <>
+              {CATEGORIES.filter((c) => dispo.some((p) => catDe(p) === c)).map(rayon)}
+              <div className="vp-rayon-sep">
+                Tout le catalogue, rubrique par rubrique
+              </div>
+            </>
           )}
 
           {catsAffichees.map((cat) => {
