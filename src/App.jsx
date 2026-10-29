@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-29 · poids sur toutes les lignes';
+const VERSION = '2026-10-29b · journees par mois';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -520,6 +520,30 @@ function sansPoids(nom) {
 // nom affiché d'une ligne de commande, variante comprise
 function nomLigne(l) {
   return l.variante_nom ? `${l.produit_nom} — ${l.variante_nom}` : l.produit_nom;
+}
+
+/* ---- regroupement des journées de vente par mois ----
+   La liste s'allonge d'une entrée par journée. Au bout d'un an elle
+   devient impraticable. On la coupe donc en mois, et on ne déplie
+   par défaut que les deux derniers : le reste est là, à un clic,
+   mais ne gêne plus la vue. */
+function moisDe(d) {
+  const x = new Date(`${String(d).slice(0, 10)}T00:00:00`);
+  if (isNaN(x.getTime())) return { cle: 'autre', nom: 'Autres' };
+  return {
+    cle: `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`,
+    nom: x.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+  };
+}
+function grouperParMois(journees) {
+  const groupes = [];
+  const index = {};
+  (journees || []).forEach((d) => {
+    const m = moisDe(d);
+    if (!index[m.cle]) { index[m.cle] = { ...m, jours: [] }; groupes.push(index[m.cle]); }
+    index[m.cle].jours.push(d);
+  });
+  return groupes;  // déjà du plus récent au plus ancien : journees l'est
 }
 
 function fmtDateCourt(d) {
@@ -4762,6 +4786,8 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showTo
   // revenir sur une journée passée — c'est indispensable pour saisir les
   // poids le lendemain, une fois la date de vente passée au jour suivant.
   const [dateTravail, setDateTravail] = useState(aujourdhuiStr());
+  // combien de mois on montre : les deux derniers suffisent au quotidien
+  const [moisVisibles, setMoisVisibles] = useState(2);
   const [journees, setJournees] = useState([]);
 
   const chargerJournees = async () => {
@@ -4872,15 +4898,38 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showTo
         <div className={`vp-journee ${dateTravail !== aujourdhuiStr() ? 'passee' : ''}`}>
           <label htmlFor="journee">Journée</label>
           <select id="journee" className="vp-quick-select" value={dateTravail}
-            onChange={(e) => setDateTravail(e.target.value)}>
+            onChange={(e) => {
+              // l'entrée « plus anciennes » n'est pas une journée :
+              // elle déplie la suite sans changer la sélection
+              if (e.target.value === '__plus__') { setMoisVisibles((n) => n + 6); return; }
+              setDateTravail(e.target.value);
+            }}>
             {!journees.includes(aujourdhuiStr()) && (
               <option value={aujourdhuiStr()}>{fmtJournee(aujourdhuiStr())} — aujourd'hui</option>
             )}
-            {journees.map((d) => (
-              <option key={d} value={d}>
-                {fmtJournee(d)}{d === aujourdhuiStr() ? " — aujourd'hui" : ''}
-              </option>
+            {grouperParMois(journees).slice(0, moisVisibles).map((m) => (
+              <optgroup key={m.cle} label={m.nom.charAt(0).toUpperCase() + m.nom.slice(1)}>
+                {m.jours.map((d) => (
+                  <option key={d} value={d}>
+                    {fmtJournee(d)}{d === aujourdhuiStr() ? " — aujourd'hui" : ''}
+                  </option>
+                ))}
+              </optgroup>
             ))}
+            {/* La journée consultée doit rester dans la liste même si
+                son mois est replié, sinon le menu afficherait du vide. */}
+            {dateTravail && !grouperParMois(journees).slice(0, moisVisibles)
+              .some((m) => m.jours.includes(dateTravail))
+              && dateTravail !== aujourdhuiStr() && (
+              <optgroup label="Journée consultée">
+                <option value={dateTravail}>{fmtJournee(dateTravail)}</option>
+              </optgroup>
+            )}
+            {grouperParMois(journees).length > moisVisibles && (
+              <option value="__plus__">
+                ▾ Voir les mois plus anciens ({grouperParMois(journees).length - moisVisibles} restants)
+              </option>
+            )}
           </select>
           {dateTravail !== aujourdhuiStr() && (
             <button className="vp-btn ghost sm" onClick={() => setDateTravail(aujourdhuiStr())}>
