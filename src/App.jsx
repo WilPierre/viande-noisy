@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-25d · bouton de purge honnete';
+const VERSION = '2026-10-29 · poids sur toutes les lignes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -186,6 +186,13 @@ function detailLigneClient(l) {
 
   const pu = Number(l.prix_william) || 0;
 
+  /* Un poids enregistré fait foi, quel que soit le mode de vente :
+     c'est la même règle que celle du calcul côté pesée. Sans ce
+     test en premier, une ligne vendue à la pièce mais pesée
+     afficherait « 1 × 12,50 € » pour un montant calculé au kilo —
+     le client verrait deux chiffres qui ne se recoupent pas. */
+  if (l.poids_reel != null) return `${num(l.poids_reel)} kg × ${eur(pu)}/kg`;
+
   if (l.mode_vente === 'piece_fixe') {
     const cmd = Number(l.quantite) || 0;
     const livree = l.quantite_livree != null ? Number(l.quantite_livree) : cmd;
@@ -193,8 +200,6 @@ function detailLigneClient(l) {
     return `${q} × ${eur(pu)}`;
   }
 
-  // vendu au poids : pesé, ou encore à peser
-  if (l.poids_reel != null) return `${num(l.poids_reel)} kg × ${eur(pu)}/kg`;
   const unite = l.mode_vente === 'kg' ? 'kg' : 'pièce(s)';
   return `${num(l.quantite)} ${unite} × ${eur(pu)}/kg · poids à confirmer`;
 }
@@ -7071,17 +7076,17 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     return (v === '' || isNaN(nombre(v))) && l.poids_reel == null;
   };
 
+  /* Une seule règle, pour toutes les lignes : un poids saisi fait
+     foi et la ligne est facturée au kilo ; sans poids, elle est
+     facturée à la pièce si elle se vend ainsi, sinon au poids estimé.
+     Avant, ce traitement était réservé aux demandes — d'où
+     l'impossibilité de peser un produit ajouté à la main. */
   const montant = (l, prixTexte) => {
     if (estRupture(l)) return 0;
     const prix = nombre(prixTexte) || 0;
-    // une demande peut se révéler vendue au poids : si un poids est
-    // saisi, on facture au kilo ; sinon à la pièce
-    if (l.demande && l.mode_vente === 'piece_fixe') {
-      const v = valPoids(l);
-      const n = nombre(v);
-      if (v !== '' && !isNaN(n) && n > 0) return n * prix;
-      return qteLivree(l) * prix;
-    }
+    const v = valPoids(l);
+    const n = nombre(v);
+    if (v !== '' && !isNaN(n) && n > 0) return n * prix;
     if (l.mode_vente === 'piece_fixe') return qteLivree(l) * prix;
     return poidsRetenu(l) * prix;
   };
@@ -7222,7 +7227,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const blocNote = (c) => {
     const rows = (c.lignes || []).map((l) => {
       const rupt = estRupture(l);
+      // même ordre de priorité que le calcul : un poids saisi fait foi
+      const pSaisi = valPoids(l) !== '' && !isNaN(nombre(valPoids(l)));
       const detail = rupt ? 'non fourni'
+        : pSaisi
+          ? `${num(nombre(valPoids(l)))} kg × ${eur(nombre(valWil(l)))}/kg`
         : l.mode_vente === 'piece_fixe'
           ? `${partiel(l) ? `${num(qteLivree(l))} sur ${num(l.quantite)}` : num(l.quantite)} × ${eur(nombre(valWil(l)))}`
           : estEstime(l) ? `${num(l.quantite)} ${l.mode_vente === 'kg' ? 'kg' : 'pc'} · poids à confirmer`
@@ -7367,9 +7376,14 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
      caractère tapé. */
   const ligneSaisie = (l, sousTitre) => {
     const rupt = estRupture(l);
-    // une demande accepte toujours un poids : on ne sait pas d'avance
-    // si le produit demandé se vend à la pièce ou au kilo
-    const auKilo = l.mode_vente !== 'piece_fixe' || !!l.demande;
+    /* Le poids est saisissable sur TOUTE ligne. Un produit ajouté à la
+       main « à la pièce » se révèle souvent vendu au kilo une fois
+       Patrice passé ; verrouiller le champ obligeait à supprimer la
+       ligne et à la refaire. Poids saisi = facturé au poids, sinon à
+       la pièce. Une ligne de catalogue vendue à la pièce n'a rien à y
+       mettre : le champ reste vide et sans effet. */
+    const auPoids = l.mode_vente !== 'piece_fixe';
+    const poidsSaisi = valPoids(l) !== '' && !isNaN(nombre(valPoids(l)));
     return (
       <div className={`vp-pl ${rupt ? 'rupt' : ''}`} key={l.id}>
         <div className="vp-pl-h">
@@ -7411,9 +7425,10 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
               value={valQte(l)} onChange={(e) => ecrire(l, 'qte', e.target.value)} />
           </label>
           <label>
-            <span>Poids (kg)</span>
-            <input className="vp-winput" inputMode="decimal" placeholder={auKilo ? 'kg' : '—'}
-              disabled={rupt || !auKilo} value={auKilo ? valPoids(l) : ''}
+            <span>Poids (kg){!auPoids && !poidsSaisi ? ' · facultatif' : ''}</span>
+            <input className="vp-winput" inputMode="decimal"
+              placeholder={auPoids ? 'kg' : 'à la pièce'}
+              disabled={rupt} value={valPoids(l)}
               onChange={(e) => ecrire(l, 'poids', e.target.value)} />
           </label>
           <label>
