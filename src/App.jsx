@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-29b · journees par mois';
+const VERSION = '2026-10-31 · fermeture programmee';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -520,6 +520,86 @@ function sansPoids(nom) {
 // nom affiché d'une ligne de commande, variante comprise
 function nomLigne(l) {
   return l.variante_nom ? `${l.produit_nom} — ${l.variante_nom}` : l.produit_nom;
+}
+
+/* ============================================================
+   FERMETURE EXCEPTIONNELLE (congés, absence)
+   Deux dates suffisent : le premier jour de fermeture et le jour de
+   réouverture. Tout le reste s'en déduit, et se déduit AU MÊME
+   ENDROIT — l'annonce, le blocage et le texte affiché lisent la
+   même fonction, sinon ils finiraient par se contredire d'un jour.
+
+   Le retrait ayant lieu le lendemain de la commande :
+     fermeture le 21  ->  dernier retrait le 20  ->  dernière
+     commande le 19, et blocage à partir du 20.
+============================================================ */
+const PREAVIS_JOURS = 7;
+
+function dateDepuis(s2) {
+  if (!s2) return null;
+  const x = new Date(`${String(s2).slice(0, 10)}T00:00:00`);
+  return isNaN(x.getTime()) ? null : x;
+}
+function enLettres(d) {
+  // accepte aussi bien « 2026-12-19 » qu'un objet date
+  const x = d instanceof Date ? d : dateDepuis(d);
+  return x && !isNaN(x.getTime())
+    ? x.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+    : '';
+}
+
+/* Rend null s'il n'y a pas de congés programmés, sinon un objet
+   décrivant où l'on en est par rapport à eux.
+
+   On part du DERNIER JOUR DE PRÉSENCE et on recule :
+     - d'abord la marge de sécurité (1 jour par défaut),
+     - puis jusqu'au dernier jour réellement commandable, en
+       s'appuyant sur jourCommandable() — c'est lui qui sait déjà
+       que le vendredi et le samedi ne donnent pas de retrait, et
+       qu'un jour férié n'en donne pas non plus. Pas de second
+       calendrier à maintenir. */
+function infoFermeture(settings, maintenant) {
+  if (!settings) return null;
+  const dernierJour = dateDepuis(settings.conges_dernier_jour);
+  const retour = dateDepuis(settings.conges_retour);
+  if (!dernierJour || !retour || retour <= dernierJour) return null;
+
+  const ref = maintenant ? new Date(maintenant) : new Date();
+  const auj = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  if (auj >= retour) return null;        // congés passés : plus rien à dire
+
+  const marge = Math.max(0, Number(settings.conges_marge));
+  const retraitVise = joursPlusTard(dernierJour, -(isNaN(marge) ? 1 : marge));
+
+  // dernier jour où l'on peut encore commander : on remonte depuis la
+  // veille du retrait visé jusqu'à tomber sur un jour commandable
+  let derniereCommande = joursPlusTard(retraitVise, -1);
+  let garde = 0;
+  while (!jourCommandable(derniereCommande) && garde < 21) {
+    derniereCommande = joursPlusTard(derniereCommande, -1);
+    garde += 1;
+  }
+  const dernierRetrait = joursPlusTard(derniereCommande, 1);
+  const debutBlocage = joursPlusTard(derniereCommande, 1);
+  const debutAnnonce = joursPlusTard(derniereCommande, -PREAVIS_JOURS);
+
+  const bloque = auj >= debutBlocage;
+  const pendant = auj > dernierRetrait;
+  const annonce = auj >= debutAnnonce;
+  const joursRestants = Math.round((derniereCommande - auj) / 86400000);
+
+  return {
+    dernierJour, retour, derniereCommande, dernierRetrait, debutBlocage,
+    marge: isNaN(marge) ? 1 : marge,
+    bloque, pendant, annonce, joursRestants,
+    motif: (settings.conges_motif || '').trim(),
+    txtDernierJour: enLettres(dernierJour),
+    txtRetour: enLettres(retour),
+    txtDerniereCommande: enLettres(derniereCommande),
+    txtDernierRetrait: enLettres(dernierRetrait),
+    txtBlocage: enLettres(debutBlocage),
+    txtAnnonce: enLettres(debutAnnonce),
+  };
 }
 
 /* ---- regroupement des journées de vente par mois ----
@@ -1622,6 +1702,17 @@ textarea.vp-input{resize:vertical;min-height:64px}
 @media (prefers-reduced-motion:reduce){.vp-car-eclair{animation:none}}
 
 /* carrousel des promos — flèches et points rendent visible ce qui est hors écran */
+/* ===== FERMETURE EXCEPTIONNELLE ===== */
+.vp-conges{display:flex;gap:13px;align-items:flex-start;margin-top:14px;padding:14px 16px;
+  border-radius:15px;background:#FFF4E2;border:1px solid #F0D7AC;color:#6E4A14}
+.vp-conges.ferme{background:#F6EEF6;border-color:#DDC9DD;color:#5A3A5A}
+[data-theme="sombre"] .vp-conges{background:#2E2415;border-color:#4F3D1E;color:#F0CE97}
+[data-theme="sombre"] .vp-conges.ferme{background:#2B1F2B;border-color:#4A354A;color:#E2BDE2}
+.vp-conges-ico{font-size:25px;line-height:1.1;flex:0 0 auto}
+.vp-conges b{display:block;font-size:15px;line-height:1.35}
+.vp-conges small{display:block;margin-top:5px;font-size:12.5px;line-height:1.55;opacity:.9}
+.vp-conges-motif{margin-top:3px;font-size:13px;font-style:italic}
+
 /* ===== RAYONS PAR CATÉGORIE =====
    Un défilement horizontal de petites cartes, un par catégorie.
    Donne un aperçu de chaque rayon sans noyer la page : avec 500
@@ -2123,7 +2214,12 @@ export default function App() {
   // Ouvert si :
   //   - semaine : vente_active=true ET dans les horaires (auto)
   //   - weekend : vente_active=true ET dans les horaires (manuel requis)
+  // fermeture exceptionnelle : elle prime sur tout le reste, y
+  // compris sur une ouverture forcée — si tu es en congés, tu l'es.
+  const conges = useMemo(() => infoFermeture(settings, now), [settings, now]);
+
   const ouvert = !!settings?.vente_active
+    && !(conges && conges.bloque)
     && (forcee || (
       jourOuvert
       && (!ouvertureAt || now >= ouvertureAt)
@@ -2148,7 +2244,7 @@ export default function App() {
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
-          forcee={forcee} showToast={showToast}
+          forcee={forcee} conges={conges} showToast={showToast}
           enLigne={enLigne}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
@@ -3170,7 +3266,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie,
-  jourOuvert, prochaineAt, forcee, enLigne, showToast,
+  jourOuvert, prochaineAt, forcee, conges, enLigne, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -3230,7 +3326,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const connecte = !!(session && session.user);
   // boutique fermée mais commandes acceptées pour la prochaine journée
   const infoPre = infoPrecommande(prochaineAt);
-  const precommande = !ouvert && !!settings.precommande_active && !!infoPre;
+  // pendant les congés, même les commandes hors horaires sont closes :
+  // elles seraient rattachées à une journée qui n'existe pas
+  const precommande = !ouvert && !(conges && conges.bloque)
+    && !!settings.precommande_active && !!infoPre;
   const peutCommander = ouvert || precommande;
   // session valide mais fiche client absente : inscription à terminer
   const profilManquant = connecte && profilCharge && !profil;
@@ -4185,6 +4284,27 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <div className="vp-rupt-note" style={{ marginTop: 12 }}>
           Ta commande a été retirée de la liste. Modifie ton panier puis <b>renvoie-la</b>,
           sinon elle ne sera pas prise en compte.
+        </div>
+      )}
+
+      {conges && conges.annonce && (
+        <div className={`vp-conges ${conges.bloque ? 'ferme' : ''}`}>
+          <span className="vp-conges-ico">{conges.bloque ? '🔒' : '📅'}</span>
+          <div>
+            <b>
+              {conges.bloque
+                ? `Commandes closes — reprise ${conges.txtRetour}`
+                : conges.joursRestants === 0
+                  ? 'Dernier jour pour commander avant la fermeture !'
+                  : `Plus que ${conges.joursRestants} jour${conges.joursRestants > 1 ? 's' : ''} pour commander`}
+            </b>
+            {conges.motif && <div className="vp-conges-motif">{conges.motif}</div>}
+            <small>
+              {conges.bloque
+                ? `La boutique rouvre ${conges.txtRetour}. À très vite !`
+                : `Dernière commande ${conges.txtDerniereCommande}, retrait ${conges.txtDernierRetrait}. Ensuite, pause jusqu'au ${conges.txtRetour.replace(/^\w+ /, '')}.`}
+            </small>
+          </div>
         </div>
       )}
 
@@ -8715,7 +8835,59 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     email_alerte: settings.email_alerte || '',
     alerte_wa_numero: settings.alerte_wa_numero || '',
     alerte_wa_cle: settings.alerte_wa_cle || '',
+    conges_dernier_jour: settings.conges_dernier_jour || '',
+    conges_retour: settings.conges_retour || '',
+    conges_marge: String(settings.conges_marge ?? 1),
+    conges_motif: settings.conges_motif || '',
   });
+
+  /* ---- congés ----
+     On saisit le dernier jour de présence et la date de reprise ;
+     l'aperçu ci-dessous montre les dates réellement appliquées, pour
+     que tu les vérifies au lieu de me croire sur parole. */
+  const [congesEnvoi, setCongesEnvoi] = useState(false);
+  const apercuConges = infoFermeture({
+    conges_dernier_jour: f.conges_dernier_jour,
+    conges_retour: f.conges_retour,
+    conges_marge: nombre(f.conges_marge),
+    conges_motif: f.conges_motif,
+  }, Date.now());
+
+  const enregistrerConges = async () => {
+    if (!f.conges_dernier_jour || !f.conges_retour) {
+      showToast('Renseigne les deux dates'); return;
+    }
+    if (new Date(f.conges_retour) <= new Date(f.conges_dernier_jour)) {
+      showToast('La reprise doit être après ton dernier jour'); return;
+    }
+    const m = Math.round(nombre(f.conges_marge));
+    if (isNaN(m) || m < 0 || m > 14) { showToast('Marge invalide (0 à 14 jours)'); return; }
+    setCongesEnvoi(true);
+    try {
+      const { error } = await supabase.from('viande_settings').update({
+        conges_dernier_jour: f.conges_dernier_jour,
+        conges_retour: f.conges_retour,
+        conges_marge: m,
+        conges_motif: f.conges_motif.trim() || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', 1);
+      const err = messageErreur(error);
+      if (err) { showToast(err); return; }
+      reload(); showToast('Fermeture programmée');
+    } finally { setCongesEnvoi(false); }
+  };
+
+  const annulerConges = async () => {
+    if (!window.confirm('Annuler la fermeture programmée ? La boutique reprend son calendrier habituel.')) return;
+    const { error } = await supabase.from('viande_settings').update({
+      conges_dernier_jour: null, conges_retour: null, conges_motif: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    setF((x) => ({ ...x, conges_dernier_jour: '', conges_retour: '', conges_motif: '' }));
+    reload(); showToast('Fermeture annulée');
+  };
 
   const todayStr = () => {
     const d = new Date();
@@ -9020,6 +9192,84 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
         </div>
 
         <button className="vp-cta" onClick={sauver}>Enregistrer les réglages</button>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 16 }}>
+              {settings.conges_dernier_jour ? '📅 Fermeture programmée' : 'Congés, absence'}
+            </div>
+            <div className="vp-sub">
+              Indique ton dernier jour de présence et la date de reprise.
+              L'app prévient les voisins {PREAVIS_JOURS} jours à l'avance, puis
+              ferme les commandes toute seule.
+            </div>
+          </div>
+          {settings.conges_dernier_jour && (
+            <button className="vp-btn ghost sm" onClick={annulerConges}>Annuler</button>
+          )}
+        </div>
+
+        <div className="vp-grid2" style={{ marginTop: 12 }}>
+          <div>
+            <label className="vp-label">Mon dernier jour</label>
+            <input className="vp-input" type="date" value={f.conges_dernier_jour}
+              onChange={(e) => setF({ ...f, conges_dernier_jour: e.target.value })} />
+          </div>
+          <div>
+            <label className="vp-label">Reprise des commandes</label>
+            <input className="vp-input" type="date" value={f.conges_retour}
+              min={f.conges_dernier_jour || undefined}
+              onChange={(e) => setF({ ...f, conges_retour: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="vp-grid2" style={{ marginTop: 10 }}>
+          <div>
+            <label className="vp-label">Marge de sécurité (jours)</label>
+            <input className="vp-input" inputMode="numeric" value={f.conges_marge}
+              onChange={(e) => setF({ ...f, conges_marge: e.target.value })} />
+            <div className="vp-sub" style={{ marginTop: 4 }}>
+              Nombre de jours d'arrêt avant ton dernier jour. 1 par défaut.
+            </div>
+          </div>
+          <div>
+            <label className="vp-label">Motif (facultatif)</label>
+            <input className="vp-input" value={f.conges_motif}
+              onChange={(e) => setF({ ...f, conges_motif: e.target.value })}
+              placeholder="Ex : congés de fin d'année" />
+            <div className="vp-sub" style={{ marginTop: 4 }}>
+              Affiché aux voisins sous l'annonce.
+            </div>
+          </div>
+        </div>
+
+        {apercuConges ? (
+          <div className="vp-rupt-note" style={{ marginTop: 12 }}>
+            <b>Ce qui va réellement se passer</b>
+            <div style={{ marginTop: 6, lineHeight: 1.8 }}>
+              Annonce aux voisins dès le <b>{apercuConges.txtAnnonce}</b><br />
+              Dernière commande possible : <b>{apercuConges.txtDerniereCommande}</b><br />
+              Dernier retrait : <b>{apercuConges.txtDernierRetrait}</b><br />
+              Commandes bloquées à partir du <b>{apercuConges.txtBlocage}</b><br />
+              Reprise le <b>{apercuConges.txtRetour}</b>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              Les week-ends et jours fériés sont déjà écartés : la dernière
+              commande tombe forcément sur un jour qui permet un retrait.
+            </div>
+          </div>
+        ) : (f.conges_dernier_jour || f.conges_retour) ? (
+          <div className="vp-sub" style={{ marginTop: 10 }}>
+            Renseigne les deux dates pour voir l'aperçu.
+          </div>
+        ) : null}
+
+        <button className="vp-cta" style={{ marginTop: 12 }}
+          disabled={congesEnvoi} onClick={enregistrerConges}>
+          {congesEnvoi ? 'Enregistrement…' : 'Programmer la fermeture'}
+        </button>
       </div>
 
       <div className="vp-section">
