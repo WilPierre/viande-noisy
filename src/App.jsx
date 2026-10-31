@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-31 · fermeture programmee';
+const VERSION = '2026-10-31b · stock et rupture auto';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -879,6 +879,22 @@ function dlcDepassee(p) {
   return j !== null && j < 1;
 }
 
+/* ---- stock disponible ----
+   « commandes » est le total déjà commandé, produit par produit, tel
+   que la base le renvoie. Stock vide = illimité : les produits que
+   tu ne gères pas en quantité se comportent exactement comme avant. */
+function stockRestant(p, commandes) {
+  if (!p || p.stock === null || p.stock === undefined || p.stock === '') return null;
+  const total = Number(p.stock);
+  if (isNaN(total)) return null;
+  const pris = Number((commandes || {})[String(p.id)] || 0);
+  return Math.max(0, cts(total - pris));
+}
+function estEpuise(p, commandes) {
+  const r = stockRestant(p, commandes);
+  return r !== null && r <= 0;
+}
+
 // Nombre maximum de diapositives. Une seule source de vérité : la
 // boutique et le compteur de l'admin lisent la même valeur, donc le
 // rang affiché dans l'admin correspond toujours à la réalité.
@@ -887,8 +903,9 @@ const MAX_CARROUSEL = 40;
 // Un produit n'entre dans le carrousel que s'il est en promo, visible
 // en boutique ET pourvu d'une photo — sans image, la diapositive serait
 // un rectangle vide. Même règle que côté boutique.
-function auCarrousel(p) {
-  return !!(p && !p.brouillon && p.promo && p.disponible && !p.rupture && !dlcDepassee(p) && p.photo_url);
+function auCarrousel(p, commandes) {
+  return !!(p && !p.brouillon && p.promo && p.disponible && !p.rupture
+    && !dlcDepassee(p) && !estEpuise(p, commandes) && p.photo_url);
 }
 // remise affichée, pour l'ordre d'apparition
 function remiseDe(p) {
@@ -1702,6 +1719,17 @@ textarea.vp-input{resize:vertical;min-height:64px}
 @media (prefers-reduced-motion:reduce){.vp-car-eclair{animation:none}}
 
 /* carrousel des promos — flèches et points rendent visible ce qui est hors écran */
+/* ===== PRODUIT ÉPUISÉ ===== */
+.vp-prod.epuise{opacity:.62}
+.vp-prod.epuise .vp-pname{text-decoration:line-through;text-decoration-thickness:1.5px}
+.vp-prod.epuise .vp-photo,.vp-prod.epuise .vp-tuile{filter:grayscale(1)}
+.vp-badge-epuise{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;
+  background:#EFE9E3;border:1px solid #DCD2C7;color:#6B625B;font-size:10px;font-weight:800;
+  letter-spacing:.04em;vertical-align:.08em}
+[data-theme="sombre"] .vp-badge-epuise{background:#332C27;border-color:#4A413A;color:#B9ADA3}
+.vp-reste{margin-top:5px;font-size:12px;font-weight:800;color:#9A4A12}
+[data-theme="sombre"] .vp-reste{color:#F0B183}
+
 /* ===== FERMETURE EXCEPTIONNELLE ===== */
 .vp-conges{display:flex;gap:13px;align-items:flex-start;margin-top:14px;padding:14px 16px;
   border-radius:15px;background:#FFF4E2;border:1px solid #F0D7AC;color:#6E4A14}
@@ -2147,6 +2175,31 @@ export default function App() {
     }
     if (p) setProduits(p);
   };
+  /* ---- quantités déjà commandées ----
+     Calculées par la base, qui seule peut additionner les commandes
+     de tout le monde. On ne reçoit qu'un total par produit : aucun
+     nom, aucun montant, rien qui trahisse qui a commandé quoi. */
+  const [commandees, setCommandees] = useState({});
+  const chargerCommandees = async () => {
+    if (!supabase || !settings || !settings.date_vente) return;
+    const { data, error } = await supabase.rpc('quantites_commandees', { p_date: settings.date_vente });
+    if (error) return;                       // migration pas encore passée : stock ignoré
+    const m = {};
+    (data || []).forEach((r) => { m[String(r.produit_id)] = Number(r.commande) || 0; });
+    setCommandees(m);
+  };
+  useEffect(() => {
+    chargerCommandees();
+    if (!supabase) return;
+    // le stock doit bouger dès qu'une commande part, chez tout le monde
+    const ch = supabase.channel('viande_stock')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commande_lignes' }, chargerCommandees)
+      .subscribe();
+    const t = setInterval(chargerCommandees, 60000);
+    return () => { supabase.removeChannel(ch); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings && settings.date_vente]);
+
   // changer de vue change ce qu'il faut charger
   useEffect(() => {
     vueRef.current = view;
@@ -2236,7 +2289,7 @@ export default function App() {
       {view === 'admin' ? (
         <Admin
           settings={settings} produits={produits} ouvert={ouvert}
-          estSemaine={estSemaine} enLigne={enLigne}
+          estSemaine={estSemaine} enLigne={enLigne} commandees={commandees}
           reload={loadBase} showToast={showToast}
         />
       ) : (
@@ -2244,7 +2297,8 @@ export default function App() {
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
-          forcee={forcee} conges={conges} showToast={showToast}
+          forcee={forcee} conges={conges} commandees={commandees}
+          rechargerStock={chargerCommandees} showToast={showToast}
           enLigne={enLigne}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
         />
@@ -3266,7 +3320,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie,
-  jourOuvert, prochaineAt, forcee, conges, enLigne, showToast,
+  jourOuvert, prochaineAt, forcee, conges, commandees, rechargerStock, enLigne, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -3393,7 +3447,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }, [connecte, session ? session.user && session.user.id : null, dateCible]);
 
   // un produit en attente de préparation n'existe pas pour les voisins
+  /* Un produit épuisé RESTE dans la boutique, barré et non
+     commandable : le faire disparaître laisserait croire qu'il
+     n'existe pas, alors qu'il reviendra la semaine suivante. */
   const dispo = produits.filter((p) => !p.brouillon && p.disponible && !p.rupture && !dlcDepassee(p));
+  const restantDe = (p) => stockRestant(p, commandees);
+  const epuise = (p) => estEpuise(p, commandees);
 
   // recherche : insensible à la casse et aux accents, sur le nom,
   // la catégorie et les options (parfums, contenances)
@@ -3456,7 +3515,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // (remise la plus forte d'abord), puis les nouveautés, puis le
   // reste dans l'ordre du catalogue.
   const produitsDuRayon = (cat) => {
-    const liste = dispo.filter((p) => catDe(p) === cat);
+    const liste = dispo.filter((p) => catDe(p) === cat && !epuise(p));
     const score = (p) => (p.promo ? 0 : estNouveau(p) ? 1 : 2);
     return [...liste].sort((a2, b2) => {
       const d = score(a2) - score(b2);
@@ -3540,7 +3599,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const presse = resteMin != null && resteMin <= 60;
 
   // Vitrine : les promos avec photo, la plus forte remise en tête.
-  const vedettes = enPromo.filter((p) => p.photo_url)
+  const vedettes = enPromo.filter((p) => p.photo_url && !epuise(p))
     .sort((a, b) => remiseDe(b) - remiseDe(a))
     .slice(0, MAX_CARROUSEL);
 
@@ -3674,7 +3733,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const oublis = habitudes
     .filter((h) => h.fois >= 2)
     .map((h) => dispo.find((p) => String(p.id) === h.produit_id))
-    .filter((p) => p && !Object.keys(cart).some((k) => k.startsWith(`${p.id}|`)))
+    .filter((p) => p && !epuise(p) && !Object.keys(cart).some((k) => k.startsWith(`${p.id}|`)))
     .slice(0, 3);
 
   // remet au panier les produits de la dernière commande encore disponibles
@@ -3711,7 +3770,27 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // panier existe déjà et seul un chiffre changeait — trop discret,
   // surtout sur grand écran où la barre est loin du regard.
   const [pulse, setPulse] = useState(0);
+  /* Ce qu'il reste vraiment en tenant compte de ce que CE panier a
+     déjà réservé : le décompte de la base ne connaît que les
+     commandes envoyées, pas celle qu'on est en train de composer.
+     Les variantes d'un même produit puisent dans le même stock. */
+  const dejaAuPanier = (p) => Object.entries(cart)
+    .filter(([k]) => k.slice(0, k.indexOf('|')) === String(p.id))
+    .reduce((n, [, q]) => n + (Number(q) || 0), 0);
+  const restantReel = (p) => {
+    const r = restantDe(p);
+    return r === null ? null : Math.max(0, cts(r - dejaAuPanier(p)));
+  };
+
   const ajouter = (p, v) => {
+    const reste = restantReel(p);
+    if (reste !== null && reste <= 0) {
+      const total = restantDe(p);
+      showToast(total === 0
+        ? `${p.nom} : épuisé`
+        : `${p.nom} : il n'en reste que ${num(total)}, tout est dans ton panier`);
+      return;
+    }
     setQty(p, v, (cart[cle(p, v)] || 0) + 1);
     setPulse((x) => x + 1);
     showToast(`${p.nom}${v ? ` — ${v.nom}` : ''} ajouté au panier`);
@@ -3784,6 +3863,25 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     if (!connecte || !profil) { showToast('Connecte-toi pour commander'); setModeAuth('connexion'); setAuthOuvert(true); return; }
     if (profil.bloque) { showToast('Ton compte ne permet pas de commander — contacte-nous'); return; }
     if (lignes.length === 0 && demandes.length === 0) { showToast('Ton panier est vide'); return; }
+
+    /* Dernier contrôle du stock avant d'envoyer : entre le moment où
+       la personne a rempli son panier et celui où elle valide,
+       quelqu'un d'autre a pu prendre les dernières pièces. */
+    if (rechargerStock) await rechargerStock();
+    const trop = lignes.filter(({ p, q }) => {
+      const r = restantDe(p);
+      return r !== null && Number(q) > r;
+    });
+    if (trop.length > 0) {
+      const t = trop[0];
+      const r = restantDe(t.p);
+      showToast(r <= 0
+        ? `${t.p.nom} vient d'être épuisé — retire-le de ton panier`
+        : `${t.p.nom} : il n'en reste que ${num(r)}, ajuste ta quantité`);
+      setPanierOuvert(true);
+      return;
+    }
+
     // une commande existe déjà pour cette journée : on demande ce qu'il faut en faire
     if (!mode && dejaCommande.length > 0) { setAlerteDoublon(true); return; }
     setEnvoi(true);
@@ -3916,6 +4014,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       viderPanierStocke();
       setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
       chargerDeja(); // la liste des commandes du jour est à relire
+      if (rechargerStock) rechargerStock(); // le stock vient de bouger
     } catch (e) {
       // le détail part dans la console pour le diagnostic ; le client garde
       // son panier intact et peut renvoyer
@@ -4064,8 +4163,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               const q = cart[cle(p, v)] || 0;
               const prix = prixVariante(p, v, 'prix_william');
               const pm = poidsVariante(p, v);
+              const reste = restantDe(p);
+              const fini = reste !== null && reste <= 0;
               return (
-                <div className="vp-prod" key={p.id} id={`carte-${ou}-${p.id}`}>
+                <div className={`vp-prod ${fini ? 'epuise' : ''}`} key={p.id} id={`carte-${ou}-${p.id}`}>
                   <button className={`vp-etoile ${estFavori(p) ? 'on' : ''}`}
                     onClick={() => basculerFavori(p)}
                     aria-label={estFavori(p) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
@@ -4094,9 +4195,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     <div className="vp-pname">
                       {p.origine_fr && <DrapeauFR taille={14} />}
                       {p.nom}
-                      {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
-                      {estNouveau(p) && <span className="vp-badge-neuf">NOUVEAU</span>}
+                      {fini && <span className="vp-badge-epuise">ÉPUISÉ</span>}
+                      {!fini && p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
+                      {!fini && estNouveau(p) && <span className="vp-badge-neuf">NOUVEAU</span>}
                     </div>
+                    {reste !== null && reste > 0 && reste <= 5 && (
+                      <div className="vp-reste">
+                        Plus que {num(reste)} {p.mode_vente === 'kg' ? 'kg' : reste > 1 ? 'pièces' : 'pièce'}
+                      </div>
+                    )}
                     <div className="vp-pmeta">
                       <span className="vp-tag">{m.label}</span>
                       {p.mode_vente === 'piece_pesee' && pm
@@ -4135,8 +4242,16 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   <div className="vp-step">
                     {q > 0 && <button onClick={() => setQty(p, v, q - 1)}>−</button>}
                     {q > 0 && <span className="vp-qty">{num(q)}</span>}
-                    {q > 0 && <button onClick={() => ajouter(p, v)}>+</button>}
-                    {q <= 0 && <button className="vp-add" onClick={() => ajouter(p, v)}>Ajouter</button>}
+                    {q > 0 && (
+                      <button disabled={fini || restantReel(p) === 0}
+                        onClick={() => ajouter(p, v)}>+</button>
+                    )}
+                    {q <= 0 && (
+                      <button className="vp-add" disabled={fini}
+                        onClick={() => ajouter(p, v)}>
+                        {fini ? 'Épuisé' : 'Ajouter'}
+                      </button>
+                    )}
                   </div>
                 </div>
               );  };
@@ -4880,7 +4995,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 /* ============================================================
    ADMIN
 ============================================================ */
-function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showToast }) {
+function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, reload, showToast }) {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
   const [pinVisible, setPinVisible] = useState(false);
@@ -5070,7 +5185,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, reload, showTo
 
       {tab === 'commandes' && <AdminCommandes commandes={commandes} ouvert={ouvert} reload={loadCommandes} showToast={showToast}
         produits={produits} settings={settingsJour} />}
-      {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} reload={reload} showToast={showToast} />}
+      {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} commandees={commandees} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settingsJour} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
       {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} />}
@@ -5948,8 +6063,8 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
 }
 
 /* ---------- Admin : Produits ---------- */
-function AdminProduits({ produits, settings, reload, showToast }) {
-  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', disponible: true, brouillon: false, rupture: false, origine_fr: false, promo: false, prix_barre: '', ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
+function AdminProduits({ produits, settings, commandees, reload, showToast }) {
+  const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', stock: '', disponible: true, brouillon: false, rupture: false, origine_fr: false, promo: false, prix_barre: '', ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [filtreCat, setFiltreCat] = useState('Tous');
@@ -5964,7 +6079,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
   const [filtreCar, setFiltreCar] = useState(false);
 
   // ordre exact du carrousel, pour afficher le rang de chaque produit
-  const ordreCarrousel = produits.filter(auCarrousel)
+  const ordreCarrousel = produits.filter((p) => auCarrousel(p, commandees))
     .sort((a, b) => remiseDe(b) - remiseDe(a))
     .slice(0, MAX_CARROUSEL);
   const rangCarrousel = (p) => ordreCarrousel.findIndex((x) => x.id === p.id) + 1;
@@ -6036,6 +6151,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       prix_patrice: String(p.prix_patrice ?? ''),
       prix_william: String(p.prix_william ?? ''),
       poids_moyen: p.poids_moyen != null ? String(p.poids_moyen) : '',
+      stock: p.stock != null ? String(p.stock) : '',
       photo_url: p.photo_url || '',
       dlc: p.dlc || '',
       rupture: !!p.rupture,
@@ -6143,6 +6259,7 @@ function AdminProduits({ produits, settings, reload, showToast }) {
       prix_patrice: cts(nombre(form.prix_patrice) || 0), prix_william: cts(nombre(form.prix_william) || 0),
       poids_moyen: form.mode_vente === 'piece_pesee' ? (nombre(form.poids_moyen) || null) : null,
       emoji: form.emoji, photo_url: form.photo_url || null, disponible: form.disponible,
+      stock: String(form.stock).trim() === '' ? null : cts(nombre(form.stock)),
       brouillon: !!form.brouillon, ordre: Number(form.ordre) || 0,
       dlc: form.dlc || null,
       rupture: !!form.rupture,
@@ -6432,6 +6549,26 @@ function AdminProduits({ produits, settings, reload, showToast }) {
           )}
         </div>
 
+        <div className="vp-field" style={{ marginTop: 14 }}>
+          <label className="vp-label">Quantité disponible (facultatif)</label>
+          <input className="vp-input" inputMode="decimal" value={form.stock}
+            onChange={(e) => setForm({ ...form, stock: e.target.value })}
+            placeholder="Laisse vide = illimité" />
+          <div className="vp-sub" style={{ marginTop: 4 }}>
+            {String(form.stock).trim() === ''
+              ? 'Aucune limite : le produit reste commandable tant que tu ne le désactives pas.'
+              : `Pour UNE journée de vente. Au-delà de ${num(nombre(form.stock))}, le produit passe en « épuisé » tout seul, et redevient disponible à la vente suivante.`}
+          </div>
+          {form.id && commandees && commandees[String(form.id)] > 0 && (
+            <div className="vp-rupt-note" style={{ marginTop: 8 }}>
+              Déjà commandé aujourd'hui : <b>{num(commandees[String(form.id)])}</b>.
+              {String(form.stock).trim() !== '' && (
+                <> Il resterait <b>{num(Math.max(0, cts(nombre(form.stock) - commandees[String(form.id)])))}</b>.</>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="vp-srow" style={{ marginTop: 14 }}>
           <span className="vp-label" style={{ margin: 0 }}>Disponible</span>
           <div className={`vp-toggle ${form.disponible ? 'on' : ''}`} onClick={() => setForm({ ...form, disponible: !form.disponible })} />
@@ -6516,6 +6653,14 @@ function AdminProduits({ produits, settings, reload, showToast }) {
               {(dlc || p.rupture || p.promo || dlcDepassee(p) || rangCarrousel(p) > 0) && (
                 <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
+                  {p.stock != null && p.stock !== '' && (() => {
+                    const r = stockRestant(p, commandees);
+                    return (
+                      <span className={`vp-badge-dbl ${r === 0 ? '' : ''}`}>
+                        STOCK {num(r)}/{num(p.stock)}
+                      </span>
+                    );
+                  })()}
                   {rangCarrousel(p) > 0 && (
                     <span className="vp-badge-car">CARROUSEL N°{rangCarrousel(p)}</span>
                   )}
