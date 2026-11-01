@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-01 · collision CSS corrigee';
+const VERSION = '2026-11-01b · repercussion des prix';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -6272,12 +6272,80 @@ function AdminProduits({ produits, settings, commandees, reload, showToast }) {
       variante_label: vars.length ? (form.variante_label.trim() || 'Option') : null,
       variantes: vars,
     };
+    // prix d'avant, pour savoir s'il faut proposer la répercussion
+    const avant = form.id ? produits.find((x) => x.id === form.id) : null;
+
     const { error } = form.id
       ? await supabase.from('viande_produits').update(payload).eq('id', form.id)
       : await supabase.from('viande_produits').insert(payload);
     const err = messageErreur(error);
     if (err) { showToast(err); return; }
+
     setForm(null); reload(); showToast('Produit enregistré');
+
+    if (avant) await proposerRepercussion(avant, { ...payload, id: form.id });
+  };
+
+  /* ---- répercuter un prix corrigé sur les commandes en cours ----
+     Les lignes de commande figent le prix au moment de l'achat, et
+     c'est voulu : personne ne doit voir son total changer après coup.
+     Mais quand c'est TOI qui t'es trompé, il faut pouvoir corriger
+     partout. D'où une proposition explicite, chiffrée, limitée à la
+     journée de vente en cours — les journées passées sont closes. */
+  const prixPourLigne = (prod, ligne, champ) => {
+    const vs = variantesDe(prod);
+    const v = ligne.variante_id
+      ? vs.find((x) => String(x.id) === String(ligne.variante_id))
+      : null;
+    return prixVariante(prod, v || null, champ);
+  };
+
+  const proposerRepercussion = async (avant, apres) => {
+    const memePrix = cts(Number(avant.prix_william) || 0) === cts(Number(apres.prix_william) || 0)
+      && cts(Number(avant.prix_patrice) || 0) === cts(Number(apres.prix_patrice) || 0)
+      && JSON.stringify(variantesDe(avant)) === JSON.stringify(variantesDe(apres));
+    if (memePrix) return;
+
+    const jour = settings.date_vente;
+    const { data: lignes } = await supabase
+      .from('viande_commande_lignes')
+      .select('id, commande_id, quantite, poids_reel, variante_id, prix_william, rupture, mode_vente, poids_moyen, viande_commandes!inner(date_vente, nom_client)')
+      .eq('produit_id', apres.id)
+      .eq('viande_commandes.date_vente', jour);
+
+    const touchees = (lignes || []).filter((l) => !l.rupture);
+    if (touchees.length === 0) return;
+
+    const clients = [...new Set(touchees.map((l) => l.viande_commandes.nom_client))];
+    const ancien = cts(Number(avant.prix_william) || 0);
+    const nouveau = cts(Number(apres.prix_william) || 0);
+    if (!window.confirm(
+      `Ce produit est déjà dans ${touchees.length} commande(s) du ${fmtDateCourt(jour)} :\n`
+      + `${clients.slice(0, 6).join(', ')}${clients.length > 6 ? '…' : ''}\n\n`
+      + `Leur ligne est figée à ${eur(ancien)}. Veux-tu y appliquer le nouveau prix de ${eur(nouveau)} ?\n\n`
+      + `OUI  : les commandes et les factures sont recalculées.\n`
+      + `NON  : seules les prochaines commandes utiliseront le nouveau prix.`
+    )) { showToast('Nouveau prix gardé pour les prochaines commandes'); return; }
+
+    const aRecalculer = new Set();
+    for (const l of touchees) {
+      const pw = cts(prixPourLigne(apres, l, 'prix_william') || 0);
+      const pp = cts(prixPourLigne(apres, l, 'prix_patrice') || 0);
+      const q = Number(l.quantite) || 0;
+      const est = cts(sousTotal(l.mode_vente, q, pw, l.poids_moyen));
+      const maj = { prix_william: pw, prix_patrice: pp, sous_total_estime: est };
+      // ligne déjà pesée : son montant définitif suit le nouveau prix
+      if (l.poids_reel != null) maj.sous_total_final = cts(Number(l.poids_reel) * pw);
+      else if (l.mode_vente === 'piece_fixe') maj.sous_total_final = null;
+      const { error: e2 } = await supabase.from('viande_commande_lignes').update(maj).eq('id', l.id);
+      if (e2) { showToast(messageErreur(e2)); return; }
+      aRecalculer.add(l.commande_id);
+    }
+    for (const id of aRecalculer) {
+      try { await recalculerTotauxCommande(id); } catch (e) { /* total refait au prochain passage */ }
+    }
+    reload();
+    showToast(`${touchees.length} ligne(s) mise(s) à jour dans ${aRecalculer.size} commande(s)`);
   };
   const supprimer = async (p) => {
     if (!window.confirm(`Supprimer « ${p.nom} » ?`)) return;
