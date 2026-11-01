@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-01b · repercussion des prix';
+const VERSION = '2026-11-01c · confirmation par mail';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -4018,6 +4018,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       setCart({}); setChoix({}); setDemandes([]); setNom(''); setTel(''); setNote('');
       chargerDeja(); // la liste des commandes du jour est à relire
       if (rechargerStock) rechargerStock(); // le stock vient de bouger
+
+      /* Confirmation par mail, envoyée par la base elle-même : la clé
+         Resend ne passe jamais par le navigateur. Appelée APRÈS les
+         lignes, sinon le mail partirait sans les produits. Elle ne
+         bloque rien — une commande vaut mieux qu'un mail. */
+      supabase.rpc('envoyer_confirmation_commande', { p_commande: cmd.id })
+        .then(() => {}, () => {});
     } catch (e) {
       // le détail part dans la console pour le diagnostic ; le client garde
       // son panier intact et peut renvoyer
