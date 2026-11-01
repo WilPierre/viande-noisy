@@ -333,6 +333,14 @@ function sousTotalFinal(l) {
 function messageErreur(error) {
   if (!error) return null;
   const m = String(error.message || error.details || '');
+  // Une fonction manquante et une colonne manquante donnent des
+  // messages voisins : on les distingue pour savoir quoi relancer.
+  if (/function .* does not exist|could not find the function/i.test(m)) {
+    const fn = m.match(/function (?:public\.)?([a-z_]+)/i);
+    return fn
+      ? `Fonction « ${fn[1]} » absente en base — lance le fichier SQL de migration.`
+      : 'Fonction absente en base — lance le fichier SQL de migration.';
+  }
   if (/schema cache|column .* does not exist|could not find/i.test(m)) {
     const col = m.match(/'([a-z_]+)'/i);
     return col
