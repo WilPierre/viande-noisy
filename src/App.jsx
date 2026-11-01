@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-01c · confirmation par mail';
+const VERSION = '2026-11-01d · PIN protégé et remise';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -217,8 +217,17 @@ function pctRemise(c) {
 function montantRemise(brut, c) {
   return cts((Number(brut) || 0) * pctRemise(c) / 100);
 }
+function geste(c) {
+  const g = Number(c && c.remise_geste) || 0;
+  return g > 0 ? cts(g) : 0;
+}
+/* L'ordre compte : le pourcentage d'anniversaire s'applique au
+   panier, puis le geste commercial se retranche du résultat. Jamais
+   en dessous de zéro — une commande ne rapporte pas d'argent au
+   client. */
 function apresRemise(brut, c) {
-  return cts((Number(brut) || 0) - montantRemise(brut, c));
+  const net = (Number(brut) || 0) - montantRemise(brut, c);
+  return Math.max(0, cts(net - geste(c)));
 }
 
 /* ---- anniversaires ----
@@ -3038,7 +3047,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
         <thead><tr><th>Produit</th><th>Détail</th><th class="n">Montant</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      ${pctRemise(c) > 0 ? `<div class="grand" style="opacity:.75"><span>🎂 Remise anniversaire −${esc(num(pctRemise(c)))} %</span><span>−${esc(eur(montantRemise(totalLignes(c), c)))}</span></div>` : ''}
+      ${pctRemise(c) > 0 ? `<div class="grand" style="opacity:.75"><span>Remise anniversaire −${esc(num(pctRemise(c)))} %</span><span>−${esc(eur(montantRemise(totalLignes(c), c)))}</span></div>` : ''}
+      ${geste(c) > 0 ? `<div class="grand" style="opacity:.75"><span>${esc(c.remise_motif || 'Geste commercial')}</span><span>−${esc(eur(geste(c)))}</span></div>` : ''}
       <div class="grand"><span>Total</span><span>${esc(eur(totalDe(c)))}</span></div>
       ${c.total_final == null ? '<div class="pied">Montant estimé — les produits au kilo seront ajustés après pesée.</div>' : ''}`;
     if (!imprimerDocument('Ma commande', corps)) showToast('Autorise les fenêtres pop-up');
@@ -3297,6 +3307,12 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
                         <span style={{ fontWeight: 700 }}>
                           −{eur(montantRemise(totalLignes(c), c))}
                         </span>
+                      </div>
+                    )}
+                    {geste(c) > 0 && (
+                      <div className="vp-cmd-l" style={{ color: 'var(--green)' }}>
+                        <span>{c.remise_motif || 'Geste commercial'}</span>
+                        <span style={{ fontWeight: 700 }}>−{eur(geste(c))}</span>
                       </div>
                     )}
                     <div className="vp-tot" style={{ fontSize: 15 }}>
@@ -5076,9 +5092,22 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
     } catch (e) { return d; }
   };
 
-  const check = () => {
-    if (pin === String(settings.pin_admin)) setUnlocked(true);
-    else { showToast('Code incorrect'); setPin(''); }
+  /* Le code n'est plus comparé dans le navigateur : il ne part même
+     plus du serveur. On lui demande simplement si le code saisi est
+     le bon. Le PIN gardé en mémoire sert ensuite aux fonctions
+     d'administration qui l'exigent (codes promo, membres). */
+  const [pinValide, setPinValide] = useState('');
+  const [verif, setVerif] = useState(false);
+  const check = async () => {
+    const saisi = String(pin || '').trim();
+    if (!saisi) return;
+    setVerif(true);
+    try {
+      const { data, error } = await supabase.rpc('pin_admin_ok', { p_pin: saisi });
+      if (error) { showToast(messageErreur(error)); return; }
+      if (data === true) { setPinValide(saisi); setUnlocked(true); }
+      else { showToast('Code incorrect'); setPin(''); }
+    } finally { setVerif(false); }
   };
 
   if (!unlocked) {
@@ -5095,7 +5124,9 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
               onKeyDown={(e) => e.key === 'Enter' && check()} />
             <BoutonOeil visible={pinVisible} onClick={() => setPinVisible(!pinVisible)} />
           </div>
-          <button className="vp-cta" style={{ marginTop: 14 }} onClick={check}>Entrer</button>
+          <button className="vp-cta" style={{ marginTop: 14 }} disabled={verif} onClick={check}>
+            {verif ? 'Vérification…' : 'Entrer'}
+          </button>
           <button className="vp-foot" style={{ background: 'none', color: 'var(--muted)', marginTop: 18, textDecoration: 'underline' }}
             onClick={() => { window.location.hash = ''; }}>← Retour à la boutique</button>
         </div>
@@ -5198,7 +5229,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
       {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} commandees={commandees} reload={reload} showToast={showToast} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settingsJour} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
-      {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} />}
+      {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} pinAdmin={pinValide} />}
       {tab === 'sondage' && <AdminSondage settings={settings} reload={reload} showToast={showToast} onLu={() => setNonLus(0)} />}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
@@ -7289,6 +7320,48 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   };
 
   // envois déjà faits : avec quinze voisins, on perd vite le fil
+  /* ---- geste commercial ----
+     Un produit moins beau que prévu, un voisin qui dépanne, une
+     erreur de ma part : la remise se décide au moment de la pesée,
+     pas à la commande. Un montant en euros, un motif, et c'est dit
+     sur sa facture — une remise sans explication inquiète plus
+     qu'elle ne fait plaisir. */
+  const [gesteEdit, setGesteEdit] = useState(null); // { id, montant, motif }
+  const [gesteEnvoi, setGesteEnvoi] = useState(false);
+
+  const ouvrirGeste = (c) => setGesteEdit({
+    id: c.id,
+    montant: Number(c.remise_geste) > 0 ? String(c.remise_geste) : '',
+    motif: c.remise_motif || '',
+  });
+
+  const enregistrerGeste = async (c) => {
+    const brut = (gesteEdit.montant || '').trim();
+    const m = brut === '' ? 0 : nombre(brut);
+    if (isNaN(m) || m < 0) { showToast('Montant illisible'); return; }
+    const plafond = totalBrutCmd(c) - montantRemise(totalBrutCmd(c), c);
+    if (m > plafond) {
+      showToast(`Trop élevé : le total après remise est de ${eur(plafond)}`);
+      return;
+    }
+    setGesteEnvoi(true);
+    try {
+      const { error } = await supabase.from('viande_commandes').update({
+        remise_geste: cts(m),
+        remise_motif: m > 0 ? (gesteEdit.motif.trim() || 'Geste commercial') : null,
+      }).eq('id', c.id);
+      const err = messageErreur(error);
+      if (err) { showToast(err); return; }
+      // le total figé doit suivre, sinon la facture et l'écran divergent
+      await supabase.from('viande_commandes')
+        .update({ total_final: c.total_final != null ? cts(totalCmd({ ...c, remise_geste: m })) : null })
+        .eq('id', c.id);
+      setGesteEdit(null);
+      reload();
+      showToast(m > 0 ? `Remise de ${eur(m)} accordée` : 'Remise retirée');
+    } finally { setGesteEnvoi(false); }
+  };
+
   const [envoyes, setEnvoyes] = useState([]);
   const dejaEnvoye = (c) => envoyes.includes(c.id);
   const marquerEnvoye = (c) => setEnvoyes((e) => (e.includes(c.id) ? e : [...e, c.id]));
@@ -7572,6 +7645,10 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       t += `\nSous-total : ${eur(totalBrutCmd(c))}`;
       t += `\n🎂 Remise anniversaire −${num(pctRemise(c))} % : −${eur(montantRemise(totalBrutCmd(c), c))}`;
     }
+    if (geste(c) > 0) {
+      if (pctRemise(c) <= 0) t += `\nSous-total : ${eur(totalBrutCmd(c))}`;
+      t += `\n${c.remise_motif || 'Geste commercial'} : −${eur(geste(c))}`;
+    }
     t += `\nTotal : ${eur(totalCmd(c))}\nMerci ! 😊`;
     return t;
   };
@@ -7645,6 +7722,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             <td class="prod"><span class="nom">🎂 Remise anniversaire −${esc(num(pctRemise(c)))} %</span></td>
             <td class="qte">sur ${esc(eur(totalBrutCmd(c)))}</td>
             <td class="n">−${esc(eur(montantRemise(totalBrutCmd(c), c)))}</td>
+          </tr>` : ''}
+          ${geste(c) > 0 ? `<tr>
+            <td class="prod"><span class="nom">${esc(c.remise_motif || 'Geste commercial')}</span></td>
+            <td class="qte">remise</td>
+            <td class="n">−${esc(eur(geste(c)))}</td>
           </tr>` : ''}
           <tr class="ligne-tot">
             <td class="tot">Total à régler</td><td></td>
@@ -7879,9 +7961,52 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                     🎂 −{num(pctRemise(c))} % ({eur(montantRemise(totalBrutCmd(c), c))})
                   </div>
                 )}
+                {geste(c) > 0 && (
+                  <div className="vp-marge" style={{ color: 'var(--green)' }}>
+                    −{eur(geste(c))} · {c.remise_motif || 'geste'}
+                  </div>
+                )}
                 <div className="vp-marge">marge {eur(totalCmd(c) - totalPatriceCmd(c))}</div>
               </div>
             </div>
+
+            {gesteEdit && gesteEdit.id === c.id ? (
+              <div className="vp-ajout" style={{ marginTop: 10 }}>
+                <div className="vp-srow">
+                  <b style={{ fontSize: 14.5 }}>Remise sur la commande de {c.nom_client}</b>
+                  <button className="vp-sheet-x" onClick={() => setGesteEdit(null)} aria-label="Annuler">×</button>
+                </div>
+                <div className="vp-grid2" style={{ marginTop: 10 }}>
+                  <div>
+                    <label className="vp-label">Montant (€)</label>
+                    <input className="vp-input" inputMode="decimal" autoFocus
+                      value={gesteEdit.montant} placeholder="0"
+                      onChange={(e) => setGesteEdit({ ...gesteEdit, montant: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="vp-label">Motif, vu par le client</label>
+                    <input className="vp-input" value={gesteEdit.motif}
+                      placeholder="Ex : morceau plus petit que prévu"
+                      onChange={(e) => setGesteEdit({ ...gesteEdit, motif: e.target.value })} />
+                  </div>
+                </div>
+                <div className="vp-sub" style={{ marginTop: 6 }}>
+                  Retranché après la remise d'anniversaire s'il y en a une.
+                  Laisse le montant vide pour annuler la remise.
+                </div>
+                <div className="vp-grid2" style={{ marginTop: 10 }}>
+                  <button className="vp-btn ghost" onClick={() => setGesteEdit(null)}>Annuler</button>
+                  <button className="vp-btn green" disabled={gesteEnvoi}
+                    onClick={() => enregistrerGeste(c)}>
+                    {gesteEnvoi ? 'Enregistrement…' : 'Appliquer'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button className="vp-ajout-b" onClick={() => ouvrirGeste(c)}>
+                {geste(c) > 0 ? `✎ Remise de ${eur(geste(c))}` : '− Accorder une remise'}
+              </button>
+            )}
             <div style={{ marginTop: 10 }}>
               {(c.lignes || []).map((l) => ligneSaisie(l, `${l.emoji} ${nomLigne(l)}`))}
             </div>
@@ -8192,7 +8317,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
 }
 
 /* ---------- Admin : Membres ---------- */
-function AdminMembres({ showToast, settings }) {
+function AdminMembres({ showToast, settings, pinAdmin }) {
   const [membres, setMembres] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [recherche, setRecherche] = useState('');
@@ -8233,7 +8358,7 @@ function AdminMembres({ showToast, settings }) {
      Tu peux en créer un à la main (dépannage, geste commercial) et
      voir tous ceux qui circulent. Les fonctions sont protégées par
      ton code PIN, vérifié côté base. */
-  const PIN = (settings && settings.pin_admin) || '';
+  const PIN = pinAdmin || '';
   const [codes, setCodes] = useState([]);
   const [codesOuvert, setCodesOuvert] = useState(false);
   const [changements, setChangements] = useState([]);
@@ -9051,7 +9176,8 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     heure_fermeture: settings.heure_fermeture,
     vente_active: settings.vente_active,
     message_accueil: settings.message_accueil || '',
-    pin_admin: settings.pin_admin,
+    pin_actuel: '',
+    pin_nouveau: '',
     marge_defaut: String(settings.marge_defaut),
     precommande_active: settings.precommande_active !== false,
     whatsapp_url: settings.whatsapp_url || '',
@@ -9257,7 +9383,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       date_vente: todayStr(),
       heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
       vente_active: f.vente_active, message_accueil: f.message_accueil.trim() || null,
-      pin_admin: f.pin_admin.trim() || '0000', marge_defaut: nombre(f.marge_defaut) || 0,
+      marge_defaut: nombre(f.marge_defaut) || 0,
       whatsapp_url: f.whatsapp_url.trim() || null,
       email_alerte: f.email_alerte.trim() || null,
       alerte_wa_numero: f.alerte_wa_numero.trim() || null,
@@ -9278,6 +9404,20 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
      reste — il sert après une série d'essais — mais il dit
      maintenant ce qu'il fait, et demande une confirmation écrite. */
   const [purgeEnCours, setPurgeEnCours] = useState(false);
+
+  const changerPin = async () => {
+    const actuel = f.pin_actuel.trim();
+    const nouveau = f.pin_nouveau.trim();
+    if (!actuel || !nouveau) { showToast('Renseigne les deux codes'); return; }
+    if (nouveau.length < 4) { showToast('Choisis au moins 4 caractères'); return; }
+    const { data, error } = await supabase.rpc('admin_changer_pin', {
+      p_actuel: actuel, p_nouveau: nouveau,
+    });
+    if (error) { showToast(messageErreur(error)); return; }
+    if (data !== true) { showToast('Code actuel incorrect'); return; }
+    setF((x) => ({ ...x, pin_actuel: '', pin_nouveau: '' }));
+    showToast('Code remplacé — garde-le bien');
+  };
 
   const supprimerJournee = async () => {
     const jour = settings.date_vente;
@@ -9408,13 +9548,35 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
             <label className="vp-label">Marge par défaut (%)</label>
             <input className="vp-input" value={f.marge_defaut} inputMode="decimal" onChange={(e) => setF({ ...f, marge_defaut: e.target.value })} />
           </div>
-          <div>
-            <label className="vp-label">Code organisateur</label>
-            <input className="vp-input" value={f.pin_admin} onChange={(e) => setF({ ...f, pin_admin: e.target.value })} />
-          </div>
         </div>
 
         <button className="vp-cta" onClick={sauver}>Enregistrer les réglages</button>
+
+        {/* Le code n'est plus un réglage comme un autre : il ne sort
+            jamais du serveur, et le changer exige de connaître
+            l'ancien. */}
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+          <div className="vp-h2" style={{ fontSize: 15 }}>Changer le code organisateur</div>
+          <div className="vp-sub">
+            Il n'est plus stocké dans les réglages et n'est jamais envoyé aux
+            visiteurs. Impossible de l'afficher — seulement de le remplacer.
+          </div>
+          <div className="vp-grid2" style={{ marginTop: 10 }}>
+            <div>
+              <label className="vp-label">Code actuel</label>
+              <input className="vp-input" type="password" value={f.pin_actuel} autoComplete="off"
+                onChange={(e) => setF({ ...f, pin_actuel: e.target.value })} />
+            </div>
+            <div>
+              <label className="vp-label">Nouveau code</label>
+              <input className="vp-input" type="password" value={f.pin_nouveau} autoComplete="new-password"
+                onChange={(e) => setF({ ...f, pin_nouveau: e.target.value })} />
+            </div>
+          </div>
+          <button className="vp-btn ghost" style={{ marginTop: 10 }} onClick={changerPin}>
+            Remplacer le code
+          </button>
+        </div>
       </div>
 
       <div className="vp-section">
