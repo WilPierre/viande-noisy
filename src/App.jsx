@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-10-31b · stock et rupture auto';
+const VERSION = '2026-11-01 · collision CSS corrigee';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1087,25 +1087,25 @@ input,select,textarea{font-family:inherit;font-size:16px}
 @media (prefers-reduced-motion:reduce){.vp-visionneuse{animation:none}}
 
 /* ===== ALERTE DOUBLON DE COMMANDE ===== */
-.vp-doublon{position:fixed;inset:0;z-index:70;background:rgba(36,30,27,.55);
+.vp-cmddbl{position:fixed;inset:0;z-index:70;background:rgba(36,30,27,.55);
   display:flex;align-items:center;justify-content:center;padding:18px;
   animation:vpfade .16s ease;overflow-y:auto}
-.vp-doublon-boite{background:var(--card);border-radius:18px;max-width:430px;width:100%;
+.vp-cmddbl-boite{background:var(--card);border-radius:18px;max-width:430px;width:100%;
   padding:22px;box-shadow:0 22px 60px rgba(36,30,27,.4);border:1px solid var(--line);
   max-height:calc(100vh - 36px);overflow-y:auto}
-.vp-doublon-tete{display:flex;gap:12px;align-items:flex-start}
-.vp-doublon-ico{font-size:30px;line-height:1;flex:0 0 auto}
-.vp-doublon-boite h3{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:19px;
+.vp-cmddbl-tete{display:flex;gap:12px;align-items:flex-start}
+.vp-cmddbl-ico{font-size:30px;line-height:1;flex:0 0 auto}
+.vp-cmddbl-boite h3{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:19px;
   line-height:1.25;margin:0}
-.vp-doublon-txt{color:var(--muted);font-size:14px;line-height:1.6;margin-top:10px}
-.vp-doublon-cmd{margin-top:14px;padding:12px 14px;border-radius:12px;
+.vp-cmddbl-txt{color:var(--muted);font-size:14px;line-height:1.6;margin-top:10px}
+.vp-cmddbl-cmd{margin-top:14px;padding:12px 14px;border-radius:12px;
   background:var(--bg);border:1px solid var(--line);font-size:13.5px;line-height:1.65}
-.vp-doublon-cmd b{font-size:14px}
-.vp-doublon-cmd ul{margin:6px 0 0;padding-left:18px}
-.vp-doublon-cmd .tot{margin-top:7px;font-weight:700}
-.vp-doublon-b{display:flex;flex-direction:column;gap:9px;margin-top:18px}
-.vp-doublon-b button{width:100%}
-@media (prefers-reduced-motion:reduce){.vp-doublon{animation:none}}
+.vp-cmddbl-cmd b{font-size:14px}
+.vp-cmddbl-cmd ul{margin:6px 0 0;padding-left:18px}
+.vp-cmddbl-cmd .tot{margin-top:7px;font-weight:700}
+.vp-cmddbl-b{display:flex;flex-direction:column;gap:9px;margin-top:18px}
+.vp-cmddbl-b button{width:100%}
+@media (prefers-reduced-motion:reduce){.vp-cmddbl{animation:none}}
 .vp-pinfo{flex:1;min-width:0}
 .vp-pname{font-weight:700;font-size:16px}
 .vp-pmeta{color:var(--muted);font-size:13px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
@@ -1135,7 +1135,10 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .vp-line .r{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .vp-tot{display:flex;justify-content:space-between;margin-top:14px;font-size:18px;font-weight:800}
 .vp-tot .r{color:var(--wine);font-variant-numeric:tabular-nums}
-.vp-mini{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.5}
+/* Petite note sous un total. S'appelait « vp-mini » comme le bandeau
+   collant plus haut : les deux règles se mélangeaient et la note
+   héritait du fond, du flou et du positionnement de la barre. */
+.vp-mininote{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.5}
 .vp-trash{background:none;color:var(--muted);font-size:13px;text-decoration:underline;padding:0;margin-top:2px}
 
 /* form */
@@ -3225,7 +3228,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
               <span className="r">{derniere.total_final == null ? '≈ ' : ''}{eur(totalDe(derniere))}</span>
             </div>
             {derniere.total_final == null && (
-              <div className="vp-mini">Montant estimé — il sera ajusté après la pesée.</div>
+              <div className="vp-mininote">Montant estimé — il sera ajusté après la pesée.</div>
             )}
             <button className="vp-btn ghost sm" style={{ marginTop: 10 }} onClick={() => imprimerFacture(derniere)}>
               Imprimer / PDF
@@ -3301,7 +3304,7 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
                       <span className="r">{c.total_final == null ? '≈ ' : ''}{eur(totalDe(c))}</span>
                     </div>
                     {c.total_final == null && (
-                      <div className="vp-mini">Montant estimé — il sera ajusté après la pesée.</div>
+                      <div className="vp-mininote">Montant estimé — il sera ajusté après la pesée.</div>
                     )}
                     <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
                       onClick={() => imprimerFacture(c)}>Imprimer / PDF</button>
@@ -4714,24 +4717,24 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       )}
 
       {alerteDoublon && dejaCommande.length > 0 && (
-        <div className="vp-doublon" role="dialog" aria-modal="true" aria-label="Commande déjà enregistrée">
-          <div className="vp-doublon-boite">
-            <div className="vp-doublon-tete">
-              <span className="vp-doublon-ico">⚠️</span>
+        <div className="vp-cmddbl" role="dialog" aria-modal="true" aria-label="Commande déjà enregistrée">
+          <div className="vp-cmddbl-boite">
+            <div className="vp-cmddbl-tete">
+              <span className="vp-cmddbl-ico">⚠️</span>
               <h3>
                 Tu as déjà {dejaCommande.length > 1 ? `${dejaCommande.length} commandes` : 'une commande'} enregistrée
                 {precommande ? ' pour la réouverture' : " aujourd'hui"}
               </h3>
             </div>
 
-            <div className="vp-doublon-txt">
+            <div className="vp-cmddbl-txt">
               Si tu valides maintenant, ce panier viendra <b>s'ajouter</b> à
               {dejaCommande.length > 1 ? ' ces commandes' : ' cette commande'} : tu auras
               tout à récupérer et à payer.
             </div>
 
             {dejaCommande.map((c) => (
-              <div className="vp-doublon-cmd" key={c.id}>
+              <div className="vp-cmddbl-cmd" key={c.id}>
                 <b>
                   Commande de {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                 </b>
@@ -4749,7 +4752,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               </div>
             ))}
 
-            <div className="vp-doublon-b">
+            <div className="vp-cmddbl-b">
               <button className="vp-cta" disabled={envoi} onClick={() => envoyer('remplacer')}>
                 {envoi ? 'Envoi…' : dejaCommande.length > 1
                   ? 'Remplacer — ne garder que ce panier'
@@ -4763,7 +4766,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               </button>
             </div>
 
-            <div className="vp-doublon-txt" style={{ marginTop: 14, fontSize: 13 }}>
+            <div className="vp-cmddbl-txt" style={{ marginTop: 14, fontSize: 13 }}>
               « Remplacer » supprime définitivement
               {dejaCommande.length > 1 ? ' les commandes ci-dessus' : ' la commande ci-dessus'} et
               ne garde que le panier en cours.
@@ -4893,7 +4896,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
 
                 <div className="vp-tot"><span>Total estimé</span><span className="r">{lignes.length === 0 ? 'à confirmer' : `${aDuPese ? '≈ ' : ''}${eur(total)}`}</span></div>
                 {demandes.length > 0 && lignes.length > 0 && (
-                  <div className="vp-mini">+ {demandes.length} demande(s) dont le prix te sera confirmé.</div>
+                  <div className="vp-mininote">+ {demandes.length} demande(s) dont le prix te sera confirmé.</div>
                 )}
                 {aDuPese && (
                   <div className="vp-avert">
