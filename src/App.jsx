@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-02a · deplacer une commande';
+const VERSION = '2026-11-02b · produit hors catalogue en saisie';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -5285,7 +5285,10 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
   const [varId, setVarId] = useState('');
   const [qte, setQte] = useState('1');
   const [poidsReel, setPoidsReel] = useState('');
-  const [lignes, setLignes] = useState([]); // { cle, p, v, q, pr }
+  // produit hors catalogue : les prix sont saisis à la main
+  const [prixPat, setPrixPat] = useState('');
+  const [prixWil, setPrixWil] = useState('');
+  const [lignes, setLignes] = useState([]); // { cle, p, v, q, pr, aChiffrer }
 
   // montant d'une ligne : sur le poids réel s'il est connu, sinon estimé
   const montantLigne = (p, v, q2, pr, champ) => (
@@ -5313,7 +5316,24 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
     setChoisi(p);
     const vs = variantesDe(p);
     setVarId(vs.length ? String(vs[0].id) : '');
-    setQte(p.mode_vente === 'kg' ? '1' : '1');
+    setQte('1'); setPoidsReel('');
+    setPrixPat(''); setPrixWil('');
+    setRecherche('');
+  };
+
+  /* Produit absent du catalogue. On ne crée rien dans la base des
+     produits : c'est une ligne de cette commande-là, pas un article
+     de la boutique. Même mécanisme que dans la modification d'une
+     commande déjà passée. */
+  const prendreLibre = () => {
+    const n = recherche.trim();
+    if (n.length < 2) { showToast('Indique le produit'); return; }
+    setChoisi({
+      id: null, nom: n, emoji: '➕', mode_vente: 'piece_fixe',
+      prix_patrice: 0, prix_william: 0, poids_moyen: null, variantes: [],
+    });
+    setVarId(''); setQte('1'); setPoidsReel('');
+    setPrixPat(''); setPrixWil('');
     setRecherche('');
   };
 
@@ -5321,16 +5341,37 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
     if (!choisi) return;
     const n = nombre(qte);
     if (isNaN(n) || n <= 0) { showToast('Quantité invalide'); return; }
-    const vs = variantesDe(choisi);
+
+    let p = choisi;
+    let aChiffrer = false;
+    if (p.id == null) {
+      if (String(p.nom || '').trim().length < 2) { showToast('Indique le produit'); return; }
+      /* Les prix restent FACULTATIFS : tu ne sais pas toujours ce que
+         Patrice facturera. Sans prix, la ligne emprunte le circuit des
+         demandes — « prix à confirmer » chez le voisin, et elle
+         t'attend dans l'onglet Pesées avec ses champs de prix. */
+      const wil = prixWil.trim() === '' ? 0 : nombre(prixWil);
+      if (isNaN(wil) || wil < 0) { showToast('Ton prix est illisible'); return; }
+      const pat = prixPat.trim() === '' ? 0 : nombre(prixPat);
+      if (isNaN(pat) || pat < 0) { showToast('Prix Patrice illisible'); return; }
+      aChiffrer = prixWil.trim() === '' && prixPat.trim() === '';
+      p = { ...p, nom: String(p.nom).trim(), prix_patrice: cts(pat), prix_william: cts(wil) };
+    }
+
+    const vs = variantesDe(p);
     const v = vs.length ? vs.find((x) => String(x.id) === String(varId)) || vs[0] : null;
-    const q2 = choisi.mode_vente === 'kg' ? n : Math.round(n);
+    const q2 = p.mode_vente === 'kg' ? n : Math.round(n);
     let pr = null;
-    if (choisi.mode_vente !== 'piece_fixe' && poidsReel.trim() !== '') {
+    if (p.mode_vente !== 'piece_fixe' && poidsReel.trim() !== '') {
       pr = nombre(poidsReel);
       if (isNaN(pr) || pr <= 0) { showToast('Poids invalide'); return; }
     }
-    setLignes((l) => [...l, { cle: `${choisi.id}|${v ? v.id : ''}|${Date.now()}`, p: choisi, v, q: q2, pr }]);
+    setLignes((l) => [...l, {
+      cle: `${p.id || 'libre'}|${v ? v.id : ''}|${Date.now()}`,
+      p, v, q: q2, pr, aChiffrer,
+    }]);
     setChoisi(null); setQte('1'); setPoidsReel('');
+    setPrixPat(''); setPrixWil('');
   };
 
   const total = lignes.reduce((t, { p, v, q: q2, pr }) => t + montantLigne(p, v, q2, pr, 'prix_william'), 0);
@@ -5357,9 +5398,9 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
         commandeId = cmd.id;
       }
 
-      const rows = lignes.map(({ p, v, q: q2, pr }) => ({
+      const rows = lignes.map(({ p, v, q: q2, pr, aChiffrer }) => ({
         commande_id: commandeId,
-        produit_id: p.id,
+        produit_id: p.id || null,        // null = produit hors catalogue
         produit_nom: p.nom,
         mode_vente: p.mode_vente,
         emoji: p.emoji,
@@ -5369,12 +5410,15 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
         prix_william: prixVariante(p, v, 'prix_william'),
         poids_moyen: p.mode_vente === 'piece_pesee' ? poidsVariante(p, v) : null,
         quantite: q2,
-        sous_total_estime: cts(sousTotalLigne(p, v, q2, 'prix_william')),
+        sous_total_estime: aChiffrer ? 0 : cts(sousTotalLigne(p, v, q2, 'prix_william')),
         // poids déjà connu : la ligne arrive pesée, rien à ressaisir aux pesées
         poids_reel: pr,
-        sous_total_final: pr != null ? cts(pr * prixVariante(p, v, 'prix_william')) : null,
-        demande: false,
-        demande_origine: null,
+        sous_total_final: pr != null && !aChiffrer
+          ? cts(pr * prixVariante(p, v, 'prix_william'))
+          : null,
+        // une ligne sans prix s'affiche « prix à confirmer » et attend la pesée
+        demande: !!aChiffrer,
+        demande_origine: aChiffrer ? p.nom : null,
       }));
       const { error: e2 } = await supabase.from('viande_commande_lignes').insert(rows);
       if (e2) {
@@ -5463,7 +5507,46 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
         <label className="vp-label">Ajouter un produit</label>
         {choisi ? (
           <div className="vp-saisie-choix">
-            <b>{choisi.emoji} {choisi.nom}</b>
+            {choisi.id == null ? (
+              <>
+                <input className="vp-input" value={choisi.nom} autoComplete="off"
+                  onChange={(e) => setChoisi((c) => ({ ...c, nom: e.target.value }))}
+                  placeholder="Nom du produit" />
+                <div className="vp-seg" style={{ marginTop: 8, marginBottom: 0 }}>
+                  <button className={choisi.mode_vente !== 'kg' ? 'on' : ''}
+                    onClick={() => setChoisi((c) => ({ ...c, mode_vente: 'piece_fixe' }))}>
+                    À la pièce
+                  </button>
+                  <button className={choisi.mode_vente === 'kg' ? 'on' : ''}
+                    onClick={() => setChoisi((c) => ({ ...c, mode_vente: 'kg' }))}>
+                    Au kilo
+                  </button>
+                </div>
+                <div className="vp-grid2" style={{ marginTop: 8 }}>
+                  <div>
+                    <label className="vp-label">
+                      Prix Patrice {choisi.mode_vente === 'kg' ? '(€/kg)' : '(€)'}
+                    </label>
+                    <input className="vp-input" inputMode="decimal" value={prixPat}
+                      onChange={(e) => setPrixPat(e.target.value)} placeholder="facultatif" />
+                  </div>
+                  <div>
+                    <label className="vp-label">
+                      Ton prix {choisi.mode_vente === 'kg' ? '(€/kg)' : '(€)'}
+                    </label>
+                    <input className="vp-input" inputMode="decimal" value={prixWil}
+                      onChange={(e) => setPrixWil(e.target.value)} placeholder="facultatif" />
+                  </div>
+                </div>
+                <div className="vp-sub" style={{ marginTop: 6 }}>
+                  Tu ne connais pas encore les prix ? Laisse les deux vides : la ligne
+                  s'affiche « prix à confirmer » chez le voisin et t'attend dans
+                  l'onglet Pesées.
+                </div>
+              </>
+            ) : (
+              <b>{choisi.emoji} {choisi.nom}</b>
+            )}
             {vsChoisi.length > 0 && (
               <select className="vp-input" value={varId} onChange={(e) => setVarId(e.target.value)}>
                 {vsChoisi.map((v) => <option key={v.id} value={v.id}>{v.nom}</option>)}
@@ -5496,9 +5579,14 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
         ) : (
           <>
             <input className="vp-input" value={recherche} onChange={(e) => setRecherche(e.target.value)}
-              placeholder="Tape le nom d'un produit…" autoComplete="off" />
+              placeholder="Tape le nom d'un produit…" autoComplete="off"
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                if (trouves.length > 0) prendre(trouves[0]); else prendreLibre();
+              }} />
             {trouves.length > 0 && (
               <div className="vp-sugg" style={{ marginTop: 8 }}>
+                <span className="vp-sugg-t">Au catalogue :</span>
                 {trouves.map((p) => (
                   <button key={p.id} className="vp-sugg-b" onClick={() => prendre(p)}>
                     {p.emoji} {p.nom}{!p.disponible || p.rupture ? ' · hors vente' : ''}
@@ -5506,29 +5594,42 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
                 ))}
               </div>
             )}
+            {recherche.trim().length >= 2 && (
+              <button className="vp-approx" style={{ marginTop: 8 }} onClick={prendreLibre}>
+                ➕ Hors catalogue : « {recherche.trim()} »
+              </button>
+            )}
           </>
         )}
       </div>
 
       {lignes.length > 0 && (
         <div className="vp-liste" style={{ marginTop: 12 }}>
-          {lignes.map(({ cle, p, v, q: q2, pr }) => (
+          {lignes.map(({ cle, p, v, q: q2, pr, aChiffrer }) => (
             <div className="vp-liste-l" key={cle}>
               <span>
                 {p.emoji} {p.nom}{v ? ` — ${v.nom}` : ''}
                 <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12 }}>
                   {p.mode_vente === 'kg' ? `${num(q2)} kg` : `${num(q2)} pièce(s)`}
                   {pr != null && <> · pesé {num(pr)} kg</>}
+                  {p.id == null && <> · hors catalogue</>}
                 </small>
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <b>{p.mode_vente === 'piece_fixe' || pr != null ? '' : '≈ '}{eur(montantLigne(p, v, q2, pr, 'prix_william'))}</b>
+                {aChiffrer
+                  ? <span className="vp-badge-dem">À CHIFFRER</span>
+                  : <b>{p.mode_vente === 'piece_fixe' || pr != null ? '' : '≈ '}{eur(montantLigne(p, v, q2, pr, 'prix_william'))}</b>}
                 <button className="vp-demande-x" onClick={() => setLignes((l) => l.filter((x) => x.cle !== cle))}
                   aria-label="Retirer">×</button>
               </span>
             </div>
           ))}
           <div className="vp-liste-l tot"><span>Total estimé</span><b>{eur(total)}</b></div>
+          {lignes.some((l) => l.aChiffrer) && (
+            <div className="vp-sub" style={{ marginTop: 6 }}>
+              Les lignes « à chiffrer » ne comptent pas encore dans ce total.
+            </div>
+          )}
         </div>
       )}
 
