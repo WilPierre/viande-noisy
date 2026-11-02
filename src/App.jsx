@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-01d · PIN protégé et remise';
+const VERSION = '2026-11-02a · deplacer une commande';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -827,6 +827,26 @@ function jourCommandable(date) {
   if (nomJourFerie(date)) return false;              // férié
   if (nomJourFerie(joursPlusTard(date, 1))) return false; // retrait impossible demain
   return true;
+}
+/* Les prochaines journées de vente après une date donnée. Sert à
+   proposer « demain », « lundi »… quand on déplace une commande,
+   plutôt que de laisser chercher dans un calendrier. */
+function prochainsJoursVente(depuis, n) {
+  const base = dateDepuis(depuis);
+  if (!base) return [];
+  const out = [];
+  for (let i = 1; i <= 30 && out.length < (n || 4); i += 1) {
+    const d = joursPlusTard(base, i);
+    if (jourCommandable(d)) out.push(dateStr(d));
+  }
+  return out;
+}
+// « mar. 03/11 » — assez court pour tenir sur un bouton de téléphone
+function fmtJourBref(d) {
+  const x = dateDepuis(d);
+  return x
+    ? x.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+    : String(d || '');
 }
 function horodatage(date, heure) {
   const a = date.getFullYear();
@@ -5613,6 +5633,60 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
   };
 
   /* ============================================================
+     DÉPLACER UNE COMMANDE VERS UNE AUTRE JOURNÉE
+     « Finalement je passerai demain », ou une journée qui tombe
+     pendant une fermeture. On ne recopie rien : la commande entière
+     change de date, avec ses lignes, ses poids et sa remise.
+     Le stock suit tout seul, puisqu'il se compte par journée.
+  ============================================================ */
+  const [deplaceId, setDeplaceId] = useState(null);
+  const [versDate, setVersDate] = useState('');
+  const [deplEnCours, setDeplEnCours] = useState(false);
+
+  const ouvrirDeplacement = (c) => {
+    fermerEdition();
+    setDeplaceId(c.id);
+    setVersDate(prochainsJoursVente(c.date_vente, 1)[0] || '');
+  };
+
+  // Ce qui mérite d'être dit avant de valider, sans bloquer :
+  // c'est lui qui décide, pas l'application.
+  const avertissements = (c, d) => {
+    const m = [];
+    if (d && !jourCommandable(dateDepuis(d) || new Date())) {
+      m.push("Ce jour-là, la boutique ne prend pas de commandes (week-end, férié ou veille de férié). Le déplacement reste possible, c'est toi qui gères le retrait.");
+    }
+    const pesee = c.total_final != null || (c.lignes || []).some((l) => l.poids_reel != null);
+    if (pesee) m.push('Cette commande est déjà pesée : les poids et le total la suivent tels quels.');
+    return m;
+  };
+
+  const deplacer = async (c) => {
+    const d = String(versDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { showToast('Choisis une date'); return; }
+    if (d === c.date_vente) { showToast('C’est déjà cette journée'); return; }
+
+    // Déjà une commande à son nom ce jour-là ? On prévient, on n'interdit pas.
+    let q = supabase.from('viande_commandes').select('id')
+      .eq('date_vente', d).neq('id', c.id);
+    q = c.user_id ? q.eq('user_id', c.user_id) : q.eq('nom_client', c.nom_client);
+    const { data: deja } = await q;
+    if (deja && deja.length > 0 && !window.confirm(
+      `${c.nom_client} a déjà une commande le ${enLettres(d)}.\n\n`
+      + 'La déplacer quand même ? Tu auras deux commandes à son nom ce jour-là.'
+    )) return;
+
+    setDeplEnCours(true);
+    const { error } = await supabase.from('viande_commandes')
+      .update({ date_vente: d }).eq('id', c.id);
+    setDeplEnCours(false);
+    if (error) { showToast(messageErreur(error)); return; }
+    setDeplaceId(null);
+    showToast(`Commande de ${c.nom_client} déplacée au ${enLettres(d)}`);
+    reload();
+  };
+
+  /* ============================================================
      MODIFICATION D'UNE COMMANDE DÉJÀ PASSÉE
      « Rajoute-moi deux saucissons, enlève le poulet » : ça arrive par
      SMS tous les jours. Jusqu'ici il fallait tout supprimer et ressaisir.
@@ -6094,13 +6168,64 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                 </div>
               </>
             ) : (
-              <div className="vp-srow" style={{ marginTop: 10 }}>
-                <span style={{ fontWeight: 800 }}>{c.total_final != null ? eur(c.total_final) : `≈ ${eur(c.total_estime)}`}</span>
-                <div className="vp-macmd-b">
-                  <button className="vp-btn sm" onClick={() => ouvrirEdition(c)}>Modifier</button>
-                  <button className="vp-btn ghost sm" onClick={() => suppr(c)}>Supprimer</button>
+              <>
+                <div className="vp-srow" style={{ marginTop: 10 }}>
+                  <span style={{ fontWeight: 800 }}>{c.total_final != null ? eur(c.total_final) : `≈ ${eur(c.total_estime)}`}</span>
+                  <div className="vp-macmd-b">
+                    <button className="vp-btn sm" onClick={() => ouvrirEdition(c)}>Modifier</button>
+                    <button className="vp-btn ghost sm"
+                      onClick={() => (deplaceId === c.id ? setDeplaceId(null) : ouvrirDeplacement(c))}>
+                      Déplacer
+                    </button>
+                    <button className="vp-btn ghost sm" onClick={() => suppr(c)}>Supprimer</button>
+                  </div>
                 </div>
-              </div>
+
+                {deplaceId === c.id && (
+                  <div className="vp-ajout" style={{ marginTop: 10 }}>
+                    <div className="vp-srow">
+                      <b>Déplacer vers une autre journée</b>
+                      <button className="vp-sheet-x" onClick={() => setDeplaceId(null)} aria-label="Fermer">×</button>
+                    </div>
+                    <div className="vp-sub" style={{ marginTop: 4 }}>
+                      Actuellement le {enLettres(c.date_vente)}.
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                      {prochainsJoursVente(c.date_vente, 4).map((d) => (
+                        <button key={d} className={`vp-btn sm ${versDate === d ? '' : 'ghost'}`}
+                          onClick={() => setVersDate(d)}>
+                          {fmtJourBref(d)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="vp-field" style={{ marginTop: 10 }}>
+                      <label className="vp-label">Ou choisis une date</label>
+                      <input className="vp-input" type="date" value={versDate}
+                        onChange={(e) => setVersDate(e.target.value)} />
+                    </div>
+
+                    {avertissements(c, versDate).map((t) => (
+                      <div className="vp-rupt-note" key={t} style={{ marginTop: 8 }}>{t}</div>
+                    ))}
+
+                    <button className="vp-cta" style={{ marginTop: 10 }}
+                      disabled={deplEnCours || !versDate || versDate === c.date_vente}
+                      onClick={() => deplacer(c)}>
+                      {deplEnCours ? 'Déplacement…'
+                        : versDate && versDate !== c.date_vente
+                          ? `Déplacer au ${enLettres(versDate)}`
+                          : 'Choisis une journée'}
+                    </button>
+                    <div className="vp-sub" style={{ marginTop: 6 }}>
+                      La commande quitte cette liste et réapparaît dans la journée
+                      choisie, avec ses produits, ses poids et sa remise. Le voisin
+                      la retrouve à la nouvelle date dans son compte.
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ))
