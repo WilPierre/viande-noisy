@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-02b · produit hors catalogue en saisie';
+const VERSION = '2026-11-03b · export filtre, quantites en gras, jour de retrait';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -737,6 +737,10 @@ function imprimerDocument(titre, corpsHTML) {
     td.c,th.c{text-align:center}
     .prod{font-weight:600}
     .qte{color:#6b625c;white-space:nowrap}
+    /* quantité commandée : c'est le chiffre que Patrice lit en premier,
+       il ne doit pas être en gris clair comme un détail secondaire */
+    .qtec{color:#241E1B;font-weight:800;font-size:14px;white-space:nowrap;
+      font-variant-numeric:tabular-nums}
 
     /* case à remplir à la main */
     .saisie{display:block;width:100%;max-width:120px;margin:0 auto;height:20px;
@@ -5243,6 +5247,14 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
         </div>
       )}
 
+      {/* « Journée » tout court était ambigu : jour de commande ou jour de
+          retrait ? On l'écrit, ça évite de déplacer des commandes qui sont
+          déjà au bon endroit. */}
+      <div className="vp-sub" style={{ margin: '-6px 0 12px', textAlign: 'center' }}>
+        Commandes prises le <b>{enLettres(dateTravail)}</b> — retrait le{' '}
+        <b>{enLettres(dateStr(joursPlusTard(dateDepuis(dateTravail) || new Date(), 1)))}</b>
+      </div>
+
       {commandes.length === 0 && dateTravail === aujourdhuiStr() && journees.length > 0 && (
         <div className="vp-rupt-note" style={{ marginBottom: 14, background: '#FFF8EC', borderColor: '#F1DFBC', color: '#7A5A20' }}>
           Aucune commande aujourd'hui.{' '}
@@ -7312,8 +7324,19 @@ function AdminProduits({ produits, settings, commandees, reload, showToast }) {
 }
 
 /* ---------- Admin : Export Patrice ---------- */
-function AdminExport({ commandes, produits, settings, showToast }) {
+function AdminExport({ commandes: toutes, produits, settings, showToast }) {
   const enRupture = new Set(produits.filter((p) => p.rupture).map((p) => String(p.id)));
+
+  /* Une journée peut contenir des commandes déjà finalisées — celles
+     de la veille qu'on a déplacées, ou une commande réglée d'avance.
+     Les inclure dans la feuille pour Patrice, c'est la lui faire
+     préparer deux fois. Ce filtre ne change rien en base : il ne
+     retire les commandes que des documents imprimés et copiés. */
+  const [sansFinalisees, setSansFinalisees] = useState(false);
+  const nbFinalisees = (toutes || []).filter((c) => c.statut === 'finalisee').length;
+  const commandes = sansFinalisees
+    ? (toutes || []).filter((c) => c.statut !== 'finalisee')
+    : (toutes || []);
 
   // agrégation par produit + variante
   const agg = {};
@@ -7335,7 +7358,8 @@ function AdminExport({ commandes, produits, settings, showToast }) {
 
   const texte = () => {
     let t = `🧺 Commande pour Patrice — ${fmtDateCourt(settings.date_vente)}\n\n`;
-    lignes.filter((x) => !x.rupture).forEach((x) => { t += `• ${sansPoids(x.nom)} : ${uniteTxt(x.mode, x.qte)}\n`; });
+    // les astérisques mettent la quantité en gras dans WhatsApp
+    lignes.filter((x) => !x.rupture).forEach((x) => { t += `• ${sansPoids(x.nom)} : *${uniteTxt(x.mode, x.qte)}*\n`; });
     const r = lignes.filter((x) => x.rupture);
     if (r.length) {
       t += `\n❌ En rupture (non commandé) :\n`;
@@ -7367,7 +7391,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
         const unite = auKilo ? '/kg' : '/pc';
         return `<tr class="${rupt ? 'rupture' : ''}">
           <td class="prod"><span class="nom">${esc(sansPoids(nomLigne(l)))}</span>${rupt ? ' — EN RUPTURE' : ''}</td>
-          <td class="qte c">${esc(q)}</td>
+          <td class="qtec c">${esc(q)}</td>
           <td class="c">${rupt || !auKilo ? '—' : '<span class="saisie"></span>'}</td>
           <td class="n">${l.demande && !(Number(l.prix_patrice) > 0) ? 'à fixer' : esc(eur(Number(l.prix_patrice)) + unite)}</td>
         </tr>`;
@@ -7394,7 +7418,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
         <div>
           <h1>Feuille de pesée</h1>
           <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
-            · ${commandes.length} client(s) · à remplir par Patrice</div>
+            · ${commandes.length} client(s) · à remplir par Patrice${sansFinalisees ? ' · commandes déjà finalisées exclues' : ''}</div>
         </div>
       </div>
       ${blocs}
@@ -7410,7 +7434,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
     const rows = lignes.map((x) => `
       <tr class="${x.rupture ? 'rupture' : ''}">
         <td><span class="nom">${esc(sansPoids(x.nom))}</span>${x.rupture ? ' — EN RUPTURE' : ''}</td>
-        <td class="n">${esc(uniteTxt(x.mode, x.qte))}</td>
+        <td class="n qtec">${esc(uniteTxt(x.mode, x.qte))}</td>
         <td class="n">${x.rupture ? '—' : esc(eur(x.cout))}</td>
       </tr>`).join('');
     const corps = `
@@ -7419,7 +7443,7 @@ function AdminExport({ commandes, produits, settings, showToast }) {
         <div>
           <h1>Commande groupée</h1>
           <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
-            · quantités cumulées de ${commandes.length} commande(s)</div>
+            · quantités cumulées de ${commandes.length} commande(s)${sansFinalisees ? ' · commandes déjà finalisées exclues' : ''}</div>
         </div>
       </div>
       <table>
@@ -7478,6 +7502,23 @@ function AdminExport({ commandes, produits, settings, showToast }) {
       <div className="vp-section">
         <div className="vp-h2">Récap pour Patrice</div>
         <div className="vp-sub">Quantités cumulées de toutes les commandes. À envoyer après la fermeture.</div>
+
+        {nbFinalisees > 0 && (
+          <div className="vp-srow" style={{ marginTop: 12, gap: 12 }}>
+            <div>
+              <b style={{ fontSize: 13.5 }}>Ignorer les commandes déjà finalisées</b>
+              <div className="vp-sub" style={{ marginTop: 2 }}>
+                {nbFinalisees} commande{nbFinalisees > 1 ? 's' : ''} de cette journée
+                {nbFinalisees > 1 ? ' sont' : ' est'} déjà finalisée{nbFinalisees > 1 ? 's' : ''}.
+                Les exclure ne change rien en base : seulement ce qui s'imprime et se copie.
+              </div>
+            </div>
+            <div className={`vp-toggle ${sansFinalisees ? 'on' : ''}`}
+              style={{ flex: '0 0 auto' }}
+              onClick={() => setSansFinalisees(!sansFinalisees)} />
+          </div>
+        )}
+
         {nbRupture > 0 && (
           <div className="vp-rupt-note">
             {nbRupture} produit(s) en rupture — exclus du total et signalés en rouge sur l'impression.
