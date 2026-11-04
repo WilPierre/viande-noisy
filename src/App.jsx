@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04g · deux habillages a essayer';
+const VERSION = '2026-11-04h · suivi de commande et finitions';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -319,6 +319,53 @@ async function majFicheClient(userId, champs) {
     };
   }
   return { ok: true };
+}
+
+/* Petite vibration à l'ajout au panier. Silencieuse là où elle
+   n'existe pas (iPhone), et jamais plus de quelques millisecondes :
+   un retour tactile, pas une alarme. */
+function vibrer(ms) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms || 8);
+  } catch (e) { /* rien : un téléphone qui refuse n'est pas une erreur */ }
+}
+
+/* ---- où en est une commande ----
+   Les quatre étapes sont DÉDUITES de ce qui existe déjà : l'heure de
+   création, l'heure de fermeture de la journée, la présence d'un poids
+   réel, le statut posé à la finalisation. Aucune étape inventée, aucune
+   colonne de plus à tenir à jour. */
+function etapesCommande(c, settings, maintenant) {
+  if (!c) return [];
+  const t = maintenant || Date.now();
+  const jour = dateDepuis(c.date_vente);
+  const hFerm = (settings && settings.heure_fermeture) || '19:30';
+  const fermeture = jour ? horodatage(jour, hFerm) : null;
+  const pesee = c.total_final != null
+    || (c.lignes || []).some((l) => l.poids_reel != null);
+  const prete = c.statut === 'finalisee';
+  const retrait = jour ? joursPlusTard(jour, 1) : null;
+  return [
+    {
+      cle: 'cmd', nom: 'Commande enregistrée', fait: true,
+      detail: new Date(c.created_at)
+        .toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+    },
+    {
+      cle: 'pat', nom: 'Transmise à Patrice', fait: !!fermeture && t >= fermeture,
+      detail: `à la fermeture, ${String(hFerm).replace(':', 'h')}`,
+    },
+    {
+      cle: 'pes', nom: 'Pesée et chiffrée', fait: pesee,
+      detail: pesee && c.total_final != null
+        ? `${eur(c.total_final)} à régler`
+        : 'les produits au kilo sont ajustés au poids réel',
+    },
+    {
+      cle: 'ret', nom: 'Prête à retirer', fait: prete,
+      detail: retrait ? enLettres(retrait) : '',
+    },
+  ];
 }
 
 function sousTotalFinal(l) {
@@ -2129,6 +2176,39 @@ textarea.vp-input{resize:vertical;min-height:64px}
 [data-style="flottant"] .vp-coll-pi span{border-color:#FFFFFF;color:#2A2622}
 [data-style="flottant"] .vp-bar{border-radius:999px;box-shadow:0 6px 22px rgba(138,46,46,.3)}
 
+/* ---- frise de suivi d'une commande ---- */
+.vp-frise{margin-top:14px}
+.vp-frise-e{display:flex;gap:13px;align-items:flex-start;position:relative;padding-bottom:17px}
+.vp-frise-e:last-child{padding-bottom:0}
+.vp-frise-e:not(:last-child)::before{content:'';position:absolute;left:8px;top:21px;bottom:3px;
+  width:2px;background:var(--line);border-radius:2px}
+.vp-frise-e.ok:not(:last-child)::before{background:var(--green)}
+.vp-frise-p{width:18px;height:18px;border-radius:50%;flex:0 0 auto;margin-top:2px;
+  border:2px solid var(--line);background:var(--card);display:grid;place-items:center;
+  font-size:10px;line-height:1;color:#fff}
+.vp-frise-e.ok .vp-frise-p{background:var(--green);border-color:var(--green)}
+.vp-frise-e.en .vp-frise-p{border-color:var(--wine);box-shadow:0 0 0 3px rgba(138,46,46,.14)}
+.vp-frise-t{font-size:13.5px;font-weight:700;line-height:1.25}
+.vp-frise-e:not(.ok) .vp-frise-t{color:var(--muted);font-weight:600}
+.vp-frise-d{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.35}
+
+/* ---- squelettes de chargement ----
+   Un bloc gris qui a la forme de ce qui arrive se lit comme « ça
+   charge » ; le mot « Chargement… » se lit comme « ça rame ». */
+.vp-skel{border-radius:var(--radius);background:var(--line);opacity:.55;
+  animation:vpskel 1.3s ease-in-out infinite}
+@keyframes vpskel{0%,100%{opacity:.35}50%{opacity:.7}}
+@media (prefers-reduced-motion:reduce){.vp-skel{animation:none}}
+.vp-skel-logo{width:84px;height:84px;border-radius:50%;margin:60px auto 12px}
+.vp-skel-titre{width:62%;height:30px;margin:0 auto 16px;border-radius:9px}
+.vp-skel-band{height:168px;margin-bottom:22px}
+.vp-skel-prod{height:100px;margin-bottom:10px}
+
+/* la pastille du panier tressaute quand elle change */
+.vp-bar-badge{animation:vppop .34s cubic-bezier(.34,1.56,.64,1)}
+@keyframes vppop{0%{transform:scale(.6)}60%{transform:scale(1.22)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.vp-bar-badge{animation:none}}
+
 /* combien de voisins ont pris ce produit — jamais lesquels */
 .vp-voisins{margin-top:5px;font-size:12px;font-weight:700;color:var(--green)}
 
@@ -2455,7 +2535,18 @@ export default function App() {
     ));
 
   if (!supabase) return <SetupScreen />;
-  if (!settings) return <div className="vp-app"><div className="vp-empty">Chargement…</div></div>;
+  if (!settings) {
+    return (
+      <div className="vp-app" aria-busy="true" aria-label="Chargement de la boutique">
+        <div className="vp-skel vp-skel-logo" />
+        <div className="vp-skel vp-skel-titre" />
+        <div className="vp-skel vp-skel-band" />
+        <div className="vp-skel vp-skel-prod" />
+        <div className="vp-skel vp-skel-prod" />
+        <div className="vp-skel vp-skel-prod" />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -3261,6 +3352,16 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
   })();
 
   const derniere = commandes[0];
+  /* La frise ne s'affiche que pour une commande encore d'actualité :
+     passé trois jours, elle n'apprend plus rien et encombre l'écran. */
+  const suivi = (() => {
+    const c = commandes[0];
+    if (!c || !c.date_vente) return null;
+    const j = dateDepuis(c.date_vente);
+    if (!j) return null;
+    return (Date.now() - j.getTime()) / 86400000 <= 3 ? c : null;
+  })();
+  const etapesSuivi = etapesCommande(suivi, settings, Date.now());
   const totalDe = (c) => (c.total_final != null ? Number(c.total_final) : Number(c.total_estime || 0));
   // somme des lignes avant remise : sert uniquement à afficher le
   // montant retiré, le total enregistré étant déjà net
@@ -3500,6 +3601,29 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
                     <b>{f.fois}×</b>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {suivi && (
+            <div className="vp-section">
+              <div className="vp-h2" style={{ fontSize: 16 }}>Où en est ma commande</div>
+              <div className="vp-sub">
+                Commande du {enLettres(suivi.date_vente)} · {(suivi.lignes || []).length} produit(s)
+              </div>
+              <div className="vp-frise">
+                {etapesSuivi.map((e, i) => {
+                  const enCours = !e.fait && etapesSuivi.slice(0, i).every((x) => x.fait);
+                  return (
+                    <div className={`vp-frise-e ${e.fait ? 'ok' : enCours ? 'en' : ''}`} key={e.cle}>
+                      <span className="vp-frise-p" aria-hidden="true">{e.fait ? '✓' : ''}</span>
+                      <span>
+                        <span className="vp-frise-t">{e.nom}</span>
+                        <span className="vp-frise-d">{e.detail}</span>
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -4081,6 +4205,7 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     }
     setQty(p, v, (cart[cle(p, v)] || 0) + 1);
     setPulse((x) => x + 1);
+    vibrer(8);
     showToast(`${p.nom}${v ? ` — ${v.nom}` : ''} ajouté au panier`);
   };
 
@@ -4579,7 +4704,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           <span className="vp-dot" />
           {ouvert
             ? (fermetureAt && fermetureAt > now
-                ? `Fermeture ${new Date(fermetureAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                ? (() => {
+                    const r = fermetureAt - now;
+                    const hh = Math.floor(r / 3600000);
+                    const mm = Math.floor((r % 3600000) / 60000);
+                    return hh > 0 ? `Encore ${hh}h${String(mm).padStart(2, '0')}` : `Encore ${mm} min`;
+                  })()
                 : 'Ouvert')
             : 'Fermé'}
         </span>
