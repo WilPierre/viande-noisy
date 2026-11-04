@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04c · bandeau aligne';
+const VERSION = '2026-11-04d · bandeau epure';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2020,9 +2020,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
    qui reste. Le chiffre est en Bricolage, comme les titres. */
 .vp-coll{width:100%;margin:14px 0 0;padding:17px 16px 15px;border-radius:var(--radius);
   background:#0C2F23;color:#F1EDE6;text-align:left}
-.vp-coll-e{font-size:10px;letter-spacing:.2em;text-transform:uppercase;
-  font-weight:800;color:#C8A24A}
-.vp-coll-h{display:flex;align-items:baseline;gap:10px;margin-top:7px;flex-wrap:wrap}
+.vp-coll-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .vp-coll-t{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:42px;
   font-weight:800;letter-spacing:-.045em;line-height:.95}
 .vp-coll-s{font-size:13px;color:#A8BDB2;font-weight:500}
@@ -2042,7 +2040,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-coll-pi .plus{background:rgba(241,237,230,.16);color:#F1EDE6;font-weight:700}
 .vp-coll-n{font-size:12.5px;color:#CFE0D6;line-height:1.35;flex:1 1 auto}
 .vp-coll-n b{color:#F1EDE6}
-.vp-coll .vp-status{background:rgba(241,237,230,.1);color:#F1EDE6;border-color:transparent}
+.vp-coll .vp-status{margin-top:0;background:rgba(241,237,230,.1);color:#F1EDE6;border-color:transparent}
 @media (prefers-reduced-motion:reduce){.vp-coll-j i{transition:none}}
 
 /* ---- le mot de l'organisateur ----
@@ -2667,10 +2665,6 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
 
   return (
     <div className="vp-coll">
-      <div className="vp-coll-e">
-        {ouvert ? 'Commande groupée en cours' : 'Commande groupée'}
-      </div>
-
       {ouvert ? (
         <>
           <div className="vp-coll-h">
@@ -2682,11 +2676,11 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
           </div>
           <div className="vp-coll-b">
             <span>{ouvertureAt ? `Ouvert à ${hhmm(ouvertureAt)}` : 'Ouvert'}</span>
-            <span>Liste chez Patrice à {hFerm}</span>
+            <span>Fin des commandes à {hFerm}</span>
           </div>
         </>
       ) : (
-        <div style={{ marginTop: 9 }}>{statut}</div>
+        <div>{statut}</div>
       )}
 
       {nbVoisins > 0 && (
