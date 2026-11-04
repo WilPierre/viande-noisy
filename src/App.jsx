@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04a · commande groupee visible';
+const VERSION = '2026-11-04b · notes ecartees du recap';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -8000,7 +8000,22 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   const totalCmd = (c) => apresRemise(totalBrutCmd(c), c);
   const totalPatriceCmd = (c) => (c.lignes || []).reduce((s, l) => s + stPatriceLive(l), 0);
   const totalGroupe = commandes.reduce((s, c) => s + totalCmd(c), 0);
-  const totalPatriceGroupe = commandes.reduce((s, c) => s + totalPatriceCmd(c), 0);
+
+  /* ---- notes écartées du récap ----
+     Une commande déjà réglée, une erreur, celle de l'association, un
+     voisin qui paiera la semaine prochaine : il y a toujours une raison
+     d'en sortir une des comptes. On ne touche ni à la commande, ni à la
+     note du voisin, ni à la base — uniquement aux documents récapitulatifs.
+     Le choix n'est pas enregistré : il vaut pour l'impression en cours. */
+  const [exclus, setExclus] = useState([]);
+  const [choixExclus, setChoixExclus] = useState(false);
+  const estExclu = (c) => exclus.includes(String(c.id));
+  const basculerExclu = (c) => setExclus((x) => (
+    x.includes(String(c.id)) ? x.filter((i) => i !== String(c.id)) : [...x, String(c.id)]
+  ));
+  const retenues = commandes.filter((c) => !estExclu(c));
+  const totalRetenu = retenues.reduce((s, c) => s + totalCmd(c), 0);
+  const totalPatriceRetenu = retenues.reduce((s, c) => s + totalPatriceCmd(c), 0);
 
   const nbModifs = Object.keys(edits).length;
 
@@ -8090,8 +8105,8 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   };
   const recapGlobal = () => {
     let t = `🥩 Récap commandes — ${fmtDateCourt(settings.date_vente)}\n\n`;
-    commandes.forEach((c) => { t += `${c.nom_client} : ${eur(totalCmd(c))}\n`; });
-    t += `\nTotal groupe : ${eur(totalGroupe)}`;
+    retenues.forEach((c) => { t += `${c.nom_client} : ${eur(totalCmd(c))}\n`; });
+    t += `\nTotal groupe : ${eur(totalRetenu)}`;
     return t;
   };
 
@@ -8100,8 +8115,8 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
      WhatsApp (impossible par collage), seulement un repère visuel. */
   const recapArobase = () => {
     let t = `🥩 ${settings.titre} — notes du ${fmtDateCourt(settings.date_vente)}\n\n`;
-    commandes.forEach((c) => { t += `@${nomWa(c)} — ${eur(totalCmd(c))}\n`; });
-    t += `\nTotal du groupe : ${eur(totalGroupe)}`;
+    retenues.forEach((c) => { t += `@${nomWa(c)} — ${eur(totalCmd(c))}\n`; });
+    t += `\nTotal du groupe : ${eur(totalRetenu)}`;
     t += `\n\nLe détail de ta note est dans ton compte sur la boutique 🙂`;
     return t;
   };
@@ -8228,7 +8243,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
   };
 
   const imprimer = () => {
-    const blocs = commandes.map((c) => {
+    const blocs = retenues.map((c) => {
       const rows = (c.lignes || []).map((l) => {
         const rupt = estRupture(l);
         const detail = rupt ? 'EN RUPTURE — non fourni'
@@ -8265,13 +8280,15 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
       <div class="tete mince"><div class="barre"></div><div>
         <h1>Totaux à encaisser</h1>
         <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
-          · ${commandes.length} client(s)</div>
+          · ${retenues.length} client(s)${exclus.length
+            ? ` · ${exclus.length} note(s) écartée(s) du récap`
+            : ''}</div>
       </div></div>
       ${blocs}
       <div class="bilan final">
-        <div class="bilan-c"><span class="bilan-l">Total à payer à Patrice</span><span class="bilan-v">${esc(eur(totalPatriceGroupe))}</span></div>
-        <div class="bilan-c"><span class="bilan-l">Total à encaisser</span><span class="bilan-v">${esc(eur(totalGroupe))}</span></div>
-        <div class="bilan-c vert"><span class="bilan-l">Marge</span><span class="bilan-v">${esc(eur(totalGroupe - totalPatriceGroupe))}</span></div>
+        <div class="bilan-c"><span class="bilan-l">Total à payer à Patrice</span><span class="bilan-v">${esc(eur(totalPatriceRetenu))}</span></div>
+        <div class="bilan-c"><span class="bilan-l">Total à encaisser</span><span class="bilan-v">${esc(eur(totalRetenu))}</span></div>
+        <div class="bilan-c vert"><span class="bilan-l">Marge</span><span class="bilan-v">${esc(eur(totalRetenu - totalPatriceRetenu))}</span></div>
       </div>
       <div class="pied">Viande Noisy — document généré le ${esc(new Date().toLocaleDateString('fr-FR'))}</div>`;
     if (!imprimerDocument(`Totaux ${settings.date_vente}`, corps)) {
@@ -8575,19 +8592,73 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
             <div className="vp-srow">
               <div className="vp-h2" style={{ fontSize: 16 }}>Feuille de totaux</div>
               <div style={{ textAlign: 'right' }}>
-                <div className="vp-h2" style={{ fontSize: 16, color: 'var(--wine)' }}>{eur(totalGroupe)}</div>
-                <div className="vp-marge">marge {eur(totalGroupe - totalPatriceGroupe)}</div>
+                <div className="vp-h2" style={{ fontSize: 16, color: 'var(--wine)' }}>{eur(totalRetenu)}</div>
+                <div className="vp-marge">marge {eur(totalRetenu - totalPatriceRetenu)}</div>
               </div>
             </div>
             <div className="vp-sub">
-              À payer à Patrice : <b>{eur(totalPatriceGroupe)}</b>.
+              À payer à Patrice : <b>{eur(totalPatriceRetenu)}</b>.
             </div>
+
+            {exclus.length > 0 && (
+              <div className="vp-rupt-note" style={{ marginTop: 10 }}>
+                {exclus.length} note{exclus.length > 1 ? 's' : ''} écartée{exclus.length > 1 ? 's' : ''} du
+                récap — {eur(totalGroupe - totalRetenu)} non compté{(totalGroupe - totalRetenu) > 1 ? 's' : ''}.
+                Les commandes restent intactes.
+              </div>
+            )}
+
+            {commandes.length > 1 && (
+              <>
+                <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
+                  onClick={() => setChoixExclus((o) => !o)}>
+                  {choixExclus
+                    ? 'Masquer la sélection'
+                    : `Choisir les notes à compter (${retenues.length}/${commandes.length})`}
+                </button>
+
+                {choixExclus && (
+                  <div className="vp-liste" style={{ marginTop: 10 }}>
+                    {commandes.map((c) => (
+                      <label className="vp-liste-l" key={`ex-${c.id}`} style={{ cursor: 'pointer', gap: 10 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <input type="checkbox" checked={!estExclu(c)}
+                            onChange={() => basculerExclu(c)}
+                            style={{ width: 20, height: 20, accentColor: 'var(--wine)', flex: '0 0 auto' }} />
+                          <span style={{
+                            textDecoration: estExclu(c) ? 'line-through' : 'none',
+                            opacity: estExclu(c) ? 0.55 : 1,
+                          }}>
+                            {c.nom_client}
+                            {c.statut === 'finalisee' && (
+                              <span className="vp-pill" style={{ marginLeft: 6, color: 'var(--green)' }}>finalisée</span>
+                            )}
+                          </span>
+                        </span>
+                        <b style={{ opacity: estExclu(c) ? 0.45 : 1, whiteSpace: 'nowrap' }}>{eur(totalCmd(c))}</b>
+                      </label>
+                    ))}
+                    <div className="vp-grid2" style={{ marginTop: 10 }}>
+                      <button className="vp-btn ghost sm" onClick={() => setExclus([])}>
+                        Tout compter
+                      </button>
+                      <button className="vp-btn ghost sm"
+                        onClick={() => setExclus(commandes.map((c) => String(c.id)))}>
+                        Tout écarter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             <button className="vp-cta" style={{ marginTop: 12 }} onClick={imprimerToutesNotes}>
               Imprimer les notes des clients
             </button>
             <div className="vp-sub" style={{ marginTop: 6 }}>
               Une note par voisin, avec <b>tes prix uniquement</b> — aucun coût Patrice.
-              C'est le document à leur remettre.
+              C'est le document à leur remettre. Les notes écartées y figurent quand même :
+              une note en trop se jette, une note manquante se paie.
             </div>
 
             <div className="vp-grid2" style={{ marginTop: 16 }}>
