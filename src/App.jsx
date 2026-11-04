@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04m · ruptures Patrice et alerte';
+const VERSION = '2026-11-04n · rupture appliquee aux commandes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -6474,7 +6474,8 @@ function Fournisseur({ settings, showToast }) {
     const vers = !p.rupture;
     if (vers && !window.confirm(
       `Signaler que « ${p.produit_nom} » ne pourra pas être fourni ?\n\n`
-      + 'Il sort immédiatement de la vente et William est averti.'
+      + 'Il sort de la vente, il est retiré des commandes du jour non finalisées, '
+      + 'et William est averti.'
     )) return;
     setRupt(p.produit_id);
     try {
@@ -6574,7 +6575,8 @@ function Fournisseur({ settings, showToast }) {
             <div className="vp-h2" style={{ fontSize: 16 }}>{produits.length} produit(s) à préparer</div>
             <div className="vp-sub">
               <b>Prix</b> pour corriger un tarif. <b>Rupture</b> si vous ne pourrez pas
-              fournir : le produit sort de la vente et William est averti.
+              fournir : le produit sort de la vente, il est retiré des commandes du
+              jour, et les clients voient « non fourni ». <b>Dispo</b> annule tout.
             </div>
             <div className="vp-liste" style={{ marginTop: 12 }}>
               {produits.map((p) => (
