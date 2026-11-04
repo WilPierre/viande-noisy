@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-03b · export filtre, quantites en gras, jour de retrait';
+const VERSION = '2026-11-04a · commande groupee visible';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1084,7 +1084,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
 .vp-head{padding:60px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
 .vp-logo{width:84px;height:auto;margin-bottom:10px}
-.vp-title{font-size:30px;font-weight:800;line-height:1.05;margin-top:4px}
+.vp-title{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:31px;
+  font-weight:800;line-height:1.02;letter-spacing:-.035em;margin-top:4px}
 .vp-status{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:8px 14px;
   border-radius:999px;font-size:13px;font-weight:600}
 .vp-open{background:var(--green-s);color:var(--green)}
@@ -1247,7 +1248,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
 .vp-srow{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.vp-h2{font-size:19px;font-weight:800}
+.vp-h2{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:19px;
+  font-weight:700;letter-spacing:-.02em}
 .vp-sub{color:var(--muted);font-size:13px;margin-top:2px}
 .vp-btn{background:var(--wine);color:#fff;border-radius:10px;padding:10px 14px;font-weight:700;font-size:14px}
 .vp-btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
@@ -1352,7 +1354,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-bar-txt{display:flex;flex-direction:column;line-height:1.25;text-align:left;min-width:0}
 .vp-bar-txt b{font-size:15px;font-weight:800}
 .vp-bar-txt small{font-size:12px;opacity:.82}
-.vp-bar-r{display:flex;align-items:center;gap:7px;font-size:17px;font-weight:800;
+.vp-bar-r{display:flex;align-items:center;gap:7px;font-size:18px;font-weight:800;
+  font-family:'Bricolage Grotesque','Inter',sans-serif;letter-spacing:-.02em;
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .vp-bar-chev{transition:transform .2s ease;transform:rotate(180deg)}
 .vp-bar-chev.on{transform:rotate(0deg)}
@@ -2008,6 +2011,51 @@ textarea.vp-input{resize:vertical;min-height:64px}
 }
 
 /* compteur de visiteurs (admin) */
+/* ---- bandeau de la commande groupée ----
+   Vert profond pour trancher avec le papier, doré pour le temps
+   qui reste. Le chiffre est en Bricolage, comme les titres. */
+.vp-coll{margin:14px 0 0;padding:18px 17px 16px;border-radius:20px;
+  background:#0C2F23;color:#F1EDE6;text-align:left}
+.vp-coll-e{font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  font-weight:800;color:#C8A24A}
+.vp-coll-h{display:flex;align-items:baseline;gap:9px;margin-top:8px;flex-wrap:wrap}
+.vp-coll-t{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:46px;
+  font-weight:800;letter-spacing:-.045em;line-height:.9}
+.vp-coll-s{font-size:13px;color:#A8BDB2;font-weight:500}
+.vp-coll-j{height:7px;border-radius:999px;background:rgba(241,237,230,.16);
+  margin-top:15px;overflow:hidden}
+.vp-coll-j i{display:block;height:100%;border-radius:999px;background:#C8A24A;
+  transition:width .6s ease}
+.vp-coll-b{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;
+  color:#A8BDB2;margin-top:6px}
+.vp-coll-v{display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:14px;
+  border-top:1px solid rgba(241,237,230,.14)}
+.vp-coll-pi{display:flex;flex:0 0 auto}
+.vp-coll-pi span{width:32px;height:32px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:11.5px;font-weight:800;
+  border:2px solid #0C2F23;margin-left:-10px;color:#10281E}
+.vp-coll-pi span:first-child{margin-left:0}
+.vp-coll-pi .plus{background:rgba(241,237,230,.16);color:#F1EDE6;font-weight:700}
+.vp-coll-n{font-size:12.5px;color:#CFE0D6;line-height:1.35;flex:1 1 auto}
+.vp-coll-n b{color:#F1EDE6}
+.vp-coll .vp-status{background:rgba(241,237,230,.1);color:#F1EDE6;border-color:transparent}
+@media (prefers-reduced-motion:reduce){.vp-coll-j i{transition:none}}
+
+/* ---- le mot de l'organisateur ----
+   Le message d'accueil avait l'air d'un message système. Signé, il
+   a l'air de venir de quelqu'un. */
+.vp-mot{margin-top:12px;padding:13px 15px;border-radius:14px;background:#FFF6E4;
+  border:1px solid #EEDFBE;color:#5C4A28;display:flex;gap:11px;
+  align-items:flex-start;text-align:left}
+.vp-mot-a{width:28px;height:28px;border-radius:50%;background:var(--wine);color:#fff;
+  font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  flex:0 0 auto}
+.vp-mot-t{font-size:12.5px;line-height:1.45}
+[data-theme="sombre"] .vp-mot{background:#2A2115;border-color:#4A3A22;color:#E8CFA0}
+
+/* combien de voisins ont pris ce produit — jamais lesquels */
+.vp-voisins{margin-top:5px;font-size:12px;font-weight:700;color:var(--green)}
+
 .vp-live{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:9px 13px;
   border-radius:10px;background:var(--blanc);border:1px solid var(--line);
   color:var(--muted);font-size:13px;font-weight:600}
@@ -2224,13 +2272,20 @@ export default function App() {
      de tout le monde. On ne reçoit qu'un total par produit : aucun
      nom, aucun montant, rien qui trahisse qui a commandé quoi. */
   const [commandees, setCommandees] = useState({});
+  // combien de voisins ont pris ce produit — jamais QUI
+  const [voisinsProduit, setVoisinsProduit] = useState({});
   const chargerCommandees = async () => {
     if (!supabase || !settings || !settings.date_vente) return;
     const { data, error } = await supabase.rpc('quantites_commandees', { p_date: settings.date_vente });
     if (error) return;                       // migration pas encore passée : stock ignoré
     const m = {};
-    (data || []).forEach((r) => { m[String(r.produit_id)] = Number(r.commande) || 0; });
+    const v = {};
+    (data || []).forEach((r) => {
+      m[String(r.produit_id)] = Number(r.commande) || 0;
+      v[String(r.produit_id)] = Number(r.voisins) || 0;   // absent avant la migration : 0
+    });
     setCommandees(m);
+    setVoisinsProduit(v);
   };
   useEffect(() => {
     chargerCommandees();
@@ -2342,6 +2397,7 @@ export default function App() {
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
           estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
           forcee={forcee} conges={conges} commandees={commandees}
+          voisinsProduit={voisinsProduit}
           rechargerStock={chargerCommandees} showToast={showToast}
           enLigne={enLigne}
           session={session} profil={profil} profilCharge={profilCharge} chargerProfil={chargerProfil}
@@ -2572,6 +2628,79 @@ function Countdown({ fermetureAt, now, ouvert, venteActive, prochaineAt, forcee 
   const m = Math.floor((reste % 3600000) / 60000);
   const txt = h > 0 ? `Fermeture dans ${h}h${String(m).padStart(2, '0')}` : `Fermeture dans ${m} min`;
   return <span className="vp-status vp-open"><span className="vp-dot" />{txt}</span>;
+}
+
+/* ---- bandeau de la commande groupée ----
+   C'est ce qu'aucune boutique en ligne ne peut afficher : on est
+   plusieurs, en ce moment, et la liste part à une heure précise.
+   Il passe donc devant le catalogue.
+
+   Les prénoms ne sortent JAMAIS. Au mieux une initiale, et seulement
+   pour les membres connectés ; un visiteur de passage ne voit que des
+   pastilles vides et un nombre. */
+const TEINTES_VOISINS = ['#C8A24A', '#D98E5A', '#8FB89F', '#C96F6F', '#B9A6D1'];
+
+function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermeture,
+  nbVoisins, initiales, dejaCommande, statut }) {
+  const reste = fermetureAt ? fermetureAt - now : 0;
+  const h = Math.floor(reste / 3600000);
+  const m = Math.floor((reste % 3600000) / 60000);
+  const gros = h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${Math.max(m, 0)} min`;
+  const avance = (ouvertureAt && fermetureAt && fermetureAt > ouvertureAt)
+    ? Math.min(100, Math.max(0, ((now - ouvertureAt) / (fermetureAt - ouvertureAt)) * 100))
+    : 0;
+  const hhmm = (ts) => new Date(ts)
+    .toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+
+  // Pas d'initiales (visiteur non connecté) : des pastilles muettes.
+  const anonyme = initiales.length === 0;
+  const vues = anonyme
+    ? Array(Math.min(nbVoisins, 4)).fill('')
+    : initiales.slice(0, 4);
+  const reliquat = Math.max(0, nbVoisins - vues.length);
+
+  return (
+    <div className="vp-coll">
+      <div className="vp-coll-e">
+        {ouvert ? 'Commande groupée en cours' : 'Commande groupée'}
+      </div>
+
+      {ouvert ? (
+        <>
+          <div className="vp-coll-h">
+            <span className="vp-coll-t">{gros}</span>
+            <span className="vp-coll-s">avant la fermeture</span>
+          </div>
+          <div className="vp-coll-j">
+            <i style={{ width: `${avance}%` }} />
+          </div>
+          <div className="vp-coll-b">
+            <span>{ouvertureAt ? `Ouvert à ${hhmm(ouvertureAt)}` : 'Ouvert'}</span>
+            <span>Liste chez Patrice à {heureFermeture || '19:30'}</span>
+          </div>
+        </>
+      ) : (
+        <div style={{ marginTop: 9 }}>{statut}</div>
+      )}
+
+      {nbVoisins > 0 && (
+        <div className="vp-coll-v">
+          <div className="vp-coll-pi" aria-hidden="true">
+            {vues.map((x, i) => (
+              <span key={`v${i}`} style={{ background: TEINTES_VOISINS[i % TEINTES_VOISINS.length] }}>{x}</span>
+            ))}
+            {reliquat > 0 && <span className="plus">+{reliquat}</span>}
+          </div>
+          <div className="vp-coll-n">
+            <b>{nbVoisins} voisin{nbVoisins > 1 ? 's' : ''}</b> {nbVoisins > 1 ? 'ont' : 'a'} commandé
+            {ouvert && !dejaCommande && (
+              <> · tu serais le {nbVoisins + 1}<sup>e</sup></>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ============================================================
@@ -3371,7 +3500,8 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
    CLIENT — interface de commande
 ============================================================ */
 function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, estSemaine, ferie,
-  jourOuvert, prochaineAt, forcee, conges, commandees, rechargerStock, enLigne, showToast,
+  jourOuvert, prochaineAt, forcee, conges, commandees, voisinsProduit,
+  rechargerStock, enLigne, showToast,
   session, profil, profilCharge, chargerProfil }) {
   const repris = useMemo(() => lirePanierStocke(settings.date_vente), [settings.date_vente]);
   const [cart, setCart] = useState(() => (repris && repris.cart) || {});   // "produitId|varianteId" -> quantite
@@ -3392,7 +3522,6 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [modeAuth, setModeAuth] = useState('inscription');
   const [favoris, setFavoris] = useState([]);      // ids de produits
   const [derniere, setDerniere] = useState(null);  // dernière commande du client
-  const [nbVoisins, setNbVoisins] = useState(0);   // commandes du jour
   const [photoZoom, setPhotoZoom] = useState(null); // { url, nom } affiché en grand
   const [ouvertes, setOuvertes] = useState([]); // rubriques dépliées
   const basculerRubrique = (cat) => setOuvertes((o) =>
@@ -3471,6 +3600,37 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   }, [connecte, profil && profil.date_naissance]);
 
   const [maCommande, setMaCommande] = useState(() => lireCommandeStockee(settings.date_vente));
+
+  /* ---- qui est dans la commande groupée ----
+     Le nombre est public : c'est lui qui donne envie de rejoindre.
+     Les initiales sont réservées aux membres connectés — un visiteur
+     de passage n'a pas à savoir qui achète de la viande et quand. */
+  const [nbVoisins, setNbVoisins] = useState(0);
+  const [initiales, setInitiales] = useState([]);
+  const monId = session ? session.user.id : null;
+  useEffect(() => {
+    if (!supabase || !settings.date_vente) return undefined;
+    let vivant = true;
+    const charger = async () => {
+      const { data: n, error } = await supabase.rpc('nb_voisins_du_jour', { p_date: settings.date_vente });
+      if (!vivant) return;
+      if (error) { setNbVoisins(0); setInitiales([]); return; }  // migration pas encore passée
+      setNbVoisins(Number(n) || 0);
+      if (!monId) { setInitiales([]); return; }
+      const { data: ini } = await supabase.rpc('voisins_du_jour', { p_date: settings.date_vente });
+      if (!vivant) return;
+      setInitiales((ini || [])
+        .map((r) => String(r.initiale || '').slice(0, 1))
+        .filter(Boolean));
+    };
+    charger();
+    const ch = supabase.channel('viande_coll')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'viande_commandes' }, charger)
+      .subscribe();
+    const t = setInterval(charger, 90000);
+    return () => { vivant = false; supabase.removeChannel(ch); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.date_vente, monId]);
   const [reprise, setReprise] = useState(false);
 
   /* ---- doublons de commande ----
@@ -3757,20 +3917,6 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     charger();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connecte, session, vueCompte]);
-
-  // combien de voisins ont déjà commandé aujourd'hui
-  useEffect(() => {
-    const charger = async () => {
-      const { count } = await supabase.from('viande_commandes')
-        .select('id', { count: 'exact', head: true })
-        .eq('date_vente', settings.date_vente);
-      setNbVoisins(count || 0);
-    };
-    charger();
-    const t = setInterval(charger, 60000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.date_vente, done]);
 
   const cle = (p, v) => `${p.id}|${v ? v.id : ''}`;
   // variante actuellement sélectionnée sur la fiche produit (la 1re par défaut)
@@ -4262,6 +4408,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                         Plus que {num(reste)} {p.mode_vente === 'kg' ? 'kg' : reste > 1 ? 'pièces' : 'pièce'}
                       </div>
                     )}
+                    {/* à partir de deux : en dessous, le chiffre
+                        désignerait une seule personne */}
+                    {!fini && ((voisinsProduit || {})[String(p.id)] || 0) >= 2 && (
+                      <div className="vp-voisins">
+                        {voisinsProduit[String(p.id)]} voisins l'ont pris aujourd'hui
+                      </div>
+                    )}
                     <div className="vp-pmeta">
                       <span className="vp-tag">{m.label}</span>
                       {p.mode_vente === 'piece_pesee' && pm
@@ -4369,9 +4522,21 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
       <div className="vp-head">
         <img src="/logo-mouton.png" alt="" className="vp-logo" />
         <h1 className="vp-title">{settings.titre}</h1>
-        <Countdown fermetureAt={fermetureAt} now={now} ouvert={ouvert}
-          venteActive={settings.vente_active} prochaineAt={prochaineAt} forcee={forcee} />
-        {settings.message_accueil && <div className="vp-note">{settings.message_accueil}</div>}
+        <BandeauCollectif
+          ouvert={ouvert} ouvertureAt={ouvertureAt} fermetureAt={fermetureAt} now={now}
+          heureFermeture={settings.heure_fermeture}
+          nbVoisins={nbVoisins} initiales={initiales}
+          dejaCommande={!!maCommande}
+          statut={(
+            <Countdown fermetureAt={fermetureAt} now={now} ouvert={ouvert}
+              venteActive={settings.vente_active} prochaineAt={prochaineAt} forcee={forcee} />
+          )} />
+        {settings.message_accueil && (
+          <div className="vp-mot">
+            <span className="vp-mot-a">W</span>
+            <span className="vp-mot-t">{settings.message_accueil}</span>
+          </div>
+        )}
         <Sondage settings={settings} showToast={showToast} session={session} profil={profil}
           onConnexion={() => { setModeAuth('connexion'); setAuthOuvert(true); }} />
       </div>
@@ -4656,16 +4821,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
             </div>
           )}
 
-          {(nbVoisins >= 2 || enLigne >= 2) && !q && (
+          {/* le nombre de commandes est désormais dans le bandeau du haut :
+              inutile de le répéter ici */}
+          {enLigne >= 2 && !q && (
             <div className="vp-social">
               <span className="vp-social-pt" />
-              {enLigne >= 2 && (
-                <span>{enLigne} personnes regardent la boutique en ce moment</span>
-              )}
-              {enLigne >= 2 && nbVoisins >= 2 && <span className="vp-social-sep">·</span>}
-              {nbVoisins >= 2 && (
-                <span>{nbVoisins} ont déjà commandé aujourd'hui</span>
-              )}
+              <span>{enLigne} personnes regardent la boutique en ce moment</span>
             </div>
           )}
 
