@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04l · espace fournisseur';
+const VERSION = '2026-11-04m · ruptures Patrice et alerte';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -5747,6 +5747,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
   const [tab, setTab] = useState('commandes');
   const [commandes, setCommandes] = useState([]);
   const [nonLus, setNonLus] = useState(0);
+  const [nouvP, setNouvP] = useState(0);   // décisions de Patrice pas encore vues
 
   // messages du questionnaire pas encore lus
   const compterNonLus = async () => {
@@ -5754,10 +5755,18 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
       .select('id', { count: 'exact', head: true }).eq('lu', false);
     setNonLus(count || 0);
   };
+  const compterPatrice = async (pin) => {
+    const code = pin || pinValide;
+    if (!code) return;
+    const { data, error } = await supabase.rpc('fournisseur_nouveautes', { p_pin: code });
+    if (error) return;                 // migration pas encore passée
+    setNouvP(Number(data) || 0);
+  };
   useEffect(() => {
     if (!unlocked) return;
     compterNonLus();
-    const t = setInterval(compterNonLus, 30000);
+    compterPatrice();
+    const t = setInterval(() => { compterNonLus(); compterPatrice(); }, 30000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unlocked]);
@@ -5860,7 +5869,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
     ['pesees', 'Pesées'],
     ['membres', 'Membres'],
     ['sondage', nonLus > 0 ? `Sondage (${nonLus})` : 'Sondage'],
-    ['patrice', 'Patrice'],
+    ['patrice', nouvP > 0 ? `Patrice (${nouvP})` : 'Patrice'],
     ['reglages', 'Réglages'],
   ];
 
@@ -5878,6 +5887,17 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
           ? 'Personne sur la boutique en ce moment'
           : `${enLigne} visiteur${enLigne > 1 ? 's' : ''} sur la boutique en ce moment`}
       </div>
+
+      {nouvP > 0 && tab !== 'patrice' && (
+        <button className="vp-alerte-msg" onClick={() => setTab('patrice')}>
+          <span className="vp-alerte-ico">🧾</span>
+          <span>
+            <b>{nouvP} décision{nouvP > 1 ? 's' : ''} de Patrice</b>
+            <small>prix modifié ou rupture signalée — appuie pour voir</small>
+          </span>
+          <span className="vp-sondage-fl">›</span>
+        </button>
+      )}
 
       {nonLus > 0 && tab !== 'sondage' && (
         <button className="vp-alerte-msg" onClick={() => setTab('sondage')}>
@@ -5959,7 +5979,10 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
       {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} pinAdmin={pinValide} />}
       {tab === 'sondage' && <AdminSondage settings={settings} reload={reload} showToast={showToast} onLu={() => setNonLus(0)} />}
-      {tab === 'patrice' && <AdminFournisseur showToast={showToast} pinAdmin={pinValide} />}
+      {tab === 'patrice' && (
+        <AdminFournisseur showToast={showToast} pinAdmin={pinValide}
+          onLu={() => setNouvP(0)} />
+      )}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
       <div className="vp-foot">
@@ -6382,6 +6405,7 @@ function Fournisseur({ settings, showToast }) {
   const [charge, setCharge] = useState(false);
   const [edit, setEdit] = useState(null);      // { id, prix }
   const [maj, setMaj] = useState(false);
+  const [rupt, setRupt] = useState('');        // produit en cours de bascule
 
   const garderJeton = (j) => {
     setJeton(j);
@@ -6440,6 +6464,28 @@ function Fournisseur({ settings, showToast }) {
       showToast(`${p.produit_nom} : ${eur(v)} enregistré`);
       await charger();
     } finally { setMaj(false); }
+  };
+
+  /* Signaler qu'un produit ne pourra pas être fourni. Agit sur la
+     fiche du produit — il sort de la vente — et jamais sur les
+     commandes déjà passées : amputer la commande d'un voisin, c'est
+     une décision de William, pas du fournisseur. */
+  const basculerRupture = async (p) => {
+    const vers = !p.rupture;
+    if (vers && !window.confirm(
+      `Signaler que « ${p.produit_nom} » ne pourra pas être fourni ?\n\n`
+      + 'Il sort immédiatement de la vente et William est averti.'
+    )) return;
+    setRupt(p.produit_id);
+    try {
+      const { data, error } = await supabase.rpc('fournisseur_rupture', {
+        p_jeton: jeton, p_produit: p.produit_id, p_valeur: vers,
+      });
+      if (error) { showToast(messageErreur(error)); return; }
+      if (data !== true) { showToast('Produit hors catalogue ou session expirée'); return; }
+      showToast(vers ? `${p.produit_nom} signalé indisponible` : `${p.produit_nom} remis en vente`);
+      await charger();
+    } finally { setRupt(''); }
   };
 
   const parClient = (() => {
@@ -6526,13 +6572,17 @@ function Fournisseur({ settings, showToast }) {
         ) : (
           <div className="vp-section">
             <div className="vp-h2" style={{ fontSize: 16 }}>{produits.length} produit(s) à préparer</div>
-            <div className="vp-sub">Appuyez sur un prix pour le corriger.</div>
+            <div className="vp-sub">
+              <b>Prix</b> pour corriger un tarif. <b>Rupture</b> si vous ne pourrez pas
+              fournir : le produit sort de la vente et William est averti.
+            </div>
             <div className="vp-liste" style={{ marginTop: 12 }}>
               {produits.map((p) => (
                 <div key={p.produit_id}>
-                  <div className="vp-liste-l" style={{ alignItems: 'flex-start' }}>
+                  <div className="vp-liste-l" style={{ alignItems: 'flex-start', opacity: p.rupture ? 0.6 : 1 }}>
                     <span style={{ minWidth: 0 }}>
-                      <b>{p.produit_nom}</b>
+                      <b style={p.rupture ? { textDecoration: 'line-through' } : undefined}>{p.produit_nom}</b>
+                      {p.rupture && <span className="vp-badge-epuise">INDISPONIBLE</span>}
                       <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>
                         {num(p.quantite)} {p.mode_vente === 'kg' ? 'kg' : 'pièce(s)'}
                         {' · '}{eur(Number(p.prix_patrice) || 0)}
@@ -6546,6 +6596,11 @@ function Fournisseur({ settings, showToast }) {
                           ? null
                           : { id: p.produit_id, prix: String(Number(p.prix_patrice) || 0).replace('.', ',') })}>
                         Prix
+                      </button>
+                      <button className={`vp-btn sm ${p.rupture ? '' : 'ghost'}`}
+                        disabled={rupt === p.produit_id}
+                        onClick={() => basculerRupture(p)}>
+                        {p.rupture ? 'Dispo' : 'Rupture'}
                       </button>
                     </span>
                   </div>
@@ -7299,7 +7354,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
    ses connexions, ses échecs de connexion, et chaque prix modifié
    avec l'avant, l'après et le nombre de lignes de commande que ça
    a touchées. */
-function AdminFournisseur({ showToast, pinAdmin }) {
+function AdminFournisseur({ showToast, pinAdmin, onLu }) {
   const [journal, setJournal] = useState([]);
   const [charge, setCharge] = useState(false);
   const [ident, setIdent] = useState('');
@@ -7315,6 +7370,9 @@ function AdminFournisseur({ showToast, pinAdmin }) {
     if (error) { showToast(messageErreur(error)); return; }
     setJournal(data || []);
     setCharge(true);
+    // ouvrir l'onglet vaut lecture : l'alerte s'éteint
+    const { error: e2 } = await supabase.rpc('fournisseur_journal_vu', { p_pin: pinAdmin });
+    if (!e2 && onLu) onLu();
   };
   useEffect(() => {
     charger();
@@ -7347,6 +7405,7 @@ function AdminFournisseur({ showToast, pinAdmin }) {
   };
 
   const prix = journal.filter((j) => j.quoi === 'prix');
+  const ruptures = journal.filter((j) => j.quoi === 'rupture');
   const echecs = journal.filter((j) => j.quoi === 'echec');
 
   return (
@@ -7368,6 +7427,10 @@ function AdminFournisseur({ showToast, pinAdmin }) {
           <div>
             <div className="vp-h2" style={{ fontSize: 15 }}>{prix.length}</div>
             <div className="vp-sub">prix modifiés (60 jours)</div>
+          </div>
+          <div>
+            <div className="vp-h2" style={{ fontSize: 15 }}>{ruptures.length}</div>
+            <div className="vp-sub">ruptures signalées</div>
           </div>
           <div>
             <div className="vp-h2" style={{ fontSize: 15, color: echecs.length ? 'var(--wine)' : undefined }}>
@@ -7392,6 +7455,7 @@ function AdminFournisseur({ showToast, pinAdmin }) {
                 <span style={{ minWidth: 0 }}>
                   <b>
                     {j.quoi === 'prix' ? `Prix modifié — ${j.produit_nom || '?'}`
+                      : j.quoi === 'rupture' ? `Rupture — ${j.produit_nom || '?'}`
                       : j.quoi === 'connexion' ? 'Connexion'
                       : j.quoi === 'echec' ? 'Connexion refusée'
                       : j.quoi === 'motdepasse' ? 'Identifiants changés'
