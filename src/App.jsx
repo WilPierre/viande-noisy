@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04f · personnes';
+const VERSION = '2026-11-04g · deux habillages a essayer';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2053,6 +2053,82 @@ textarea.vp-input{resize:vertical;min-height:64px}
   flex:0 0 auto}
 .vp-coll-mot .t{font-size:12.5px;line-height:1.45;color:#CFE0D6}
 
+/* ============================================================
+   DEUX HABILLAGES D'ESSAI
+   On ne redessine pas la boutique : on pose un attribut sur la page
+   et on surcharge ce qui donne son caractère — fonds, bordures,
+   ombres, arrondis. Le balisage, lui, ne bouge pas d'une ligne, donc
+   revenir en arrière est instantané.
+   Les couleurs sont écartées quand le mode sombre est actif : les
+   deux attributs vivent sur le même élément, et sans ce garde-fou
+   l'habillage repeindrait la nuit en blanc.
+============================================================ */
+
+/* ---- 1. ÉPURE — aucune boîte, des filets, du blanc ---- */
+:root:not([data-theme="sombre"])[data-style="epure"]{
+  --paper:#FCFBF9; --card:#FFFFFF; --ink:#1A1917; --muted:#8C8780;
+  --line:#E7E3DC; --radius:10px; --shadow:none;
+}
+[data-style="epure"] .vp-prod{border:none;border-bottom:1px solid var(--line);
+  border-radius:0;box-shadow:none;background:transparent;margin-bottom:0;padding:15px 2px}
+[data-style="epure"] .vp-section{background:transparent;border:none;box-shadow:none;
+  border-top:1px solid var(--line);border-radius:0;padding:16px 2px}
+[data-style="epure"] .vp-photo,[data-style="epure"] .vp-tuile{border-radius:8px}
+[data-style="epure"] .vp-tag{border-radius:4px}
+[data-style="epure"] .vp-add{background:transparent;color:var(--ink);
+  border:1px solid #DCD6CD;font-weight:600;border-radius:8px}
+[data-style="epure"] .vp-cta,[data-style="epure"] .vp-btn{border-radius:8px}
+[data-style="epure"] .vp-title{font-family:'Inter',sans-serif;font-weight:700;letter-spacing:-.03em}
+[data-style="epure"] .vp-h2{font-family:'Inter',sans-serif;font-weight:600;letter-spacing:-.02em}
+/* le bandeau perd sa boîte : il devient le haut de la page */
+[data-style="epure"] .vp-coll{background:transparent;color:var(--ink);
+  border-radius:0;padding:16px 2px 0}
+[data-style="epure"] .vp-coll-t{font-family:'Inter',sans-serif;font-weight:600;
+  font-size:44px;letter-spacing:-.045em}
+[data-style="epure"] .vp-coll-s{color:var(--muted)}
+[data-style="epure"] .vp-coll-j{height:2px;border-radius:0;background:#EEEAE3}
+[data-style="epure"] .vp-coll-j i{border-radius:0;background:var(--wine)}
+[data-style="epure"] .vp-coll-b{color:#A09A92}
+[data-style="epure"] .vp-coll-v,[data-style="epure"] .vp-coll-mot{border-top-color:#EEEAE3}
+[data-style="epure"] .vp-coll-n{color:var(--muted)}
+[data-style="epure"] .vp-coll-n b{color:var(--ink)}
+[data-style="epure"] .vp-coll-mot .t{color:#55504A}
+[data-style="epure"] .vp-coll-mot .a{background:transparent;color:var(--muted);
+  border:1px solid var(--line)}
+[data-style="epure"] .vp-coll-pi span{border-color:#FCFBF9;color:#2A2622}
+[data-style="epure"] .vp-bar{background:#FFFFFF;color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 4px 18px rgba(36,30,27,.09);animation:none}
+[data-style="epure"] .vp-bar-r{color:var(--wine);font-family:'Inter',sans-serif;font-weight:700}
+[data-style="epure"] .vp-bar-badge{background:var(--wine);color:#fff}
+
+/* ---- 2. FLOTTANT — des surfaces qui lévitent ---- */
+:root:not([data-theme="sombre"])[data-style="flottant"]{
+  --paper:#F2F0EC; --card:#FFFFFF; --ink:#1F1D1A; --muted:#8B857D;
+  --line:#E9E5DE; --radius:22px;
+  --shadow:0 1px 2px rgba(31,29,26,.04),0 8px 22px rgba(31,29,26,.06);
+}
+[data-style="flottant"] .vp-prod{border:none;border-radius:20px;box-shadow:var(--shadow);padding:12px}
+[data-style="flottant"] .vp-section{border:none;border-radius:24px;box-shadow:var(--shadow)}
+[data-style="flottant"] .vp-photo,[data-style="flottant"] .vp-tuile{border-radius:16px}
+[data-style="flottant"] .vp-tag{border-radius:999px}
+[data-style="flottant"] .vp-add{border-radius:999px;padding:10px 18px}
+[data-style="flottant"] .vp-cta{border-radius:999px;padding:16px}
+[data-style="flottant"] .vp-btn{border-radius:999px}
+[data-style="flottant"] .vp-input,[data-style="flottant"] .vp-quick-select{border-radius:14px}
+[data-style="flottant"] .vp-coll{background:var(--card);color:var(--ink);
+  border-radius:24px;box-shadow:var(--shadow)}
+[data-style="flottant"] .vp-coll-s{color:var(--muted)}
+[data-style="flottant"] .vp-coll-j{background:#EFEBE4}
+[data-style="flottant"] .vp-coll-j i{background:var(--wine)}
+[data-style="flottant"] .vp-coll-b{color:#A39C93}
+[data-style="flottant"] .vp-coll-v,[data-style="flottant"] .vp-coll-mot{border-top-color:#EFEBE4}
+[data-style="flottant"] .vp-coll-n{color:#6E6860}
+[data-style="flottant"] .vp-coll-n b{color:var(--ink)}
+[data-style="flottant"] .vp-coll-mot .t{color:#57524B}
+[data-style="flottant"] .vp-coll-mot .a{background:#C8A24A;color:#2A2015}
+[data-style="flottant"] .vp-coll-pi span{border-color:#FFFFFF;color:#2A2622}
+[data-style="flottant"] .vp-bar{border-radius:999px;box-shadow:0 6px 22px rgba(138,46,46,.3)}
+
 /* combien de voisins ont pris ce produit — jamais lesquels */
 .vp-voisins{margin-top:5px;font-size:12px;font-weight:700;color:var(--green)}
 
@@ -3540,6 +3616,14 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
     document.documentElement.setAttribute('data-theme', theme);
     return () => document.documentElement.removeAttribute('data-theme');
   }, [theme]);
+  /* L'habillage ne vaut que pour la boutique : l'admin, où tu passes
+     tes journées, garde son apparence habituelle. */
+  const styleBoutique = settings.style_boutique || '';
+  useEffect(() => {
+    if (styleBoutique) document.documentElement.setAttribute('data-style', styleBoutique);
+    else document.documentElement.removeAttribute('data-style');
+    return () => document.documentElement.removeAttribute('data-style');
+  }, [styleBoutique]);
   const basculerTheme = () => {
     const t = sombre ? 'clair' : 'sombre';
     setTheme(t);
@@ -9685,6 +9769,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     heure_fermeture: settings.heure_fermeture,
     vente_active: settings.vente_active,
     message_accueil: settings.message_accueil || '',
+    style_boutique: settings.style_boutique || '',
     pin_actuel: '',
     pin_nouveau: '',
     marge_defaut: String(settings.marge_defaut),
@@ -9854,6 +9939,21 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       : `Terminé — ${st.faits} photo(s) allégée(s)`);
   };
 
+  /* L'apparence s'applique tout de suite, sans passer par Enregistrer :
+     c'est un essai, on veut le voir et pouvoir revenir en arrière. */
+  const changerStyle = async (valeur) => {
+    const avant = f.style_boutique;
+    setF((x) => ({ ...x, style_boutique: valeur }));
+    const { error } = await supabase.from('viande_settings')
+      .update({ style_boutique: valeur || null, updated_at: new Date().toISOString() }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); setF((x) => ({ ...x, style_boutique: avant })); return; }
+    reload();
+    showToast(valeur === 'epure' ? 'Apparence : Épure'
+      : valeur === 'flottant' ? 'Apparence : Flottant'
+      : 'Apparence habituelle rétablie');
+  };
+
   const basculerPrecommande = async () => {
     const nouveau = !f.precommande_active;
     setF((x) => ({ ...x, precommande_active: nouveau }));
@@ -9980,6 +10080,32 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
             </div>
           </div>
           <div className={`vp-toggle ${f.vente_active ? 'on' : ''}`} onClick={toggleVente} />
+        </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Apparence de la boutique</div>
+        <div className="vp-sub">
+          Change seulement l'habillage, pour tout le monde et tout de suite. Les produits,
+          les prix et les commandes ne bougent pas. L'admin garde son apparence.
+        </div>
+        <div className="vp-seg" style={{ marginTop: 12 }}>
+          <button className={!f.style_boutique ? 'on' : ''} onClick={() => changerStyle('')}>
+            Actuelle
+          </button>
+          <button className={f.style_boutique === 'epure' ? 'on' : ''} onClick={() => changerStyle('epure')}>
+            Épure
+          </button>
+          <button className={f.style_boutique === 'flottant' ? 'on' : ''} onClick={() => changerStyle('flottant')}>
+            Flottant
+          </button>
+        </div>
+        <div className="vp-sub" style={{ marginTop: 8 }}>
+          {f.style_boutique === 'epure'
+            ? 'Aucun encadré : des filets d\u2019un pixel, beaucoup de blanc, la typographie fait le travail.'
+            : f.style_boutique === 'flottant'
+              ? 'Des surfaces blanches arrondies qui flottent sur un fond chaud, ombres très douces.'
+              : 'Cartes encadrées sur fond crème — l\u2019habillage d\u2019origine.'}
         </div>
       </div>
 
