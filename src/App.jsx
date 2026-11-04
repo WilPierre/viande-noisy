@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04d · bandeau epure';
+const VERSION = '2026-11-04e · mot dans le bandeau';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2044,16 +2044,14 @@ textarea.vp-input{resize:vertical;min-height:64px}
 @media (prefers-reduced-motion:reduce){.vp-coll-j i{transition:none}}
 
 /* ---- le mot de l'organisateur ----
-   Le message d'accueil avait l'air d'un message système. Signé, il
-   a l'air de venir de quelqu'un. */
-.vp-mot{width:100%;margin-top:12px;padding:13px 15px;border-radius:var(--radius);background:#FFF6E4;
-  border:1px solid #EEDFBE;color:#5C4A28;display:flex;gap:11px;
-  align-items:flex-start;text-align:left}
-.vp-mot-a{width:28px;height:28px;border-radius:50%;background:var(--wine);color:#fff;
-  font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;
+   Il vit dans le bandeau, sous le décompte : c'est le même sujet,
+   ça ne mérite pas un deuxième encadré. */
+.vp-coll-mot{display:flex;gap:11px;align-items:flex-start;margin-top:14px;
+  padding-top:13px;border-top:1px solid rgba(241,237,230,.14);text-align:left}
+.vp-coll-mot .a{width:26px;height:26px;border-radius:50%;background:#C8A24A;color:#10281E;
+  font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center;
   flex:0 0 auto}
-.vp-mot-t{font-size:12.5px;line-height:1.45}
-[data-theme="sombre"] .vp-mot{background:#2A2115;border-color:#4A3A22;color:#E8CFA0}
+.vp-coll-mot .t{font-size:12.5px;line-height:1.45;color:#CFE0D6}
 
 /* combien de voisins ont pris ce produit — jamais lesquels */
 .vp-voisins{margin-top:5px;font-size:12px;font-weight:700;color:var(--green)}
@@ -2643,7 +2641,7 @@ function Countdown({ fermetureAt, now, ouvert, venteActive, prochaineAt, forcee 
 const TEINTES_VOISINS = ['#C8A24A', '#D98E5A', '#8FB89F', '#C96F6F', '#B9A6D1'];
 
 function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermeture,
-  nbVoisins, initiales, dejaCommande, statut }) {
+  nbVoisins, initiales, dejaCommande, statut, mot }) {
   const reste = fermetureAt ? fermetureAt - now : 0;
   const h = Math.floor(reste / 3600000);
   const m = Math.floor((reste % 3600000) / 60000);
@@ -2699,6 +2697,13 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
               <> · tu serais le {nbVoisins + 1}<sup>e</sup></>
             )}
           </div>
+        </div>
+      )}
+
+      {mot && (
+        <div className="vp-coll-mot">
+          <span className="a">W</span>
+          <span className="t">{mot}</span>
         </div>
       )}
     </div>
@@ -4529,16 +4534,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
           heureFermeture={settings.heure_fermeture}
           nbVoisins={nbVoisins} initiales={initiales}
           dejaCommande={!!maCommande}
+          mot={settings.message_accueil}
           statut={(
             <Countdown fermetureAt={fermetureAt} now={now} ouvert={ouvert}
               venteActive={settings.vente_active} prochaineAt={prochaineAt} forcee={forcee} />
           )} />
-        {settings.message_accueil && (
-          <div className="vp-mot">
-            <span className="vp-mot-a">W</span>
-            <span className="vp-mot-t">{settings.message_accueil}</span>
-          </div>
-        )}
         <Sondage settings={settings} showToast={showToast} session={session} profil={profil}
           onConnexion={() => { setModeAuth('connexion'); setAuthOuvert(true); }} />
       </div>
