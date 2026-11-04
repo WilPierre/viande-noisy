@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04j · previens-moi quand il revient';
+const VERSION = '2026-11-04l · espace fournisseur';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2420,7 +2420,10 @@ textarea.vp-input{resize:vertical;min-height:64px}
 ============================================================ */
 export default function App() {
   const [view, setView] = useState(
-    typeof window !== 'undefined' && window.location.hash.includes('admin') ? 'admin' : 'client'
+    typeof window === 'undefined' ? 'client'
+      : window.location.hash.includes('admin') ? 'admin'
+      : window.location.hash.includes('patrice') ? 'fournisseur'
+      : 'client'
   );
   const [settings, setSettings] = useState(null);
   const [produits, setProduits] = useState([]);
@@ -2490,7 +2493,11 @@ export default function App() {
 
   // routing par hash
   useEffect(() => {
-    const onHash = () => setView(window.location.hash.includes('admin') ? 'admin' : 'client');
+    const onHash = () => setView(
+      window.location.hash.includes('admin') ? 'admin'
+        : window.location.hash.includes('patrice') ? 'fournisseur'
+        : 'client'
+    );
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -2506,6 +2513,11 @@ export default function App() {
     if (!supabase) return;
     const { data: s } = await supabase.from('viande_settings').select('*').eq('id', 1).single();
     if (s) setSettings(s);
+    /* Dans l'espace de Patrice, le catalogue n'est PAS chargé. Son écran
+       ne l'affiche pas, mais le charger suffirait à envoyer tes prix de
+       vente dans son navigateur : il suffit d'ouvrir les outils de
+       développement pour les y lire. On ne les envoie donc pas. */
+    if (vueRef.current === 'fournisseur') { setProduits([]); return; }
     const pourAdmin = vueRef.current === 'admin';
     let req = supabase.from('viande_produits').select('*').order('ordre');
     if (!pourAdmin) req = req.eq('brouillon', false);
@@ -2647,7 +2659,9 @@ export default function App() {
     <>
       <style>{CSS}</style>
       {toast && <div className="vp-toast">{toast}</div>}
-      {view === 'admin' ? (
+      {view === 'fournisseur' ? (
+        <Fournisseur settings={settings} showToast={showToast} />
+      ) : view === 'admin' ? (
         <Admin
           settings={settings} produits={produits} ouvert={ouvert}
           estSemaine={estSemaine} enLigne={enLigne} commandees={commandees}
@@ -5846,6 +5860,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
     ['pesees', 'Pesées'],
     ['membres', 'Membres'],
     ['sondage', nonLus > 0 ? `Sondage (${nonLus})` : 'Sondage'],
+    ['patrice', 'Patrice'],
     ['reglages', 'Réglages'],
   ];
 
@@ -5944,6 +5959,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
       {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} pinAdmin={pinValide} />}
       {tab === 'sondage' && <AdminSondage settings={settings} reload={reload} showToast={showToast} onLu={() => setNonLus(0)} />}
+      {tab === 'patrice' && <AdminFournisseur showToast={showToast} pinAdmin={pinValide} />}
       {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
       <div className="vp-foot">
@@ -6332,6 +6348,262 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
       </button>
       <div className="vp-sub" style={{ marginTop: 8, textAlign: 'center' }}>
         Journée : {fmtDateCourt(settings.date_vente)}. Les poids et prix se corrigent ensuite dans Pesées.
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ESPACE FOURNISSEUR (Patrice) — adresse …/#patrice
+
+   Tout passe par des fonctions de la base qui ne renvoient JAMAIS
+   le prix de vente ni aucun total de vente. Masquer des colonnes à
+   l'écran ne masque rien : il suffirait d'ouvrir les outils du
+   navigateur. Ici, ces valeurs ne quittent pas le serveur.
+
+   Le mot de passe n'est présenté qu'une fois : la base répond par un
+   jeton valable douze heures, gardé sur l'appareil.
+============================================================ */
+const CLE_JETON_F = 'vn_jeton_fournisseur';
+
+function Fournisseur({ settings, showToast }) {
+  const [jeton, setJeton] = useState(() => {
+    try { return localStorage.getItem(CLE_JETON_F) || ''; } catch (e) { return ''; }
+  });
+  const [ident, setIdent] = useState('');
+  const [mdp, setMdp] = useState('');
+  const [mdpVisible, setMdpVisible] = useState(false);
+  const [envoi, setEnvoi] = useState(false);
+  const [onglet, setOnglet] = useState('produits');
+
+  const [journee, setJournee] = useState(null);
+  const [produits, setProduits] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [charge, setCharge] = useState(false);
+  const [edit, setEdit] = useState(null);      // { id, prix }
+  const [maj, setMaj] = useState(false);
+
+  const garderJeton = (j) => {
+    setJeton(j);
+    try { if (j) localStorage.setItem(CLE_JETON_F, j); else localStorage.removeItem(CLE_JETON_F); }
+    catch (e) { /* navigation privée : le jeton ne survivra pas, tant pis */ }
+  };
+
+  const charger = async (j) => {
+    const jt = j || jeton;
+    if (!jt) return;
+    const [a, b, c] = await Promise.all([
+      supabase.rpc('fournisseur_journee', { p_jeton: jt }),
+      supabase.rpc('fournisseur_produits', { p_jeton: jt }),
+      supabase.rpc('fournisseur_clients', { p_jeton: jt }),
+    ]);
+    if (a.error) { showToast(messageErreur(a.error)); return; }
+    const j1 = (a.data || [])[0] || null;
+    if (!j1) { garderJeton(''); showToast('Session expirée — reconnecte-toi'); return; }
+    setJournee(j1);
+    setProduits(b.data || []);
+    setClients(c.data || []);
+    setCharge(true);
+  };
+
+  useEffect(() => {
+    if (jeton) charger(jeton);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connexion = async () => {
+    if (!ident.trim() || !mdp) return;
+    setEnvoi(true);
+    try {
+      const { data, error } = await supabase.rpc('fournisseur_ouvrir', {
+        p_id: ident.trim(), p_mdp: mdp,
+      });
+      if (error) { showToast(messageErreur(error)); return; }
+      if (!data) { showToast('Identifiant ou mot de passe incorrect'); setMdp(''); return; }
+      garderJeton(String(data));
+      setMdp('');
+      await charger(String(data));
+    } finally { setEnvoi(false); }
+  };
+
+  const enregistrerPrix = async (p) => {
+    const v = nombre(edit.prix);
+    if (isNaN(v) || v < 0) { showToast('Prix illisible'); return; }
+    setMaj(true);
+    try {
+      const { data, error } = await supabase.rpc('fournisseur_prix', {
+        p_jeton: jeton, p_produit: p.produit_id, p_prix: v,
+      });
+      if (error) { showToast(messageErreur(error)); return; }
+      if (data !== true) { showToast("Prix refusé — produit hors catalogue ou session expirée"); return; }
+      setEdit(null);
+      showToast(`${p.produit_nom} : ${eur(v)} enregistré`);
+      await charger();
+    } finally { setMaj(false); }
+  };
+
+  const parClient = (() => {
+    const g = {};
+    clients.forEach((l) => {
+      if (!g[l.client]) g[l.client] = [];
+      g[l.client].push(l);
+    });
+    return Object.entries(g);
+  })();
+
+  // ---- connexion ----
+  if (!jeton || !charge) {
+    return (
+      <div className="vp-app vp-admin">
+        <style>{CSS}</style>
+        <div className="vp-gate">
+          <h2 style={{ fontSize: 22 }}>Espace fournisseur</h2>
+          <p style={{ color: 'var(--muted)', margin: '8px 0 18px' }}>
+            Les commandes du jour, avec vos prix.
+          </p>
+          <div className="vp-field" style={{ textAlign: 'left' }}>
+            <label className="vp-label" htmlFor="f-id">Identifiant</label>
+            <input id="f-id" className="vp-input" value={ident} autoComplete="username"
+              onChange={(e) => setIdent(e.target.value)} />
+          </div>
+          <div className="vp-field" style={{ textAlign: 'left' }}>
+            <label className="vp-label" htmlFor="f-mdp">Mot de passe</label>
+            <div className="vp-mdp">
+              <input id="f-mdp" className="vp-input" value={mdp} autoComplete="current-password"
+                type={mdpVisible ? 'text' : 'password'}
+                onChange={(e) => setMdp(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && connexion()} />
+              <BoutonOeil visible={mdpVisible} onClick={() => setMdpVisible(!mdpVisible)} />
+            </div>
+          </div>
+          <button className="vp-cta" style={{ marginTop: 6 }} disabled={envoi} onClick={connexion}>
+            {envoi ? 'Vérification…' : 'Entrer'}
+          </button>
+          <button className="vp-trash" style={{ marginTop: 16 }}
+            onClick={() => { window.location.hash = ''; }}>
+            ← Retour à la boutique
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- l'espace ----
+  return (
+    <div className="vp-app vp-admin">
+      <style>{CSS}</style>
+
+      <div className="vp-section" style={{ marginTop: 14 }}>
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 17 }}>Commandes du {enLettres(journee.jour)}</div>
+            <div className="vp-sub">
+              {journee.nb_clients} client{journee.nb_clients > 1 ? 's' : ''} ·
+              retrait le {enLettres(dateStr(joursPlusTard(dateDepuis(journee.jour) || new Date(), 1)))}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="vp-h2" style={{ fontSize: 17, color: 'var(--wine)' }}>
+              {eur(Number(journee.cout_total) || 0)}
+            </div>
+            <div className="vp-marge">total à facturer</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="vp-seg">
+        <button className={onglet === 'produits' ? 'on' : ''} onClick={() => setOnglet('produits')}>
+          Par produit
+        </button>
+        <button className={onglet === 'clients' ? 'on' : ''} onClick={() => setOnglet('clients')}>
+          Par client
+        </button>
+      </div>
+
+      {onglet === 'produits' ? (
+        produits.length === 0 ? (
+          <div className="vp-empty">Aucune commande pour l'instant.</div>
+        ) : (
+          <div className="vp-section">
+            <div className="vp-h2" style={{ fontSize: 16 }}>{produits.length} produit(s) à préparer</div>
+            <div className="vp-sub">Appuyez sur un prix pour le corriger.</div>
+            <div className="vp-liste" style={{ marginTop: 12 }}>
+              {produits.map((p) => (
+                <div key={p.produit_id}>
+                  <div className="vp-liste-l" style={{ alignItems: 'flex-start' }}>
+                    <span style={{ minWidth: 0 }}>
+                      <b>{p.produit_nom}</b>
+                      <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>
+                        {num(p.quantite)} {p.mode_vente === 'kg' ? 'kg' : 'pièce(s)'}
+                        {' · '}{eur(Number(p.prix_patrice) || 0)}
+                        {p.mode_vente === 'piece_fixe' ? ' / pièce' : ' / kg'}
+                      </small>
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
+                      <b>{eur(Number(p.cout) || 0)}</b>
+                      <button className="vp-btn ghost sm"
+                        onClick={() => setEdit(edit && edit.id === p.produit_id
+                          ? null
+                          : { id: p.produit_id, prix: String(Number(p.prix_patrice) || 0).replace('.', ',') })}>
+                        Prix
+                      </button>
+                    </span>
+                  </div>
+
+                  {edit && edit.id === p.produit_id && (
+                    <div className="vp-ajout" style={{ margin: '8px 0 12px' }}>
+                      <div className="vp-label">
+                        Nouveau prix {p.mode_vente === 'piece_fixe' ? 'à la pièce' : 'au kilo'}
+                      </div>
+                      <div style={{ display: 'flex', gap: 9, marginTop: 7 }}>
+                        <input className="vp-input" inputMode="decimal" value={edit.prix}
+                          onChange={(e) => setEdit({ ...edit, prix: e.target.value })}
+                          onKeyDown={(e) => e.key === 'Enter' && enregistrerPrix(p)} />
+                        <button className="vp-btn" style={{ flex: '0 0 auto' }}
+                          disabled={maj} onClick={() => enregistrerPrix(p)}>
+                          {maj ? '…' : 'Valider'}
+                        </button>
+                      </div>
+                      <div className="vp-sub" style={{ marginTop: 7 }}>
+                        Le nouveau prix s'applique à la fiche du produit et aux commandes
+                        du jour non finalisées. William est averti du changement.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="vp-liste-l tot">
+                <span>Total à facturer</span>
+                <b>{eur(Number(journee.cout_total) || 0)}</b>
+              </div>
+            </div>
+          </div>
+        )
+      ) : (
+        parClient.length === 0 ? (
+          <div className="vp-empty">Aucune commande pour l'instant.</div>
+        ) : (
+          parClient.map(([nom, lignes]) => (
+            <div className="vp-section" key={nom}>
+              <div className="vp-h2" style={{ fontSize: 16 }}>{nom}</div>
+              <div className="vp-liste" style={{ marginTop: 10 }}>
+                {lignes.map((l, i) => (
+                  <div className="vp-liste-l" key={`${nom}-${i}`}>
+                    <span style={{ minWidth: 0 }}>{l.produit_nom}</span>
+                    <b style={{ flex: '0 0 auto' }}>
+                      {num(l.quantite)} {l.mode_vente === 'kg' ? 'kg' : 'pc'}
+                    </b>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )
+      )}
+
+      <div className="vp-foot">
+        <button onClick={() => charger()}>Actualiser</button>
+        <button onClick={() => { garderJeton(''); setCharge(false); }}>Se déconnecter</button>
       </div>
     </div>
   );
@@ -7018,6 +7290,167 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
       )}
 
       {blocRelance}
+    </>
+  );
+}
+
+/* ---------- Admin : ce que Patrice a fait ----------
+   Lecture seule, protégée par ton code. Trois choses y figurent :
+   ses connexions, ses échecs de connexion, et chaque prix modifié
+   avec l'avant, l'après et le nombre de lignes de commande que ça
+   a touchées. */
+function AdminFournisseur({ showToast, pinAdmin }) {
+  const [journal, setJournal] = useState([]);
+  const [charge, setCharge] = useState(false);
+  const [ident, setIdent] = useState('');
+  const [mdp, setMdp] = useState('');
+  const [mdpVisible, setMdpVisible] = useState(false);
+  const [envoi, setEnvoi] = useState(false);
+
+  const charger = async () => {
+    if (!pinAdmin) return;
+    const { data, error } = await supabase.rpc('fournisseur_journal_admin', {
+      p_pin: pinAdmin, p_jours: 60,
+    });
+    if (error) { showToast(messageErreur(error)); return; }
+    setJournal(data || []);
+    setCharge(true);
+  };
+  useEffect(() => {
+    charger();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinAdmin]);
+
+  const changer = async () => {
+    if (!ident.trim()) { showToast('Indique un identifiant'); return; }
+    if (mdp.length < 6) { showToast('Mot de passe : 6 caractères minimum'); return; }
+    if (!window.confirm('Changer les identifiants de Patrice ? Sa session en cours sera fermée.')) return;
+    setEnvoi(true);
+    try {
+      const { data, error } = await supabase.rpc('fournisseur_changer_mdp', {
+        p_pin: pinAdmin, p_id: ident.trim(), p_mdp: mdp,
+      });
+      if (error) { showToast(messageErreur(error)); return; }
+      if (data !== true) { showToast('Refusé par la base'); return; }
+      setMdp(''); showToast('Identifiants mis à jour');
+      charger();
+    } finally { setEnvoi(false); }
+  };
+
+  const quand = (t) => {
+    try {
+      return new Date(t).toLocaleString('fr-FR', {
+        weekday: 'short', day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch (e) { return String(t); }
+  };
+
+  const prix = journal.filter((j) => j.quoi === 'prix');
+  const echecs = journal.filter((j) => j.quoi === 'echec');
+
+  return (
+    <>
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 17 }}>Espace de Patrice</div>
+            <div className="vp-sub">
+              Son adresse : <b>…/#patrice</b>. Il y voit les commandes du jour et ses
+              prix à lui — jamais tes prix de vente, jamais ta marge, jamais les
+              téléphones ni les commentaires des clients.
+            </div>
+          </div>
+          <button className="vp-btn ghost sm" onClick={charger}>Actualiser</button>
+        </div>
+
+        <div className="vp-grid2" style={{ marginTop: 14 }}>
+          <div>
+            <div className="vp-h2" style={{ fontSize: 15 }}>{prix.length}</div>
+            <div className="vp-sub">prix modifiés (60 jours)</div>
+          </div>
+          <div>
+            <div className="vp-h2" style={{ fontSize: 15, color: echecs.length ? 'var(--wine)' : undefined }}>
+              {echecs.length}
+            </div>
+            <div className="vp-sub">connexions refusées</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Journal</div>
+        <div className="vp-sub">Les 60 derniers jours, du plus récent au plus ancien.</div>
+        {!charge ? (
+          <div className="vp-empty">Chargement…</div>
+        ) : journal.length === 0 ? (
+          <div className="vp-empty">Rien pour l'instant — Patrice ne s'est pas encore connecté.</div>
+        ) : (
+          <div className="vp-liste" style={{ marginTop: 12 }}>
+            {journal.map((j, i) => (
+              <div className="vp-liste-l" key={`j${i}`} style={{ alignItems: 'flex-start' }}>
+                <span style={{ minWidth: 0 }}>
+                  <b>
+                    {j.quoi === 'prix' ? `Prix modifié — ${j.produit_nom || '?'}`
+                      : j.quoi === 'connexion' ? 'Connexion'
+                      : j.quoi === 'echec' ? 'Connexion refusée'
+                      : j.quoi === 'motdepasse' ? 'Identifiants changés'
+                      : j.quoi}
+                  </b>
+                  <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>
+                    {quand(j.quand)}
+                    {j.quoi === 'prix' && (
+                      <>
+                        {' · '}{eur(Number(j.avant) || 0)} → <b>{eur(Number(j.apres) || 0)}</b>
+                        {Number(j.lignes_maj) > 0 && ` · ${j.lignes_maj} ligne(s) de commande mises à jour`}
+                      </>
+                    )}
+                    {j.detail && j.quoi !== 'prix' && ` · ${j.detail}`}
+                  </small>
+                </span>
+                {j.quoi === 'prix' && (
+                  <b style={{
+                    flex: '0 0 auto',
+                    color: Number(j.apres) > Number(j.avant) ? 'var(--wine)' : 'var(--green)',
+                  }}>
+                    {Number(j.apres) > Number(j.avant) ? '+' : ''}
+                    {eur((Number(j.apres) || 0) - (Number(j.avant) || 0))}
+                  </b>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="vp-sub" style={{ marginTop: 10 }}>
+          Une hausse de son prix réduit ta marge d'autant : ton prix de vente n'est
+          jamais modifié par lui. À toi de décider si tu répercutes, dans l'onglet Produits.
+        </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-h2" style={{ fontSize: 16 }}>Changer ses identifiants</div>
+        <div className="vp-sub">
+          Le mot de passe actuel ne peut pas être affiché — seule une empreinte est
+          conservée en base. On ne peut que le remplacer.
+        </div>
+        <div className="vp-field">
+          <label className="vp-label">Identifiant</label>
+          <input className="vp-input" value={ident} onChange={(e) => setIdent(e.target.value)}
+            placeholder="laupam" autoComplete="off" />
+        </div>
+        <div className="vp-field">
+          <label className="vp-label">Nouveau mot de passe</label>
+          <div className="vp-mdp">
+            <input className="vp-input" value={mdp} type={mdpVisible ? 'text' : 'password'}
+              onChange={(e) => setMdp(e.target.value)} autoComplete="new-password" />
+            <BoutonOeil visible={mdpVisible} onClick={() => setMdpVisible(!mdpVisible)} />
+          </div>
+        </div>
+        <button className="vp-btn" style={{ width: '100%', marginTop: 12 }}
+          disabled={envoi} onClick={changer}>
+          {envoi ? 'Enregistrement…' : 'Remplacer les identifiants'}
+        </button>
+      </div>
     </>
   );
 }
