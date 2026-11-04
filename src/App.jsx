@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04b · notes ecartees du recap';
+const VERSION = '2026-11-04c · bandeau aligne';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1082,7 +1082,11 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .vp-mini-c.ouv{color:var(--green)}
 .vp-mini-c.fer{color:var(--wine)}
 
-.vp-head{padding:60px 4px 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
+/* align-items:center fait rétrécir chaque enfant à la largeur de son
+   contenu : un bloc pleine largeur doit le réclamer lui-même. Et plus
+   de retrait latéral ici, sinon ces blocs ne s'alignent pas avec les
+   encadrés qui suivent, hors de l'en-tête. */
+.vp-head{padding:60px 0 14px;text-align:center;display:flex;flex-direction:column;align-items:center}
 .vp-logo{width:84px;height:auto;margin-bottom:10px}
 .vp-title{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:31px;
   font-weight:800;line-height:1.02;letter-spacing:-.035em;margin-top:4px}
@@ -2014,13 +2018,13 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* ---- bandeau de la commande groupée ----
    Vert profond pour trancher avec le papier, doré pour le temps
    qui reste. Le chiffre est en Bricolage, comme les titres. */
-.vp-coll{margin:14px 0 0;padding:18px 17px 16px;border-radius:20px;
+.vp-coll{width:100%;margin:14px 0 0;padding:17px 16px 15px;border-radius:var(--radius);
   background:#0C2F23;color:#F1EDE6;text-align:left}
 .vp-coll-e{font-size:10px;letter-spacing:.2em;text-transform:uppercase;
   font-weight:800;color:#C8A24A}
-.vp-coll-h{display:flex;align-items:baseline;gap:9px;margin-top:8px;flex-wrap:wrap}
-.vp-coll-t{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:46px;
-  font-weight:800;letter-spacing:-.045em;line-height:.9}
+.vp-coll-h{display:flex;align-items:baseline;gap:10px;margin-top:7px;flex-wrap:wrap}
+.vp-coll-t{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:42px;
+  font-weight:800;letter-spacing:-.045em;line-height:.95}
 .vp-coll-s{font-size:13px;color:#A8BDB2;font-weight:500}
 .vp-coll-j{height:7px;border-radius:999px;background:rgba(241,237,230,.16);
   margin-top:15px;overflow:hidden}
@@ -2044,7 +2048,7 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* ---- le mot de l'organisateur ----
    Le message d'accueil avait l'air d'un message système. Signé, il
    a l'air de venir de quelqu'un. */
-.vp-mot{margin-top:12px;padding:13px 15px;border-radius:14px;background:#FFF6E4;
+.vp-mot{width:100%;margin-top:12px;padding:13px 15px;border-radius:var(--radius);background:#FFF6E4;
   border:1px solid #EEDFBE;color:#5C4A28;display:flex;gap:11px;
   align-items:flex-start;text-align:left}
 .vp-mot-a{width:28px;height:28px;border-radius:50%;background:var(--wine);color:#fff;
@@ -2646,17 +2650,19 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
   const h = Math.floor(reste / 3600000);
   const m = Math.floor((reste % 3600000) / 60000);
   const gros = h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${Math.max(m, 0)} min`;
-  const avance = (ouvertureAt && fermetureAt && fermetureAt > ouvertureAt)
-    ? Math.min(100, Math.max(0, ((now - ouvertureAt) / (fermetureAt - ouvertureAt)) * 100))
+  // En début de journée, 1 % de barre ressemble à un bug d'affichage :
+  // on garde un minimum visible qui se lit comme « ça vient d'ouvrir ».
+  const brut = (ouvertureAt && fermetureAt && fermetureAt > ouvertureAt)
+    ? ((now - ouvertureAt) / (fermetureAt - ouvertureAt)) * 100
     : 0;
+  const avance = Math.min(100, Math.max(3, brut));
   const hhmm = (ts) => new Date(ts)
     .toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+  const hFerm = String(heureFermeture || '19:30').replace(':', 'h');
 
-  // Pas d'initiales (visiteur non connecté) : des pastilles muettes.
-  const anonyme = initiales.length === 0;
-  const vues = anonyme
-    ? Array(Math.min(nbVoisins, 4)).fill('')
-    : initiales.slice(0, 4);
+  // Sans initiales (visiteur non connecté), pas de pastilles du tout :
+  // des ronds vides ressemblent à un défaut, pas à une intention.
+  const vues = initiales.slice(0, 4);
   const reliquat = Math.max(0, nbVoisins - vues.length);
 
   return (
@@ -2676,7 +2682,7 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
           </div>
           <div className="vp-coll-b">
             <span>{ouvertureAt ? `Ouvert à ${hhmm(ouvertureAt)}` : 'Ouvert'}</span>
-            <span>Liste chez Patrice à {heureFermeture || '19:30'}</span>
+            <span>Liste chez Patrice à {hFerm}</span>
           </div>
         </>
       ) : (
@@ -2685,12 +2691,14 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
 
       {nbVoisins > 0 && (
         <div className="vp-coll-v">
-          <div className="vp-coll-pi" aria-hidden="true">
-            {vues.map((x, i) => (
-              <span key={`v${i}`} style={{ background: TEINTES_VOISINS[i % TEINTES_VOISINS.length] }}>{x}</span>
-            ))}
-            {reliquat > 0 && <span className="plus">+{reliquat}</span>}
-          </div>
+          {vues.length > 0 && (
+            <div className="vp-coll-pi" aria-hidden="true">
+              {vues.map((x, i) => (
+                <span key={`v${i}`} style={{ background: TEINTES_VOISINS[i % TEINTES_VOISINS.length] }}>{x}</span>
+              ))}
+              {reliquat > 0 && <span className="plus">+{reliquat}</span>}
+            </div>
+          )}
           <div className="vp-coll-n">
             <b>{nbVoisins} voisin{nbVoisins > 1 ? 's' : ''}</b> {nbVoisins > 1 ? 'ont' : 'a'} commandé
             {ouvert && !dejaCommande && (
