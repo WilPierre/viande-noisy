@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04e · mot dans le bandeau';
+const VERSION = '2026-11-04f · personnes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2692,7 +2692,7 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
             </div>
           )}
           <div className="vp-coll-n">
-            <b>{nbVoisins} voisin{nbVoisins > 1 ? 's' : ''}</b> {nbVoisins > 1 ? 'ont' : 'a'} commandé
+            <b>{nbVoisins} personne{nbVoisins > 1 ? 's' : ''}</b> {nbVoisins > 1 ? 'ont' : 'a'} commandé
             {ouvert && !dejaCommande && (
               <> · tu serais le {nbVoisins + 1}<sup>e</sup></>
             )}
