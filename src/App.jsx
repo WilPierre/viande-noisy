@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04h · suivi de commande et finitions';
+const VERSION = '2026-11-04j · previens-moi quand il revient';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -366,6 +366,57 @@ function etapesCommande(c, settings, maintenant) {
       detail: retrait ? enLettres(retrait) : '',
     },
   ];
+}
+
+/* ---- fichier d'agenda pour le retrait ----
+   Événement « journée entière » : on ne connaît pas l'heure exacte du
+   retrait et il vaut mieux ne pas l'inventer. Le rappel se déclenche
+   la veille au matin. */
+function fichierAgenda(nomBoutique, dateRetrait) {
+  const d = dateDepuis(dateRetrait);
+  if (!d) return null;
+  const jj = (x) => `${x.getFullYear()}${String(x.getMonth() + 1).padStart(2, '0')}${String(x.getDate()).padStart(2, '0')}`;
+  const tampon = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Viande Noisy//FR', 'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:retrait-${jj(d)}-${Math.random().toString(36).slice(2, 8)}@viande-noisy`,
+    `DTSTAMP:${tampon}Z`,
+    `DTSTART;VALUE=DATE:${jj(d)}`,
+    `DTEND;VALUE=DATE:${jj(joursPlusTard(d, 1))}`,
+    `SUMMARY:Retrait ${String(nomBoutique || 'Viande Noisy').replace(/[,;\\]/g, ' ')}`,
+    'DESCRIPTION:Pense a recuperer ta commande.',
+    'BEGIN:VALARM', 'TRIGGER:-PT15H', 'ACTION:DISPLAY', 'DESCRIPTION:Retrait demain', 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR',
+  ].join('\r\n');
+}
+
+function telechargerAgenda(texte, nomFichier) {
+  try {
+    const blob = new Blob([texte], { type: 'text/calendar;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nomFichier;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* Partage natif quand le téléphone le propose, copie du lien sinon.
+   Une annulation de l'utilisateur n'est pas une erreur : on se tait. */
+async function partagerLien(titre, url, showToast) {
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try { await navigator.share({ title: titre, url }); return; }
+    catch (e) { return; }
+  }
+  if (await copier(url)) showToast('Lien copié — colle-le dans WhatsApp');
+  else showToast('Impossible de copier le lien');
+}
+
+function lienProduit(p) {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}${window.location.pathname}#p=${encodeURIComponent(p.id)}`;
 }
 
 function sousTotalFinal(l) {
@@ -2067,6 +2118,10 @@ textarea.vp-input{resize:vertical;min-height:64px}
    qui reste. Le chiffre est en Bricolage, comme les titres. */
 .vp-coll{width:100%;margin:14px 0 0;padding:17px 16px 15px;border-radius:var(--radius);
   background:#0C2F23;color:#F1EDE6;text-align:left}
+.vp-coll.presse{background:#481A1A}
+.vp-coll.presse .vp-coll-t{color:#FFD4A3}
+.vp-coll.presse .vp-coll-j i{background:#EFA059}
+.vp-coll.presse .vp-coll-s{color:#DCBCA8}
 .vp-coll-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .vp-coll-t{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:42px;
   font-weight:800;letter-spacing:-.045em;line-height:.95}
@@ -2130,6 +2185,9 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* le bandeau perd sa boîte : il devient le haut de la page */
 [data-style="epure"] .vp-coll{background:transparent;color:var(--ink);
   border-radius:0;padding:16px 2px 0}
+[data-style="epure"] .vp-coll.presse{background:transparent}
+[data-style="epure"] .vp-coll.presse .vp-coll-t,
+[data-style="epure"] .vp-coll.presse .vp-coll-s{color:var(--wine)}
 [data-style="epure"] .vp-coll-t{font-family:'Inter',sans-serif;font-weight:600;
   font-size:44px;letter-spacing:-.045em}
 [data-style="epure"] .vp-coll-s{color:var(--muted)}
@@ -2164,6 +2222,8 @@ textarea.vp-input{resize:vertical;min-height:64px}
 [data-style="flottant"] .vp-input,[data-style="flottant"] .vp-quick-select{border-radius:14px}
 [data-style="flottant"] .vp-coll{background:var(--card);color:var(--ink);
   border-radius:24px;box-shadow:var(--shadow)}
+[data-style="flottant"] .vp-coll.presse{background:var(--card)}
+[data-style="flottant"] .vp-coll.presse .vp-coll-t{color:var(--wine)}
 [data-style="flottant"] .vp-coll-s{color:var(--muted)}
 [data-style="flottant"] .vp-coll-j{background:#EFEBE4}
 [data-style="flottant"] .vp-coll-j i{background:var(--wine)}
@@ -2175,6 +2235,41 @@ textarea.vp-input{resize:vertical;min-height:64px}
 [data-style="flottant"] .vp-coll-mot .a{background:#C8A24A;color:#2A2015}
 [data-style="flottant"] .vp-coll-pi span{border-color:#FFFFFF;color:#2A2622}
 [data-style="flottant"] .vp-bar{border-radius:999px;box-shadow:0 6px 22px rgba(138,46,46,.3)}
+
+/* ---- fiche produit en feuille ----
+   Le geste qui distingue le plus une application d'une page web :
+   le contenu monte par-dessus, on le repousse pour revenir. */
+.vp-fiche{position:fixed;left:50%;bottom:0;z-index:41;width:100%;max-width:600px;
+  max-height:88vh;overflow-y:auto;overscroll-behavior:contain;background:var(--card);
+  border-radius:22px 22px 0 0;box-shadow:0 -8px 40px rgba(36,30,27,.26);
+  transform:translateX(-50%);animation:vpmonte .26s cubic-bezier(.2,.9,.3,1);
+  padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))}
+@keyframes vpmonte{from{transform:translate(-50%,100%)}to{transform:translate(-50%,0)}}
+@media (prefers-reduced-motion:reduce){.vp-fiche{animation:none}}
+.vp-fiche-g{display:block;width:42px;height:4px;border-radius:999px;background:var(--line);
+  margin:10px auto 12px;border:none;padding:0}
+.vp-fiche-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:var(--paper)}
+.vp-fiche-tuile{width:100%;aspect-ratio:4/3;display:grid;place-items:center;font-size:72px}
+.vp-fiche-c{padding:16px 18px 0}
+.vp-fiche-n{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:22px;
+  font-weight:700;letter-spacing:-.02em;line-height:1.2}
+.vp-fiche-p{display:flex;align-items:baseline;gap:9px;margin-top:9px;flex-wrap:wrap}
+.vp-fiche-p .ac{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:27px;
+  font-weight:800;letter-spacing:-.03em;color:var(--wine)}
+.vp-fiche-l{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+.vp-fiche-d{font-size:13px;color:var(--muted);line-height:1.5;margin-top:12px}
+.vp-fiche-q{display:flex;align-items:center;gap:14px;margin-top:16px}
+.vp-fiche-q button{width:46px;height:46px;border-radius:14px;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink);font-size:22px;line-height:1}
+.vp-fiche-q button:disabled{opacity:.35}
+.vp-fiche-q .n{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:21px;
+  font-weight:800;min-width:46px;text-align:center}
+.vp-fiche-b{display:flex;gap:9px;margin-top:16px}
+.vp-fiche-b .vp-cta{margin-top:0}
+/* le nom du produit ouvre sa fiche */
+.vp-pname-b{background:none;border:none;padding:0;margin:0;font:inherit;color:inherit;
+  text-align:left;cursor:pointer}
+.vp-pname-b:active{color:var(--wine)}
 
 /* ---- frise de suivi d'une commande ---- */
 .vp-frise{margin-top:14px}
@@ -2822,6 +2917,8 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
   const hhmm = (ts) => new Date(ts)
     .toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
   const hFerm = String(heureFermeture || '19:30').replace(':', 'h');
+  // dernière heure : le bandeau change de ton, sans crier
+  const presse = ouvert && reste > 0 && reste <= 3600000;
 
   // Sans initiales (visiteur non connecté), pas de pastilles du tout :
   // des ronds vides ressemblent à un défaut, pas à une intention.
@@ -2829,12 +2926,14 @@ function BandeauCollectif({ ouvert, ouvertureAt, fermetureAt, now, heureFermetur
   const reliquat = Math.max(0, nbVoisins - vues.length);
 
   return (
-    <div className="vp-coll">
+    <div className={`vp-coll ${presse ? 'presse' : ''}`}>
       {ouvert ? (
         <>
           <div className="vp-coll-h">
             <span className="vp-coll-t">{gros}</span>
-            <span className="vp-coll-s">avant la fermeture</span>
+            <span className="vp-coll-s">
+              {presse ? 'dernière ligne droite' : 'avant la fermeture'}
+            </span>
           </div>
           <div className="vp-coll-j">
             <i style={{ width: `${avance}%` }} />
@@ -3611,6 +3710,19 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
               <div className="vp-sub">
                 Commande du {enLettres(suivi.date_vente)} · {(suivi.lignes || []).length} produit(s)
               </div>
+              <button className="vp-btn ghost sm" style={{ marginTop: 10 }}
+                onClick={() => {
+                  const jour = dateDepuis(suivi.date_vente);
+                  const retrait = jour ? dateStr(joursPlusTard(jour, 1)) : null;
+                  const ics = retrait ? fichierAgenda(settings.titre, retrait) : null;
+                  if (ics && telechargerAgenda(ics, `retrait-${retrait}.ics`)) {
+                    showToast('Rappel ajouté à ton agenda');
+                  } else {
+                    showToast("Impossible d'ouvrir l'agenda sur cet appareil");
+                  }
+                }}>
+                Ajouter le retrait à mon agenda
+              </button>
               <div className="vp-frise">
                 {etapesSuivi.map((e, i) => {
                   const enCours = !e.fait && etapesSuivi.slice(0, i).every((x) => x.fait);
@@ -3730,6 +3842,69 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   const [favoris, setFavoris] = useState([]);      // ids de produits
   const [derniere, setDerniere] = useState(null);  // dernière commande du client
   const [photoZoom, setPhotoZoom] = useState(null); // { url, nom } affiché en grand
+
+  /* ---- fiche produit en feuille, et son adresse ----
+     Chaque produit a son lien : …/#p=<id>. Ouvrir la fiche écrit ce
+     lien dans la barre d'adresse, donc le bouton « retour » du
+     téléphone referme la feuille au lieu de quitter la boutique. */
+  /* ---- « préviens-moi quand il revient » ----
+     On ne stocke qu'un lien entre une personne et un produit. Chacun
+     ne voit que ses propres attentes : la base s'en charge. */
+  const [attentes, setAttentes] = useState([]);
+  const chargerAttentes = async () => {
+    if (!session) { setAttentes([]); return; }
+    const { data, error } = await supabase.from('viande_attentes')
+      .select('produit_id').is('prevenu_le', null);
+    if (error) { setAttentes([]); return; }   // migration pas encore passée
+    setAttentes((data || []).map((r) => String(r.produit_id)));
+  };
+  useEffect(() => {
+    chargerAttentes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session && session.user.id]);
+  const enAttente = (p) => attentes.includes(String(p.id));
+  const basculerAttente = async (p) => {
+    if (!session) {
+      showToast('Connecte-toi pour être prévenu');
+      setModeAuth('connexion'); setAuthOuvert(true);
+      return;
+    }
+    if (enAttente(p)) {
+      const { error } = await supabase.from('viande_attentes').delete()
+        .eq('user_id', session.user.id).eq('produit_id', String(p.id)).is('prevenu_le', null);
+      if (error) { showToast(messageErreur(error)); return; }
+      setAttentes((a) => a.filter((x) => x !== String(p.id)));
+      showToast('Tu ne seras plus prévenu');
+      return;
+    }
+    const { error } = await supabase.from('viande_attentes').insert({
+      user_id: session.user.id, produit_id: String(p.id), produit_nom: p.nom,
+    });
+    if (error) { showToast(messageErreur(error)); return; }
+    setAttentes((a) => [...a, String(p.id)]);
+    vibrer(8);
+    showToast(`Tu seras prévenu dès le retour de ${p.nom}`);
+  };
+
+  const lireFicheHash = () => {
+    if (typeof window === 'undefined') return '';
+    const m = window.location.hash.match(/p=([^&]+)/);
+    return m ? m[1] : '';
+  };
+  const [ficheId, setFicheId] = useState(lireFicheHash);
+  useEffect(() => {
+    const onHash = () => setFicheId(lireFicheHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const ouvrirFiche = (p) => {
+    window.location.hash = `p=${encodeURIComponent(p.id)}`;
+    setFicheId(String(p.id));
+  };
+  const fermerFiche = () => {
+    if (window.location.hash.includes('p=')) window.location.hash = '';
+    setFicheId('');
+  };
   const [ouvertes, setOuvertes] = useState([]); // rubriques dépliées
   const basculerRubrique = (cat) => setOuvertes((o) =>
     (o.includes(cat) ? o.filter((x) => x !== cat) : [...o, cat]));
@@ -4576,6 +4751,123 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // sauter le focus des champs de la page.
   // « ou » distingue les deux endroits où un produit peut apparaître
   // (liste de sa catégorie, rubrique favoris) pour cibler le bon.
+  const fiche = ficheId
+    ? (produits || []).find((x) => String(x.id) === decodeURIComponent(ficheId))
+    : null;
+
+  const ficheProduit = () => {
+    const p = fiche;
+    if (!p) return null;
+    const m = MODES[p.mode_vente];
+    const vs = variantesDe(p);
+    const v = varianteActive(p);
+    const q = cart[cle(p, v)] || 0;
+    const prix = prixVariante(p, v, 'prix_william');
+    const pm = poidsVariante(p, v);
+    const reste = restantDe(p);
+    const fini = reste !== null && reste <= 0;
+    return (
+      <>
+        <div className="vp-backdrop" onClick={fermerFiche} />
+        <div className="vp-fiche" role="dialog" aria-modal="true" aria-label={p.nom}>
+          <button className="vp-fiche-g" onClick={fermerFiche} aria-label="Fermer la fiche" />
+          {p.photo_url ? (
+            <button onClick={() => setPhotoZoom({ url: p.photo_url, nom: p.nom })}
+              style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none' }}
+              aria-label={`Agrandir la photo de ${p.nom}`}>
+              <img src={p.photo_url} alt={p.nom} className="vp-fiche-img" />
+            </button>
+          ) : (
+            <div className="vp-fiche-tuile" style={{
+              background: `linear-gradient(135deg, ${teintesDe(p)[0]} 0%, ${teintesDe(p)[1]} 100%)`,
+            }}>
+              <span>{p.emoji}</span>
+            </div>
+          )}
+          <div className="vp-fiche-c">
+            <div className="vp-fiche-n">
+              {p.origine_fr && <DrapeauFR taille={16} />} {p.nom}
+            </div>
+            <div className="vp-fiche-p">
+              {p.prix_barre > 0 && p.prix_barre > prix && (
+                <span className="vp-prix-barre">{eur(p.prix_barre)}</span>
+              )}
+              <span className="ac">{eur(prix)}{m.suffixe}</span>
+            </div>
+            <div className="vp-fiche-l">
+              <span className="vp-tag">{m.label}</span>
+              {fini && <span className="vp-badge-epuise">ÉPUISÉ</span>}
+              {!fini && p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
+              {!fini && estNouveau(p) && <span className="vp-badge-neuf">NOUVEAU</span>}
+              {infoDlc(p.dlc) && (
+                <span className={`vp-dlc ${infoDlc(p.dlc).classe}`}>{infoDlc(p.dlc).texte}</span>
+              )}
+              {reste !== null && reste > 0 && reste <= 5 && (
+                <span className="vp-reste" style={{ marginTop: 0 }}>
+                  Plus que {num(reste)}
+                </span>
+              )}
+            </div>
+            <div className="vp-fiche-d">
+              {p.mode_vente === 'kg'
+                ? 'Vendu au kilo. Patrice pèse le lendemain matin et le prix suit le poids réel.'
+                : p.mode_vente === 'piece_pesee'
+                  ? `Vendu à la pièce, mais pesé.${pm ? ` Une pièce fait environ ${num(pm)} kg.` : ''} Le prix définitif suit le poids réel.`
+                  : 'Vendu à la pièce, prix ferme.'}
+            </div>
+            {vs.length > 0 && (
+              <select className="vp-input" style={{ marginTop: 14 }} value={v ? v.id : ''}
+                onChange={(e) => setChoix((c) => ({ ...c, [p.id]: e.target.value }))}
+                aria-label={p.variante_label || 'Option'}>
+                {vs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.nom}{vide0(o.prix_william) ? '' : ` · ${eur(o.prix_william)}${m.suffixe}`}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!fini && (
+              <div className="vp-fiche-q">
+                <button onClick={() => setQty(p, v, Math.max(0, q - 1))}
+                  disabled={q <= 0} aria-label="Retirer un">−</button>
+                <span className="n">{num(q)}</span>
+                <button onClick={() => ajouter(p, v)} aria-label="Ajouter un">+</button>
+              </div>
+            )}
+            {fini && (
+              <>
+                <button className={`vp-btn ${enAttente(p) ? 'green' : ''}`}
+                  style={{ width: '100%', marginTop: 16 }}
+                  onClick={() => basculerAttente(p)}>
+                  {enAttente(p) ? '✓ Tu seras prévenu' : 'Préviens-moi quand il revient'}
+                </button>
+                <div className="vp-sub" style={{ marginTop: 6 }}>
+                  {enAttente(p)
+                    ? 'Wil voit que tu attends ce produit. Appuie à nouveau pour te retirer.'
+                    : 'Wil verra combien de personnes attendent ce produit, et pourra le recommander à Patrice.'}
+                </div>
+              </>
+            )}
+            <div className="vp-fiche-b">
+              <button className="vp-cta" style={{ flex: 1 }} disabled={fini}
+                onClick={() => { if (!fini) { ajouter(p, v); fermerFiche(); } }}>
+                {fini ? 'Épuisé' : q > 0 ? 'Ajouter encore' : 'Ajouter au panier'}
+              </button>
+              <button className="vp-btn ghost" style={{ flex: '0 0 auto' }}
+                onClick={() => partagerLien(p.nom, lienProduit(p), showToast)}>
+                Partager
+              </button>
+            </div>
+            <button className="vp-btn ghost sm" style={{ width: '100%', marginTop: 10 }}
+              onClick={fermerFiche}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  };
+
   const carteProduit = (p, ou = 'liste') => {
               const m = MODES[p.mode_vente];
               const vs = variantesDe(p);
@@ -4595,8 +4887,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                   </button>
                   {p.photo_url
                     ? <button className="vp-photo-wrap"
-                        onClick={() => setPhotoZoom({ url: p.photo_url, nom: p.nom })}
-                        aria-label={`Agrandir la photo de ${p.nom}`}>
+                        onClick={() => ouvrirFiche(p)}
+                        aria-label={`Voir la fiche de ${p.nom}`}>
                         <img src={p.photo_url} alt={p.nom} className="vp-photo"
                           loading="lazy" decoding="async" />
                         <span className="vp-photo-loupe">
@@ -4605,16 +4897,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                           </svg>
                         </span>
                       </button>
-                    : <div className="vp-tuile" style={{
+                    : <button className="vp-tuile" style={{
                         background: `linear-gradient(135deg, ${teintesDe(p)[0]} 0%, ${teintesDe(p)[1]} 100%)`,
-                      }}>
+                        border: 'none', padding: 0,
+                      }} onClick={() => ouvrirFiche(p)}
+                        aria-label={`Voir la fiche de ${p.nom}`}>
                         <span className="vp-tuile-f" />
                         <span className="vp-tuile-e">{p.emoji}</span>
-                      </div>}
+                      </button>}
                   <div className="vp-pinfo">
                     <div className="vp-pname">
                       {p.origine_fr && <DrapeauFR taille={14} />}
-                      {p.nom}
+                      <button className="vp-pname-b" onClick={() => ouvrirFiche(p)}>{p.nom}</button>
                       {fini && <span className="vp-badge-epuise">ÉPUISÉ</span>}
                       {!fini && p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
                       {!fini && estNouveau(p) && <span className="vp-badge-neuf">NOUVEAU</span>}
@@ -5140,6 +5434,8 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         </>
       )}
 
+      {ficheProduit()}
+
       {photoZoom && (
         <div className="vp-visionneuse" onClick={() => setPhotoZoom(null)} role="dialog" aria-modal="true">
           <button className="vp-visionneuse-x" onClick={() => setPhotoZoom(null)} aria-label="Fermer">×</button>
@@ -5643,7 +5939,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
 
       {tab === 'commandes' && <AdminCommandes commandes={commandes} ouvert={ouvert} reload={loadCommandes} showToast={showToast}
         produits={produits} settings={settingsJour} />}
-      {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} commandees={commandees} reload={reload} showToast={showToast} />}
+      {tab === 'produits' && <AdminProduits produits={produits} settings={settingsJour} commandees={commandees} reload={reload} showToast={showToast} pinAdmin={pinValide} />}
       {tab === 'export' && <AdminExport commandes={commandes} produits={produits} settings={settingsJour} showToast={showToast} />}
       {tab === 'pesees' && <AdminPesees commandes={commandes} produits={produits} settings={settingsJour} reload={loadCommandes} showToast={showToast} />}
       {tab === 'membres' && <AdminMembres showToast={showToast} settings={settingsJour} pinAdmin={pinValide} />}
@@ -6727,7 +7023,30 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
 }
 
 /* ---------- Admin : Produits ---------- */
-function AdminProduits({ produits, settings, commandees, reload, showToast }) {
+function AdminProduits({ produits, settings, commandees, reload, showToast, pinAdmin }) {
+  /* ---- qui attend quoi ----
+     Alimenté par les voisins depuis la fiche d'un produit épuisé.
+     C'est la seule donnée de l'app qui te dise ce qui MANQUE. */
+  const [attentes, setAttentes] = useState([]);
+  const [voirAttentes, setVoirAttentes] = useState(false);
+  const chargerAttentes = async () => {
+    if (!pinAdmin) return;
+    const { data, error } = await supabase.rpc('attentes_admin', { p_pin: pinAdmin });
+    if (error) return;                    // migration pas encore passée
+    setAttentes(data || []);
+  };
+  useEffect(() => {
+    chargerAttentes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinAdmin]);
+  const solder = async (a) => {
+    if (!window.confirm(`Marquer comme prévenus les ${a.combien} voisin(s) qui attendent « ${a.produit_nom} » ?`)) return;
+    const { data, error } = await supabase.rpc('attentes_soldees', { p_pin: pinAdmin, p_produit: a.produit_id });
+    if (error) { showToast(messageErreur(error)); return; }
+    showToast(`${Number(data) || 0} attente(s) soldée(s)`);
+    chargerAttentes();
+  };
+
   const vide = { nom: '', categorie: 'Viande', mode_vente: 'piece_pesee', prix_patrice: '', prix_william: '', poids_moyen: '', emoji: '🥩', photo_url: '', stock: '', disponible: true, brouillon: false, rupture: false, origine_fr: false, promo: false, prix_barre: '', ordre: produits.length + 1, dlc: '', variante_label: '', variantes: [] };
   const [form, setForm] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -7525,6 +7844,44 @@ function AdminProduits({ produits, settings, commandees, reload, showToast }) {
         </div>
         <button className="vp-btn" onClick={ouvrirNouveau}>+ Ajouter</button>
       </div>
+
+      {attentes.length > 0 && (
+        <div className="vp-section">
+          <div className="vp-srow">
+            <div>
+              <div className="vp-h2" style={{ fontSize: 16 }}>
+                {attentes.reduce((n, a) => n + Number(a.combien || 0), 0)} personne(s) attendent un produit
+              </div>
+              <div className="vp-sub">
+                Signalé par les voisins depuis la fiche d'un produit épuisé.
+                C'est la seule chose qui te dise ce qui <b>manque</b>.
+              </div>
+            </div>
+            <button className="vp-btn ghost sm" onClick={() => setVoirAttentes((o) => !o)}>
+              {voirAttentes ? 'Masquer' : 'Voir'}
+            </button>
+          </div>
+
+          {voirAttentes && (
+            <div className="vp-liste" style={{ marginTop: 12 }}>
+              {attentes.map((a) => (
+                <div className="vp-liste-l" key={a.produit_id} style={{ alignItems: 'flex-start' }}>
+                  <span style={{ minWidth: 0 }}>
+                    <b>{a.produit_nom}</b>
+                    <small style={{ display: 'block', color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>
+                      {a.qui} · depuis le {fmtDateCourt(String(a.depuis).slice(0, 10))}
+                    </small>
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
+                    <b>{a.combien}</b>
+                    <button className="vp-btn ghost sm" onClick={() => solder(a)}>Prévenus</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="vp-search">
         <span className="vp-search-ico">
