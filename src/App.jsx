@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-05c · vitrine, dimanche reglable, DLC au retrait';
+const VERSION = '2026-11-05d · pastille lisible';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2157,7 +2157,12 @@ textarea.vp-input{resize:vertical;min-height:64px}
 .vp-coll-pi .plus{background:rgba(241,237,230,.16);color:#F1EDE6;font-weight:700}
 .vp-coll-n{font-size:12.5px;color:#CFE0D6;line-height:1.35;flex:1 1 auto}
 .vp-coll-n b{color:#F1EDE6}
-.vp-coll .vp-status{margin-top:0;background:rgba(241,237,230,.1);color:#F1EDE6;border-color:transparent}
+/* La pastille d'ouverture vit DANS le bandeau. Sur le bandeau vert
+   d'origine elle doit s'éclaircir ; sur les habillages clairs, où le
+   bandeau est blanc, du texte crème serait invisible — elle garde donc
+   ses couleurs normales. */
+.vp-coll .vp-status{margin-top:0;border-color:transparent}
+:root:not([data-style]) .vp-coll .vp-status{background:rgba(241,237,230,.1);color:#F1EDE6}
 @media (prefers-reduced-motion:reduce){.vp-coll-j i{transition:none}}
 
 /* ---- le mot de l'organisateur ----
