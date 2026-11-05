@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-05b · facture vue';
+const VERSION = '2026-11-05c · vitrine, dimanche reglable, DLC au retrait';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -910,7 +910,7 @@ function nomJourFerie(date) {
    dont le lendemain est ouvrable : dimanche (retrait lundi) à jeudi
    (retrait vendredi). Vendredi et samedi restent fermés. */
 const JOURS_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
-const HEURE_DIMANCHE = '12:00';
+const HEURE_DIMANCHE = '12:00';   // valeur de repli si le réglage est vide
 
 function joursPlusTard(d, n) {
   const x = new Date(d);
@@ -919,8 +919,10 @@ function joursPlusTard(d, n) {
   return x;
 }
 // heure d'ouverture applicable à ce jour-là
-function heureOuvertureDu(date, heureDefaut) {
-  return date.getDay() === 0 ? HEURE_DIMANCHE : (heureDefaut || '09:00');
+function heureOuvertureDu(date, heureDefaut, heureDimanche) {
+  return date.getDay() === 0
+    ? (heureDimanche || HEURE_DIMANCHE)
+    : (heureDefaut || '09:00');
 }
 // peut-on prendre des commandes ce jour-là ?
 function jourCommandable(date) {
@@ -957,11 +959,11 @@ function horodatage(date, heure) {
   return new Date(`${a}-${m}-${j}T${heure}:00`).getTime();
 }
 // prochaine ouverture à partir de maintenant
-function prochaineOuverture(now, heureDefaut, heureFermeture) {
+function prochaineOuverture(now, heureDefaut, heureFermeture, heureDimanche) {
   for (let i = 0; i < 14; i += 1) {
     const d = joursPlusTard(new Date(now), i);
     if (!jourCommandable(d)) continue;
-    const debut = horodatage(d, heureOuvertureDu(d, heureDefaut));
+    const debut = horodatage(d, heureOuvertureDu(d, heureDefaut, heureDimanche));
     const fin = horodatage(d, heureFermeture || '19:30');
     if (i === 0 && now >= fin) continue;   // journée déjà terminée
     if (now < debut) return debut;
@@ -1052,6 +1054,19 @@ function remiseDe(p) {
 }
 
 // { classe, texte } pour la pastille DLC, ou null
+/* ---- DLC et jour de retrait ----
+   Un produit peut être bon aujourd'hui et périmé le jour où le voisin
+   vient le chercher : une commande passée le samedi soir n'est retirée
+   que le lundi. On compare donc la DLC au RETRAIT, jamais à
+   aujourd'hui. Vrai = ce produit ne tiendra pas jusque-là. */
+function dlcApresRetrait(p, dateRetrait) {
+  if (!p || !p.dlc || !dateRetrait) return false;
+  const d = dateDepuis(p.dlc);
+  const r = dateDepuis(dateRetrait);
+  if (!d || !r) return false;
+  return d.getTime() < r.getTime();
+}
+
 function infoDlc(dlc) {
   const j = joursAvantDlc(dlc);
   if (j === null) return null;
@@ -2307,6 +2322,11 @@ textarea.vp-input{resize:vertical;min-height:64px}
 /* combien de voisins ont pris ce produit — jamais lesquels */
 .vp-voisins{margin-top:5px;font-size:12px;font-weight:700;color:var(--green)}
 
+/* avertissement DLC : le produit ne tiendra pas jusqu'au retrait */
+.vp-dlcav{margin-top:6px;padding:7px 10px;border-radius:9px;background:#FFF4E2;
+  border:1px solid #F0DCB6;color:#7A5518;font-size:12px;line-height:1.4}
+[data-theme="sombre"] .vp-dlcav{background:#2C2214;border-color:#4C3A1E;color:#E8C98F}
+
 .vp-live{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:9px 13px;
   border-radius:10px;background:var(--blanc);border:1px solid var(--line);
   color:var(--muted);font-size:13px;font-weight:600}
@@ -2609,7 +2629,7 @@ export default function App() {
       const d = new Date(now);
       return {
         // le dimanche, l'ouverture est fixée à midi
-        ouvertureAt: horodatage(d, heureOuvertureDu(d, settings.heure_ouverture)),
+        ouvertureAt: horodatage(d, heureOuvertureDu(d, settings.heure_ouverture, settings.heure_dimanche)),
         fermetureAt: horodatage(d, settings.heure_fermeture || '19:30'),
       };
     } catch (e) { return { ouvertureAt: null, fermetureAt: null }; }
@@ -2622,7 +2642,9 @@ export default function App() {
   const forcee = !!settings
     && settings.ouverture_forcee_le === aujourdhuiStr();
   const prochaineAt = useMemo(
-    () => (settings ? prochaineOuverture(now, settings.heure_ouverture, settings.heure_fermeture) : null),
+    () => (settings
+      ? prochaineOuverture(now, settings.heure_ouverture, settings.heure_fermeture, settings.heure_dimanche)
+      : null),
     [now, settings],
   );
 
@@ -2641,8 +2663,9 @@ export default function App() {
     if (!settings) return null;
     if (!(conges && conges.bloque)) return prochaineAt;
     const depart = Math.max(now, conges.retour.getTime());
-    return prochaineOuverture(depart, settings.heure_ouverture, settings.heure_fermeture)
-      || horodatage(conges.retour, heureOuvertureDu(conges.retour, settings.heure_ouverture));
+    return prochaineOuverture(depart, settings.heure_ouverture, settings.heure_fermeture, settings.heure_dimanche)
+      || horodatage(conges.retour,
+        heureOuvertureDu(conges.retour, settings.heure_ouverture, settings.heure_dimanche));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, conges, prochaineAt, now]);
 
@@ -4064,6 +4087,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
      croyant qu'elle n'est pas passée. On interroge donc la base, qui
      seule connaît la vérité pour toute la personne et tous ses appareils. */
   const dateCible = precommande && infoPre ? infoPre.dateVente : settings.date_vente;
+  // le retrait a toujours lieu le lendemain de la journée de commande
+  const dateRetrait = useMemo(() => {
+    const d = dateDepuis(dateCible);
+    return d ? dateStr(joursPlusTard(d, 1)) : null;
+  }, [dateCible]);
   const [dejaCommande, setDejaCommande] = useState([]);
   const [alerteDoublon, setAlerteDoublon] = useState(false);
 
@@ -4404,6 +4432,10 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   };
 
   const ajouter = (p, v) => {
+    if (!peutCommander) {
+      showToast('Les commandes sont fermées pour le moment');
+      return;
+    }
     const reste = restantReel(p);
     if (reste !== null && reste <= 0) {
       const total = restantDe(p);
@@ -4842,6 +4874,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 </span>
               )}
             </div>
+            {dlcApresRetrait(p, dateRetrait) && (
+              <div className="vp-dlcav" style={{ marginTop: 12 }}>
+                <b>⚠️ Ce lot ne tiendra pas jusqu'à ton retrait.</b><br />
+                Sa date limite est le {fmtDateCourt(p.dlc)}, et tu viendras le chercher
+                le {fmtDateCourt(dateRetrait)}. Patrice le remplacera par un lot plus
+                frais s'il en a — auquel cas le prix peut être différent. S'il n'en a
+                pas, le produit ne sera pas dans ta commande et ne te sera pas facturé.
+              </div>
+            )}
             <div className="vp-fiche-d">
               {p.mode_vente === 'kg'
                 ? 'Vendu au kilo. Patrice pèse le lendemain matin et le prix suit le poids réel.'
@@ -4952,6 +4993,12 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                         Plus que {num(reste)} {p.mode_vente === 'kg' ? 'kg' : reste > 1 ? 'pièces' : 'pièce'}
                       </div>
                     )}
+                    {dlcApresRetrait(p, dateRetrait) && (
+                      <div className="vp-dlcav">
+                        ⚠️ À consommer jusqu'au {fmtDateCourt(p.dlc)}, donc avant ton
+                        retrait du {fmtDateCourt(dateRetrait)}.
+                      </div>
+                    )}
                     {/* à partir de deux : en dessous, le chiffre
                         désignerait une seule personne */}
                     {!fini && ((voisinsProduit || {})[String(p.id)] || 0) >= 2 && (
@@ -4995,17 +5042,20 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                     </div>
                   </div>
                   <div className="vp-step">
-                    {q > 0 && <button onClick={() => setQty(p, v, q - 1)}>−</button>}
-                    {q > 0 && <span className="vp-qty">{num(q)}</span>}
-                    {q > 0 && (
+                    {peutCommander && q > 0 && <button onClick={() => setQty(p, v, q - 1)}>−</button>}
+                    {peutCommander && q > 0 && <span className="vp-qty">{num(q)}</span>}
+                    {peutCommander && q > 0 && (
                       <button disabled={fini || restantReel(p) === 0}
                         onClick={() => ajouter(p, v)}>+</button>
                     )}
-                    {q <= 0 && (
+                    {peutCommander && q <= 0 && (
                       <button className="vp-add" disabled={fini}
                         onClick={() => ajouter(p, v)}>
                         {fini ? 'Épuisé' : 'Ajouter'}
                       </button>
+                    )}
+                    {!peutCommander && (
+                      <span className="vp-unavail">fermé</span>
                     )}
                   </div>
                 </div>
@@ -5190,7 +5240,11 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         </div>
       )}
 
-      {!peutCommander ? (
+      {/* Boutique fermée : on affiche l'avis, PUIS le catalogue.
+          Masquer les produits n'empêche personne de commander — c'est
+          déjà impossible — ça empêche seulement de regarder, et de
+          revenir. Le sauf-conduit est dans ajouter(), pas dans l'écran. */}
+      {!peutCommander && (
         <div className="vp-ferme">
           <span className="vp-ferme-ico">🕑</span>
           <b>
@@ -5205,9 +5259,13 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
               : 'Pas de livraisons ni de retrait les week-ends et jours fériés.'}
             {prochaineAt && <><br /><b className="vp-reouv">{texteReouverture(prochaineAt)}</b></>}
           </small>
-          <span className="vp-masque"> Reviens à la prochaine promo&nbsp;!</span>
+          <span className="vp-masque">
+            {' '}Tu peux déjà regarder les produits ci-dessous.
+          </span>
         </div>
-      ) : dispo.length === 0 ? (
+      )}
+
+      {dispo.length === 0 ? (
         <div className="vp-empty">Aucun produit pour l'instant.</div>
       ) : (
         <>
@@ -5697,6 +5755,18 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                       <label className="vp-label">Un mot pour la commande (facultatif)</label>
                       <textarea className="vp-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : je passe vers 18h…" />
                     </div>
+                    {lignes.some(({ p }) => dlcApresRetrait(p, dateRetrait)) && (
+                      <div className="vp-dlcav" style={{ marginBottom: 12 }}>
+                        <b>⚠️ Attention à la date limite</b><br />
+                        {lignes.filter(({ p }) => dlcApresRetrait(p, dateRetrait))
+                          .map(({ p }) => p.nom).join(', ')}
+                        {' '}: la date limite de consommation tombe avant ton retrait du
+                        {' '}{fmtDateCourt(dateRetrait)}. Patrice remplacera par un lot
+                        plus frais s'il en a, et le prix pourra alors être différent.
+                        Sinon, ce produit ne sera pas dans ta commande et ne te sera
+                        pas facturé.
+                      </div>
+                    )}
                     {dejaCommande.length > 0 && (
                       <div className="vp-rupt-note" style={{ marginBottom: 12 }}>
                         ⚠️ Tu as déjà {dejaCommande.length > 1 ? `${dejaCommande.length} commandes` : 'une commande'} enregistrée
@@ -8734,7 +8804,7 @@ function AdminExport({ commandes: toutes, produits, settings, showToast }) {
     }
     t += `🕒 Commandes jusqu'à ${settings.heure_fermeture}\n`;
     t += `👉 ${lien}\n\n`;
-    t += `Retrait le lendemain. Commandes du dimanche 12h au jeudi soir.\n`;
+    t += `Retrait le lendemain. Commandes du dimanche ${String(settings.heure_dimanche || '12:00').replace(':', 'h')} au jeudi soir.\n`;
     t += `Pas de livraisons ni de retrait les week-ends et jours fériés.`;
     return t;
   };
@@ -10799,6 +10869,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
   const [f, setF] = useState({
     titre: settings.titre,
     heure_ouverture: settings.heure_ouverture || '09:00',
+    heure_dimanche: settings.heure_dimanche || '12:00',
     heure_fermeture: settings.heure_fermeture,
     vente_active: settings.vente_active,
     message_accueil: settings.message_accueil || '',
@@ -11024,6 +11095,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
       titre: f.titre.trim() || 'Viande Noisy',
       date_vente: todayStr(),
       heure_ouverture: f.heure_ouverture, heure_fermeture: f.heure_fermeture,
+      heure_dimanche: f.heure_dimanche,
       vente_active: f.vente_active, message_accueil: f.message_accueil.trim() || null,
       marge_defaut: nombre(f.marge_defaut) || 0,
       whatsapp_url: f.whatsapp_url.trim() || null,
@@ -11108,7 +11180,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
             <div className="vp-h2">{f.vente_active ? '🟢 Activée' : '🔴 Désactivée'}</div>
             <div className="vp-sub">
               {f.vente_active
-                ? `${jourActuel} — la boutique suit le calendrier : dimanche 12h à jeudi ${f.heure_fermeture}`
+                ? `${jourActuel} — la boutique suit le calendrier : dimanche ${f.heure_dimanche} à jeudi ${f.heure_fermeture}`
                 : `${jourActuel} — boutique coupée, rien n'est visible`}
             </div>
           </div>
@@ -11193,6 +11265,9 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
           <div>
             <label className="vp-label">Ouverture auto (lun-ven)</label>
             <input className="vp-input" type="time" value={f.heure_ouverture} onChange={(e) => setF({ ...f, heure_ouverture: e.target.value })} />
+            <label className="vp-label" style={{ marginTop: 10 }}>Ouverture le dimanche</label>
+            <input className="vp-input" type="time" value={f.heure_dimanche}
+              onChange={(e) => setF({ ...f, heure_dimanche: e.target.value })} />
           </div>
           <div>
             <label className="vp-label">Fermeture auto</label>
@@ -11200,7 +11275,7 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
           </div>
         </div>
         <div className="vp-sub" style={{ marginTop: 8 }}>
-          Commandes ouvertes du <b>dimanche 12h</b> au <b>jeudi soir</b>, retrait le lendemain.
+          Commandes ouvertes du <b>dimanche {f.heure_dimanche}</b> au <b>jeudi soir</b>, retrait le lendemain.
           Vendredi et samedi fermés, ainsi que les jours fériés et la veille d'un jour férié
           (le retrait serait impossible). L'heure d'ouverture ci-dessus s'applique du lundi au
           jeudi ; le dimanche, c'est toujours 12h.
