@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-05a · reprise apres fermeture';
+const VERSION = '2026-11-05b · facture vue';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -3429,6 +3429,13 @@ function MonCompte({ settings, profil, chargerProfil, onFermer, showToast }) {
         .limit(20);
       setCommandes(data || []);
       setChargement(false);
+      /* La facture finalisée vient de s'afficher à l'écran : on le note,
+         une seule fois, pour que Wil sache qui a vu son montant. La
+         fonction ne peut marquer que les commandes de la personne
+         connectée, et seulement celles des quinze derniers jours. */
+      if ((data || []).some((c) => c.total_final != null && c.facture_vue_le == null)) {
+        await supabase.rpc('factures_vues');
+      }
     };
     charger();
   }, [profil]);
@@ -8888,6 +8895,18 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
 
   const [envoyes, setEnvoyes] = useState([]);
   const dejaEnvoye = (c) => envoyes.includes(c.id);
+  /* « vue » = sa facture finalisée s'est affichée dans son espace
+     membre. Pas qu'il l'a lue en détail, ni qu'il va payer. */
+  const quandVue = (t) => {
+    try {
+      const d = new Date(t);
+      const auj = new Date().toDateString() === d.toDateString();
+      const h = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      return auj ? `à ${h.replace(':', 'h')}` : `le ${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} à ${h.replace(':', 'h')}`;
+    } catch (e) { return ''; }
+  };
+  const nbVues = commandes.filter((c) => c.total_final != null && c.facture_vue_le).length;
+  const nbFinalisees = commandes.filter((c) => c.total_final != null).length;
   const marquerEnvoye = (c) => setEnvoyes((e) => (e.includes(c.id) ? e : [...e, c.id]));
 
   /* ---- numéro corrigé sur place ----
@@ -9769,6 +9788,11 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                   {envoyes.length}/{commandes.length}
                 </div>
                 <div className="vp-marge">envoyés</div>
+                {nbFinalisees > 0 && (
+                  <div className="vp-marge" style={{ marginTop: 2 }}>
+                    {nbVues}/{nbFinalisees} factures vues
+                  </div>
+                )}
               </div>
             </div>
 
@@ -9822,6 +9846,13 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
                           ? telDe(c)
                           : <span style={{ color: 'var(--wine)', fontWeight: 700 }}>sans numéro</span>}
                         {' · '}{eur(totalCmd(c))}
+                        {c.total_final != null && (
+                          c.facture_vue_le
+                            ? <span style={{ color: 'var(--green)', fontWeight: 700 }}>
+                                {' · '}facture vue {quandVue(c.facture_vue_le)}
+                              </span>
+                            : <span>{' · '}facture pas encore ouverte</span>
+                        )}
                       </small>
                     </span>
                     <div className="vp-macmd-b">
