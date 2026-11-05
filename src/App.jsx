@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-04n · rupture appliquee aux commandes';
+const VERSION = '2026-11-05a · reprise apres fermeture';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2633,6 +2633,19 @@ export default function App() {
   // compris sur une ouverture forcée — si tu es en congés, tu l'es.
   const conges = useMemo(() => infoFermeture(settings, now), [settings, now]);
 
+  /* Pendant une fermeture programmée, la « prochaine ouverture » n'est
+     pas celle du calendrier habituel : c'est la reprise. Sans ça l'app
+     annonçait deux dates contradictoires — la reprise dans le bandeau,
+     et le calendrier ordinaire juste en dessous. */
+  const prochaineReelle = useMemo(() => {
+    if (!settings) return null;
+    if (!(conges && conges.bloque)) return prochaineAt;
+    const depart = Math.max(now, conges.retour.getTime());
+    return prochaineOuverture(depart, settings.heure_ouverture, settings.heure_fermeture)
+      || horodatage(conges.retour, heureOuvertureDu(conges.retour, settings.heure_ouverture));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, conges, prochaineAt, now]);
+
   const ouvert = !!settings?.vente_active
     && !(conges && conges.bloque)
     && (forcee || (
@@ -2671,7 +2684,7 @@ export default function App() {
         <Client
           settings={settings} produits={produits} now={now}
           fermetureAt={fermetureAt} ouvertureAt={ouvertureAt} ouvert={ouvert}
-          estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineAt}
+          estSemaine={estSemaine} ferie={ferie} jourOuvert={jourOuvert} prochaineAt={prochaineReelle}
           forcee={forcee} conges={conges} commandees={commandees}
           voisinsProduit={voisinsProduit}
           rechargerStock={chargerCommandees} showToast={showToast}
@@ -5174,12 +5187,15 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
         <div className="vp-ferme">
           <span className="vp-ferme-ico">🕑</span>
           <b>
-            {ferie ? `Fermé — ${ferie}`
+            {conges && conges.bloque ? 'Commandes closes — fermeture exceptionnelle'
+              : ferie ? `Fermé — ${ferie}`
               : !jourOuvert ? 'Fermé ce jour'
               : 'Commandes fermées pour le moment'}
           </b>
           <small>
-            Pas de livraisons ni de retrait les week-ends et jours fériés.
+            {conges && conges.bloque
+              ? (conges.motif || 'La boutique est fermée pour quelques jours.')
+              : 'Pas de livraisons ni de retrait les week-ends et jours fériés.'}
             {prochaineAt && <><br /><b className="vp-reouv">{texteReouverture(prochaineAt)}</b></>}
           </small>
           <span className="vp-masque"> Reviens à la prochaine promo&nbsp;!</span>
