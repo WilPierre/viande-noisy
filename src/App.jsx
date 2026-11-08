@@ -3894,9 +3894,9 @@ function ArchivesTab() {
         const topItems = Object.entries(items).sort((a,b) => b[1].qty - a[1].qty).slice(0, 3);
         return (
           <div key={date} style={{ background: 'var(--bg)', border: '1.5px solid var(--border)', borderRadius: 14, padding: '1.1rem', marginBottom: '0.6rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.6rem' }}>
+            <div onClick={() => setOpenDate(openDate === date ? null : date)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.6rem', cursor: 'pointer' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)', textTransform: 'capitalize' }}>{date}</div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)', textTransform: 'capitalize' }}>{openDate === date ? '▼' : '▶'} {date}</div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text2)', marginTop: '0.1rem' }}>{orders.length} commandes</div>
               </div>
               <div style={{ textAlign: 'right' }}>
