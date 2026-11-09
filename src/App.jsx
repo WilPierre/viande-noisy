@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-05d · pastille lisible';
+const VERSION = '2026-11-09a · reperes dans la saisie';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -6098,7 +6098,9 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
   const [mode, setMode] = useState(commandes.length > 0 ? 'ajout' : 'nouvelle');
   const [cibleId, setCibleId] = useState(commandes[0] ? commandes[0].id : '');
   const [membres, setMembres] = useState([]);
+  const [reperes, setReperes] = useState({});
   const [membreId, setMembreId] = useState('');
+  const [filtreMembre, setFiltreMembre] = useState('');
   const [nom, setNom] = useState('');
   const [tel, setTel] = useState('');
   const [note, setNote] = useState('');
@@ -6119,15 +6121,45 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
   const [envoi, setEnvoi] = useState(false);
 
   useEffect(() => {
-    supabase.from('viande_clients').select('id, nom, telephone, alias_whatsapp')
-      .order('nom').then(({ data }) => setMembres(data || []));
+    Promise.all([
+      supabase.from('viande_clients').select('id, nom, telephone, alias_whatsapp').order('nom'),
+      chargerReperes(),
+    ]).then(([{ data }, reps]) => { setMembres(data || []); setReperes(reps || {}); });
   }, []);
+
+  /* Cinq Nicolas dans la liste : le prénom ne suffit pas à les
+     distinguer. On affiche donc le repère que tu leur as donné, et
+     le téléphone en dernier recours. */
+  const repereDe = (m) => {
+    const r = reperes[String(m.id)];
+    return (r && r.repere) || m.alias_whatsapp || '';
+  };
+  const telDeMembre = (m) => {
+    const r = reperes[String(m.id)];
+    return m.telephone || (r && r.telephone) || '';
+  };
+  const etiquetteMembre = (m) => {
+    const rep = repereDe(m);
+    const t = telDeMembre(m);
+    return `${m.nom}${rep ? ` — ${rep}` : ''}${t ? ` · ${t}` : ''}`;
+  };
 
   const choisirMembre = (id) => {
     setMembreId(id);
     const m = membres.find((x) => String(x.id) === String(id));
-    if (m) { setNom(m.nom); setTel(m.telephone || ''); }
+    if (m) { setNom(m.nom); setTel(telDeMembre(m)); }
   };
+
+  /* Le filtre réduit la liste déroulante, mais garde toujours la
+     personne déjà choisie — sinon le menu se viderait sous les doigts. */
+  const qMembre = normaliser(filtreMembre.trim());
+  const membresVus = qMembre
+    ? membres.filter((m) => String(m.id) === String(membreId)
+      || normaliser(m.nom).includes(qMembre)
+      || normaliser(repereDe(m)).includes(qMembre)
+      || String(telDeMembre(m)).replace(/\D/g, '').includes(qMembre.replace(/\D/g, '')))
+    : membres;
+  const membreChoisi = membres.find((m) => String(m.id) === String(membreId));
 
   const q = normaliser(recherche.trim());
   const trouves = q
@@ -6299,16 +6331,38 @@ function AdminSaisie({ commandes, produits, settings, onFait, onFermer, showToas
           {membres.length > 0 && (
             <div className="vp-field">
               <label className="vp-label">Membre inscrit (facultatif)</label>
+              {membres.length > 8 && (
+                <input className="vp-input" value={filtreMembre} autoComplete="off"
+                  style={{ marginBottom: 8 }}
+                  onChange={(e) => setFiltreMembre(e.target.value)}
+                  placeholder="Filtrer : prénom, repère ou téléphone…" />
+              )}
               <select className="vp-input" value={membreId} onChange={(e) => choisirMembre(e.target.value)}>
                 <option value="">— Personne sans compte —</option>
-                {membres.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.nom}{m.alias_whatsapp ? ` (${m.alias_whatsapp})` : ''}
-                  </option>
+                {membresVus.map((m) => (
+                  <option key={m.id} value={m.id}>{etiquetteMembre(m)}</option>
                 ))}
               </select>
+              {qMembre && membresVus.length === 0 && (
+                <div className="vp-sub" style={{ marginTop: 4, color: 'var(--wine)' }}>
+                  Aucun membre ne correspond à « {filtreMembre} ».
+                </div>
+              )}
+              {membreChoisi && (
+                <div className="vp-ajout" style={{ marginTop: 8 }}>
+                  Tu saisis pour <b>{membreChoisi.nom}</b>
+                  {repereDe(membreChoisi) && <> — <b>{repereDe(membreChoisi)}</b></>}
+                  {telDeMembre(membreChoisi) && <><br />{telDeMembre(membreChoisi)}</>}
+                  {reperes[String(membreChoisi.id)] && reperes[String(membreChoisi.id)].note && (
+                    <><br /><span style={{ color: 'var(--muted)' }}>
+                      {reperes[String(membreChoisi.id)].note}
+                    </span></>
+                  )}
+                </div>
+              )}
               <div className="vp-sub" style={{ marginTop: 4 }}>
                 Choisir un membre rattache la commande à son compte : il la verra dans son profil.
+                Les repères viennent de l'onglet Membres.
               </div>
             </div>
           )}
