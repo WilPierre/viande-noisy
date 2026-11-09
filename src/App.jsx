@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-09a · reperes dans la saisie';
+const VERSION = '2026-11-09b · detail au prix Patrice';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -839,6 +839,8 @@ function imprimerDocument(titre, corpsHTML) {
        il ne doit pas être en gris clair comme un détail secondaire */
     .qtec{color:#241E1B;font-weight:800;font-size:14px;white-space:nowrap;
       font-variant-numeric:tabular-nums}
+    /* prix unitaire rappelé sous un montant */
+    .pu{font-size:9.5px;color:#8A7E76;font-weight:400;margin-top:1px;white-space:nowrap}
 
     /* case à remplir à la main */
     .saisie{display:block;width:100%;max-width:120px;margin:0 auto;height:20px;
@@ -9482,17 +9484,25 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
     const blocs = retenues.map((c) => {
       const rows = (c.lignes || []).map((l) => {
         const rupt = estRupture(l);
+        /* Ce document sert à vérifier la facture de Patrice : le
+           détail doit donc être calculé avec SES prix, pas les tiens.
+           Le tien est rappelé en petit sous le montant à encaisser,
+           pour garder la marge lisible ligne par ligne. */
+        const unite = l.mode_vente === 'piece_fixe' ? '' : '/kg';
         const detail = rupt ? 'EN RUPTURE — non fourni'
           : l.mode_vente === 'piece_fixe'
-            ? `${partiel(l) ? `${num(qteLivree(l))} sur ${num(l.quantite)}` : num(l.quantite)} × ${eur(nombre(valWil(l)))}`
+            ? `${partiel(l) ? `${num(qteLivree(l))} sur ${num(l.quantite)}` : num(l.quantite)} × ${eur(nombre(valPat(l)))}`
           : estEstime(l) ? `${num(l.quantite)} ${l.mode_vente === 'kg' ? 'kg' : 'pc'} · poids à confirmer`
-          : `${num(poidsRetenu(l))} kg × ${eur(nombre(valWil(l)))}/kg`;
+          : `${num(poidsRetenu(l))} kg × ${eur(nombre(valPat(l)))}/kg`;
         const approx = estEstime(l) ? '≈ ' : '';
+        const cellMoi = rupt
+          ? '—'
+          : `${approx}${esc(eur(stLive(l)))}<div class="pu">${esc(eur(nombre(valWil(l))) + unite)}</div>`;
         return `<tr class="${rupt ? 'rupture' : ''}">
           <td class="prod"><span class="nom">${esc(nomLigne(l))}</span></td>
           <td class="qte">${esc(detail)}</td>
           <td class="n gris">${rupt ? '—' : approx + esc(eur(stPatriceLive(l)))}</td>
-          <td class="n">${rupt ? '—' : approx + esc(eur(stLive(l)))}</td>
+          <td class="n">${cellMoi}</td>
         </tr>`;
       }).join('');
       return `<div class="bloc">
@@ -9500,7 +9510,7 @@ function AdminPesees({ commandes, produits, settings, reload, showToast }) {
         <div class="tel">${esc(c.telephone || '')}</div>
         <table class="totaux">
           <colgroup><col class="t-prod"><col class="t-det"><col class="t-pat"><col class="t-moi"></colgroup>
-          <thead><tr><th>Produit</th><th>Détail</th><th class="n">Coût Patrice</th><th class="n">À encaisser</th></tr></thead>
+          <thead><tr><th>Produit</th><th>Détail · prix Patrice</th><th class="n">Coût Patrice</th><th class="n">À encaisser</th></tr></thead>
           <tbody>${rows}
             <tr class="ligne-tot">
               <td class="tot">Total</td><td></td>
