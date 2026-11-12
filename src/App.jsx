@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-12a · jour d arrivee des commandes';
+const VERSION = '2026-11-12b · ouverture exceptionnelle datee';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -11152,16 +11152,28 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
     showToast(nouveau ? 'Commandes hors horaires acceptées' : 'Commandes hors horaires refusées');
   };
 
-  const forceeAuj = settings.ouverture_forcee_le === todayStr();
-  const basculerForcage = async () => {
-    const valeur = forceeAuj ? null : todayStr();
+  /* ---- ouverture exceptionnelle ----
+     Elle ne vaut que pour UN jour, celui qui est enregistré ici. Avant,
+     seul « aujourd'hui » était possible : la préparer la veille pour un
+     jour férié ne marchait pas, elle expirait à minuit sans rien dire.
+     On peut maintenant choisir la date, et l'écran affiche toujours
+     celle qui est enregistrée — y compris quand elle est passée. */
+  const forcageDate = String(settings.ouverture_forcee_le || '').slice(0, 10);
+  const forceeAuj = forcageDate === todayStr();
+  const forcagePasse = !!forcageDate && forcageDate < todayStr();
+  const forcageAVenir = !!forcageDate && forcageDate > todayStr();
+
+  const ecrireForcage = async (valeur, message) => {
     const { error } = await supabase.from('viande_settings')
       .update({ ouverture_forcee_le: valeur, updated_at: new Date().toISOString() }).eq('id', 1);
     const err = messageErreur(error);
     if (err) { showToast(err); return; }
     reload();
-    showToast(valeur ? "Boutique ouverte pour aujourd'hui" : 'Ouverture exceptionnelle levée');
+    showToast(message);
   };
+  const basculerForcage = () => (forceeAuj
+    ? ecrireForcage(null, 'Ouverture exceptionnelle levée')
+    : ecrireForcage(todayStr(), "Boutique ouverte pour aujourd'hui"));
 
   const toggleVente = async () => {
     const nouveau = !f.vente_active;
@@ -11322,16 +11334,59 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
             <div className="vp-sub">
               {forceeAuj
                 ? "La boutique est ouverte aujourd'hui malgré le calendrier et les horaires. Elle se referme seule à minuit."
-                : "Force l'ouverture pour aujourd'hui, même un vendredi, un jour férié ou en dehors des horaires."}
+                : "Ouvre la boutique un jour précis, même un vendredi, un jour férié ou en dehors des horaires."}
             </div>
           </div>
           <div className={`vp-toggle ${forceeAuj ? 'on' : ''}`} onClick={basculerForcage} />
         </div>
+
         {forceeAuj && (
           <div className="vp-rupt-note" style={{ marginTop: 10 }}>
             Pense au retrait : une commande passée aujourd'hui se retire demain.
           </div>
         )}
+
+        {forcageAVenir && (
+          <div className="vp-note" style={{ marginTop: 10 }}>
+            ⏳ Ouverture exceptionnelle <b>programmée</b> pour le {enLettres(forcageDate)}.
+            Elle s'activera toute seule ce jour-là.
+          </div>
+        )}
+
+        {forcagePasse && (
+          <div className="vp-rupt-note" style={{ marginTop: 10 }}>
+            La dernière ouverture exceptionnelle était enregistrée pour le{' '}
+            <b>{enLettres(forcageDate)}</b> — elle est <b>expirée</b>. Une ouverture
+            exceptionnelle ne vaut que pour le jour choisi.
+          </div>
+        )}
+
+        <div className="vp-field" style={{ marginTop: 12 }}>
+          <label className="vp-label" htmlFor="forcage-date">
+            Ou programme-la pour un jour précis
+          </label>
+          <div style={{ display: 'flex', gap: 9 }}>
+            <input id="forcage-date" className="vp-input" type="date"
+              value={forcageDate}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                ecrireForcage(v, v === todayStr()
+                  ? "Boutique ouverte pour aujourd'hui"
+                  : `Ouverture programmée pour le ${enLettres(v)}`);
+              }} />
+            {forcageDate && (
+              <button className="vp-btn ghost" style={{ flex: '0 0 auto' }}
+                onClick={() => ecrireForcage(null, 'Ouverture exceptionnelle supprimée')}>
+                Retirer
+              </button>
+            )}
+          </div>
+          <div className="vp-sub" style={{ marginTop: 6 }}>
+            Utile la veille d'un jour férié : tu la poses à l'avance, elle s'active
+            toute seule le jour dit. Un seul jour à la fois.
+          </div>
+        </div>
       </div>
 
       {!estSemaine && !f.vente_active && (
