@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-12b · ouverture exceptionnelle datee';
+const VERSION = '2026-11-12c · produit phare';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -2342,6 +2342,30 @@ textarea.vp-input{resize:vertical;min-height:64px}
 
 /* combien de voisins ont pris ce produit — jamais lesquels */
 .vp-voisins{margin-top:5px;font-size:12px;font-weight:700;color:var(--green)}
+
+/* ---- produit phare ----
+   Un seul produit, en tête de boutique, pour une grosse promo. Tout
+   ce qui est gros ici doit rester lisible sur un écran de téléphone :
+   l'image occupe la largeur, le prix est le deuxième élément lu. */
+.vp-phare{position:relative;margin:16px 0 2px;border-radius:var(--radius);overflow:hidden;
+  background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);text-align:left}
+.vp-phare-haut{position:relative;display:block;width:100%;padding:0;border:none;
+  background:none;cursor:pointer}
+.vp-phare-img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block}
+.vp-phare-tuile{width:100%;aspect-ratio:16/10;display:grid;place-items:center;font-size:74px}
+.vp-phare-remise{position:absolute;top:12px;right:12px;padding:7px 12px;border-radius:999px;
+  background:var(--wine);color:#fff;font-family:'Bricolage Grotesque','Inter',sans-serif;
+  font-size:16px;font-weight:800;letter-spacing:-.02em;box-shadow:0 4px 14px rgba(0,0,0,.22)}
+.vp-phare-c{padding:14px 16px 16px}
+.vp-phare-e{display:inline-block;padding:4px 11px;border-radius:999px;background:var(--wine);
+  color:#fff;font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+.vp-phare-n{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:21px;font-weight:700;
+  letter-spacing:-.02em;line-height:1.2;margin-top:9px}
+.vp-phare-p{display:flex;align-items:baseline;gap:10px;margin-top:8px;flex-wrap:wrap}
+.vp-phare-p .ac{font-family:'Bricolage Grotesque','Inter',sans-serif;font-size:30px;
+  font-weight:800;letter-spacing:-.03em;color:var(--wine)}
+.vp-phare-b{display:flex;gap:9px;margin-top:13px}
+.vp-phare-b .vp-cta{margin-top:0;flex:1}
 
 /* avertissement DLC : le produit ne tiendra pas jusqu'au retrait */
 .vp-dlcav{margin-top:6px;padding:7px 10px;border-radius:9px;background:#FFF4E2;
@@ -4838,6 +4862,24 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
   // sauter le focus des champs de la page.
   // « ou » distingue les deux endroits où un produit peut apparaître
   // (liste de sa catégorie, rubrique favoris) pour cibler le bon.
+  /* ---- produit phare ----
+     On n'affiche rien si le produit a disparu, est en brouillon, hors
+     vente, en rupture ou épuisé : une méga promo sur un article qu'on
+     ne peut pas acheter fait plus de mal que pas de promo du tout. */
+  const phare = (() => {
+    if (!settings.phare_actif || !settings.phare_produit_id) return null;
+    const p = (produits || []).find((x) => String(x.id) === String(settings.phare_produit_id));
+    if (!p) return null;
+    if (p.brouillon || !p.disponible || p.rupture) return null;
+    const r = restantDe(p);
+    if (r !== null && r <= 0) return null;
+    return p;
+  })();
+  const prixPhare = phare ? prixVariante(phare, varianteActive(phare), 'prix_william') : 0;
+  const remisePhare = (phare && phare.prix_barre > 0 && phare.prix_barre > prixPhare)
+    ? Math.round(((phare.prix_barre - prixPhare) / phare.prix_barre) * 100)
+    : 0;
+
   const fiche = ficheId
     ? (produits || []).find((x) => String(x.id) === decodeURIComponent(ficheId))
     : null;
@@ -5257,6 +5299,53 @@ function Client({ settings, produits, now, fermetureAt, ouvertureAt, ouvert, est
                 ? `La boutique rouvre ${conges.txtRetour}. À très vite !`
                 : `Dernière commande ${conges.txtDerniereCommande}, retrait ${conges.txtDernierRetrait}. Ensuite, pause jusqu'au ${conges.txtRetour.replace(/^\w+ /, '')}.`}
             </small>
+          </div>
+        </div>
+      )}
+
+      {phare && (
+        <div className="vp-phare">
+          <button className="vp-phare-haut" onClick={() => ouvrirFiche(phare)}
+            aria-label={`Voir la fiche de ${phare.nom}`}>
+            {phare.photo_url ? (
+              <img src={phare.photo_url} alt={phare.nom} className="vp-phare-img" />
+            ) : (
+              <div className="vp-phare-tuile" style={{
+                background: `linear-gradient(135deg, ${teintesDe(phare)[0]} 0%, ${teintesDe(phare)[1]} 100%)`,
+              }}>
+                <span>{phare.emoji}</span>
+              </div>
+            )}
+            {remisePhare > 0 && <span className="vp-phare-remise">−{remisePhare} %</span>}
+          </button>
+          <div className="vp-phare-c">
+            <span className="vp-phare-e">
+              {settings.phare_accroche || 'Le coup de cœur'}
+            </span>
+            <div className="vp-phare-n">
+              {phare.origine_fr && <DrapeauFR taille={15} />} {phare.nom}
+            </div>
+            <div className="vp-phare-p">
+              {phare.prix_barre > 0 && phare.prix_barre > prixPhare && (
+                <span className="vp-prix-barre">{eur(phare.prix_barre)}</span>
+              )}
+              <span className="ac">{eur(prixPhare)}{MODES[phare.mode_vente].suffixe}</span>
+            </div>
+            {restantDe(phare) !== null && restantDe(phare) <= 5 && (
+              <div className="vp-reste">Plus que {num(restantDe(phare))}</div>
+            )}
+            <div className="vp-phare-b">
+              {peutCommander ? (
+                <button className="vp-cta" onClick={() => ajouter(phare, varianteActive(phare))}>
+                  Ajouter au panier
+                </button>
+              ) : (
+                <button className="vp-btn ghost" style={{ flex: 1 }}
+                  onClick={() => ouvrirFiche(phare)}>
+                  Voir le produit
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -6097,7 +6186,7 @@ function Admin({ settings, produits, ouvert, estSemaine, enLigne, commandees, re
         <AdminFournisseur showToast={showToast} pinAdmin={pinValide}
           onLu={() => setNouvP(0)} />
       )}
-      {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
+      {tab === 'reglages' && <AdminReglages settings={settings} commandes={commandes} produits={produits} estSemaine={estSemaine} reload={reload} showToast={showToast} />}
 
       <div className="vp-foot">
         <button onClick={() => { window.location.hash = ''; }}>← Voir la boutique</button>
@@ -10948,11 +11037,12 @@ function AdminSondage({ settings, reload, showToast, onLu }) {
 }
 
 /* ---------- Admin : Réglages ---------- */
-function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
+function AdminReglages({ settings, commandes, produits, estSemaine, reload, showToast }) {
   const [f, setF] = useState({
     titre: settings.titre,
     heure_ouverture: settings.heure_ouverture || '09:00',
     heure_dimanche: settings.heure_dimanche || '12:00',
+    phare_accroche: settings.phare_accroche || '',
     heure_fermeture: settings.heure_fermeture,
     vente_active: settings.vente_active,
     message_accueil: settings.message_accueil || '',
@@ -11158,6 +11248,35 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
      jour férié ne marchait pas, elle expirait à minuit sans rien dire.
      On peut maintenant choisir la date, et l'écran affiche toujours
      celle qui est enregistrée — y compris quand elle est passée. */
+  /* ---- produit phare ----
+     Le prix n'est pas saisi ici : c'est celui de la fiche produit, avec
+     son prix barré. Une promo affichée à un endroit et facturée à un
+     autre, c'est comme ça qu'on se retrouve avec deux vérités. */
+  const [filtrePhare, setFiltrePhare] = useState('');
+  const phareId = String(settings.phare_produit_id || '');
+  const phareProduit = (produits || []).find((p) => String(p.id) === phareId) || null;
+  const ecrirePhare = async (champs, message) => {
+    const { error } = await supabase.from('viande_settings')
+      .update({ ...champs, updated_at: new Date().toISOString() }).eq('id', 1);
+    const err = messageErreur(error);
+    if (err) { showToast(err); return; }
+    reload();
+    if (message) showToast(message);
+  };
+  const qPhare = normaliser(filtrePhare.trim());
+  const phareListe = (produits || [])
+    .filter((p) => !p.brouillon)
+    .filter((p) => String(p.id) === phareId || !qPhare || normaliser(p.nom).includes(qPhare))
+    .slice(0, 60);
+  const pharePrix = phareProduit
+    ? prixVariante(phareProduit, (variantesDe(phareProduit) || [])[0] || null, 'prix_william')
+    : 0;
+  const phareSouci = phareProduit
+    ? (!phareProduit.disponible ? 'il est hors vente'
+      : phareProduit.rupture ? 'il est en rupture'
+      : null)
+    : (phareId ? 'ce produit n\u2019existe plus' : null);
+
   const forcageDate = String(settings.ouverture_forcee_le || '').slice(0, 10);
   const forceeAuj = forcageDate === todayStr();
   const forcagePasse = !!forcageDate && forcageDate < todayStr();
@@ -11323,6 +11442,77 @@ function AdminReglages({ settings, commandes, estSemaine, reload, showToast }) {
           </div>
           <div className={`vp-toggle ${f.precommande_active ? 'on' : ''}`} onClick={basculerPrecommande} />
         </div>
+      </div>
+
+      <div className="vp-section">
+        <div className="vp-srow">
+          <div>
+            <div className="vp-h2" style={{ fontSize: 16 }}>
+              {settings.phare_actif ? '⭐ Produit phare affiché' : 'Produit phare'}
+            </div>
+            <div className="vp-sub">
+              Un seul produit, en très grand tout en haut de la boutique. Son prix
+              reste celui de sa fiche — mets-y un prix barré dans l'onglet Produits
+              et la remise s'affichera en pastille.
+            </div>
+          </div>
+          <div className={`vp-toggle ${settings.phare_actif ? 'on' : ''}`}
+            onClick={() => ecrirePhare(
+              { phare_actif: !settings.phare_actif },
+              !settings.phare_actif ? 'Produit phare affiché' : 'Produit phare masqué',
+            )} />
+        </div>
+
+        <div className="vp-field" style={{ marginTop: 12 }}>
+          <label className="vp-label">Quel produit</label>
+          <input className="vp-input" value={filtrePhare} autoComplete="off"
+            style={{ marginBottom: 8 }} placeholder="Filtrer par nom…"
+            onChange={(e) => setFiltrePhare(e.target.value)} />
+          <select className="vp-input" value={phareId}
+            onChange={(e) => ecrirePhare({ phare_produit_id: e.target.value || null },
+              e.target.value ? 'Produit phare enregistré' : 'Produit phare retiré')}>
+            <option value="">— Aucun —</option>
+            {phareListe.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nom} · {eur(prixVariante(p, (variantesDe(p) || [])[0] || null, 'prix_william'))}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="vp-field">
+          <label className="vp-label">Accroche</label>
+          <input className="vp-input" value={f.phare_accroche}
+            placeholder="Le coup de cœur"
+            onChange={(e) => setF({ ...f, phare_accroche: e.target.value })}
+            onBlur={() => ecrirePhare({ phare_accroche: f.phare_accroche.trim() || null })} />
+          <div className="vp-sub" style={{ marginTop: 4 }}>
+            Quelques mots, affichés en pastille au-dessus du nom. Vide = « Le coup de cœur ».
+          </div>
+        </div>
+
+        {phareProduit && (
+          <div className="vp-ajout" style={{ marginTop: 4 }}>
+            <b>{phareProduit.nom}</b> — {eur(pharePrix)}
+            {phareProduit.prix_barre > 0 && phareProduit.prix_barre > pharePrix && (
+              <> au lieu de {eur(phareProduit.prix_barre)}
+                {' '}(−{Math.round(((phareProduit.prix_barre - pharePrix) / phareProduit.prix_barre) * 100)} %)</>
+            )}
+            {!phareProduit.photo_url && (
+              <div className="vp-sub" style={{ marginTop: 4 }}>
+                Ce produit n'a pas de photo : la vignette sera une tuile de couleur.
+                En tête de boutique, une vraie photo change tout.
+              </div>
+            )}
+          </div>
+        )}
+
+        {phareSouci && (
+          <div className="vp-rupt-note" style={{ marginTop: 10 }}>
+            Le bloc ne s'affichera pas : {phareSouci}. Une grosse promo sur un article
+            qu'on ne peut pas acheter fait plus de mal que pas de promo du tout.
+          </div>
+        )}
       </div>
 
       <div className="vp-section">
