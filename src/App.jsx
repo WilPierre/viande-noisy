@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-09b · detail au prix Patrice';
+const VERSION = '2026-11-12a · jour d arrivee des commandes';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -948,6 +948,20 @@ function prochainsJoursVente(depuis, n) {
   return out;
 }
 // « mar. 03/11 » — assez court pour tenir sur un bouton de téléphone
+/* ---- quand la commande est arrivée ----
+   Une commande passée boutique fermée est rattachée à la journée
+   d'ouverture suivante : elle peut donc dater de la veille. Afficher
+   « 19h49 » tout seul fait croire à ce soir. Dès que le jour de
+   création diffère de la journée de vente, on l'écrit. */
+function quandArrivee(c) {
+  if (!c || !c.created_at) return '';
+  const d = new Date(c.created_at);
+  if (isNaN(d.getTime())) return '';
+  const h = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  if (dateStr(d) === String(c.date_vente || '').slice(0, 10)) return h;
+  return `${d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })} · ${h}`;
+}
+
 function fmtJourBref(d) {
   const x = dateDepuis(d);
   return x
@@ -7262,7 +7276,7 @@ function AdminCommandes({ commandes, ouvert, reload, showToast, produits, settin
                 {c.precommande && <span className="vp-badge-pre">🌙 HORS HORAIRES</span>}
                 {c.statut === 'finalisee' && <span className="vp-pill" style={{ color: 'var(--green)' }}>finalisée</span>}
               </span>
-              <span className="vp-cmd-time">{new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="vp-cmd-time">{quandArrivee(c)}</span>
             </div>
             {alias[String(c.user_id)] && <div className="vp-alias">🏷️ {alias[String(c.user_id)]}</div>}
             {c.telephone && <div className="vp-sub">{c.telephone}</div>}
