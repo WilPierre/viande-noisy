@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-12c · produit phare';
+const VERSION = '2026-11-12d · selection des commandes a l export';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -8823,10 +8823,21 @@ function AdminExport({ commandes: toutes, produits, settings, showToast }) {
      préparer deux fois. Ce filtre ne change rien en base : il ne
      retire les commandes que des documents imprimés et copiés. */
   const [sansFinalisees, setSansFinalisees] = useState(false);
+  const [exclus, setExclus] = useState([]);
+  const [choixOuvert, setChoixOuvert] = useState(false);
   const nbFinalisees = (toutes || []).filter((c) => c.statut === 'finalisee').length;
-  const commandes = sansFinalisees
-    ? (toutes || []).filter((c) => c.statut !== 'finalisee')
-    : (toutes || []);
+  const estExclu = (c) => exclus.includes(String(c.id));
+  const basculerExclu = (c) => setExclus((x) => (
+    x.includes(String(c.id)) ? x.filter((i) => i !== String(c.id)) : [...x, String(c.id)]
+  ));
+  const totalDe = (c) => (c.total_final != null ? c.total_final : c.total_estime) || 0;
+  const commandes = (toutes || [])
+    .filter((c) => !(sansFinalisees && c.statut === 'finalisee'))
+    .filter((c) => !estExclu(c));
+  const nbEcartees = (toutes || []).length - commandes.length;
+  const mentionEcart = nbEcartees > 0
+    ? ` · ${nbEcartees} commande(s) écartée(s)`
+    : '';
 
   // agrégation par produit + variante
   const agg = {};
@@ -8908,7 +8919,7 @@ function AdminExport({ commandes: toutes, produits, settings, showToast }) {
         <div>
           <h1>Feuille de pesée</h1>
           <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
-            · ${commandes.length} client(s) · à remplir par Patrice${sansFinalisees ? ' · commandes déjà finalisées exclues' : ''}</div>
+            · ${commandes.length} client(s) · à remplir par Patrice${mentionEcart}</div>
         </div>
       </div>
       ${blocs}
@@ -8933,7 +8944,7 @@ function AdminExport({ commandes: toutes, produits, settings, showToast }) {
         <div>
           <h1>Commande groupée</h1>
           <div class="meta"><b>${esc(settings.titre)}</b> — ${esc(fmtDateCourt(settings.date_vente))}
-            · quantités cumulées de ${commandes.length} commande(s)${sansFinalisees ? ' · commandes déjà finalisées exclues' : ''}</div>
+            · quantités cumulées de ${commandes.length} commande(s)${mentionEcart}</div>
         </div>
       </div>
       <table>
@@ -8975,6 +8986,87 @@ function AdminExport({ commandes: toutes, produits, settings, showToast }) {
 
   return (
     <>
+      {(toutes || []).length > 0 && (
+        <div className="vp-section">
+          <div className="vp-srow">
+            <div>
+              <div className="vp-h2" style={{ fontSize: 16 }}>
+                Commandes prises en compte · {commandes.length}/{(toutes || []).length}
+              </div>
+              <div className="vp-sub">
+                Vaut pour tout cet onglet : la feuille de pesée, le récap pour Patrice,
+                l'impression par produit et le fichier Excel. Rien n'est modifié en base.
+              </div>
+            </div>
+            <button className="vp-btn ghost sm" onClick={() => setChoixOuvert((o) => !o)}>
+              {choixOuvert ? 'Masquer' : 'Choisir'}
+            </button>
+          </div>
+
+          {nbFinalisees > 0 && (
+            <div className="vp-srow" style={{ marginTop: 12, gap: 12 }}>
+              <div>
+                <b style={{ fontSize: 13.5 }}>Ignorer les commandes déjà finalisées</b>
+                <div className="vp-sub" style={{ marginTop: 2 }}>
+                  {nbFinalisees} commande{nbFinalisees > 1 ? 's' : ''} de cette journée
+                  {nbFinalisees > 1 ? ' sont' : ' est'} déjà finalisée{nbFinalisees > 1 ? 's' : ''}.
+                </div>
+              </div>
+              <div className={`vp-toggle ${sansFinalisees ? 'on' : ''}`}
+                style={{ flex: '0 0 auto' }}
+                onClick={() => setSansFinalisees(!sansFinalisees)} />
+            </div>
+          )}
+
+          {choixOuvert && (
+            <div className="vp-liste" style={{ marginTop: 12 }}>
+              {(toutes || []).map((c) => {
+                const auto = sansFinalisees && c.statut === 'finalisee';
+                const dedans = !estExclu(c) && !auto;
+                return (
+                  <label className="vp-liste-l" key={`ex-${c.id}`}
+                    style={{ cursor: auto ? 'default' : 'pointer', gap: 10 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <input type="checkbox" checked={dedans} disabled={auto}
+                        onChange={() => basculerExclu(c)}
+                        style={{ width: 20, height: 20, accentColor: 'var(--wine)', flex: '0 0 auto' }} />
+                      <span style={{
+                        textDecoration: dedans ? 'none' : 'line-through',
+                        opacity: dedans ? 1 : 0.55,
+                      }}>
+                        {c.nom_client}
+                        {c.statut === 'finalisee' && (
+                          <span className="vp-pill" style={{ marginLeft: 6, color: 'var(--green)' }}>finalisée</span>
+                        )}
+                      </span>
+                    </span>
+                    <b style={{ opacity: dedans ? 1 : 0.45, whiteSpace: 'nowrap' }}>
+                      {eur(totalDe(c))}
+                    </b>
+                  </label>
+                );
+              })}
+              <div className="vp-grid2" style={{ marginTop: 10 }}>
+                <button className="vp-btn ghost sm" onClick={() => setExclus([])}>
+                  Tout compter
+                </button>
+                <button className="vp-btn ghost sm"
+                  onClick={() => setExclus((toutes || []).map((c) => String(c.id)))}>
+                  Tout écarter
+                </button>
+              </div>
+            </div>
+          )}
+
+          {nbEcartees > 0 && (
+            <div className="vp-rupt-note" style={{ marginTop: 10 }}>
+              {nbEcartees} commande{nbEcartees > 1 ? 's' : ''} écartée{nbEcartees > 1 ? 's' : ''} des
+              documents de cet onglet. Les commandes elles-mêmes ne bougent pas.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="vp-section">
         <div className="vp-srow">
           <div>
@@ -8993,21 +9085,6 @@ function AdminExport({ commandes: toutes, produits, settings, showToast }) {
         <div className="vp-h2">Récap pour Patrice</div>
         <div className="vp-sub">Quantités cumulées de toutes les commandes. À envoyer après la fermeture.</div>
 
-        {nbFinalisees > 0 && (
-          <div className="vp-srow" style={{ marginTop: 12, gap: 12 }}>
-            <div>
-              <b style={{ fontSize: 13.5 }}>Ignorer les commandes déjà finalisées</b>
-              <div className="vp-sub" style={{ marginTop: 2 }}>
-                {nbFinalisees} commande{nbFinalisees > 1 ? 's' : ''} de cette journée
-                {nbFinalisees > 1 ? ' sont' : ' est'} déjà finalisée{nbFinalisees > 1 ? 's' : ''}.
-                Les exclure ne change rien en base : seulement ce qui s'imprime et se copie.
-              </div>
-            </div>
-            <div className={`vp-toggle ${sansFinalisees ? 'on' : ''}`}
-              style={{ flex: '0 0 auto' }}
-              onClick={() => setSansFinalisees(!sansFinalisees)} />
-          </div>
-        )}
 
         {nbRupture > 0 && (
           <div className="vp-rupt-note">
