@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 ============================================================ */
 // Marqueur de version — affiché en bas de la boutique.
 // Sert à vérifier d'un coup d'œil quelle version est réellement déployée.
-const VERSION = '2026-11-12d · selection des commandes a l export';
+const VERSION = '2026-11-13a · stock restant visible';
 
 const SB_URL = process.env.REACT_APP_SUPABASE_URL;
 const SB_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -8366,14 +8366,25 @@ function AdminProduits({ produits, settings, commandees, reload, showToast, pinA
               ? 'Aucune limite : le produit reste commandable tant que tu ne le désactives pas.'
               : `Pour UNE journée de vente. Au-delà de ${num(nombre(form.stock))}, le produit passe en « épuisé » tout seul, et redevient disponible à la vente suivante.`}
           </div>
-          {form.id && commandees && commandees[String(form.id)] > 0 && (
-            <div className="vp-rupt-note" style={{ marginTop: 8 }}>
-              Déjà commandé aujourd'hui : <b>{num(commandees[String(form.id)])}</b>.
-              {String(form.stock).trim() !== '' && (
-                <> Il resterait <b>{num(Math.max(0, cts(nombre(form.stock) - commandees[String(form.id)])))}</b>.</>
-              )}
-            </div>
-          )}
+          {form.id && String(form.stock).trim() !== '' && (() => {
+            /* Le nombre saisi ci-dessus est la CAPACITÉ d'une journée ; il ne
+               bouge jamais. Ce qui reste se recalcule à chaque commande, d'où
+               ce rappel — sans lui on croit que le stock ne descend pas. */
+            const pris = Number((commandees || {})[String(form.id)]) || 0;
+            const reste = Math.max(0, cts(nombre(form.stock) - pris));
+            return (
+              <div className="vp-rupt-note" style={{ marginTop: 8 }}>
+                Aujourd'hui : <b>{num(pris)}</b> commandé{pris > 1 ? 's' : ''},
+                il reste <b>{num(reste)}</b> sur {num(nombre(form.stock))}.
+                {reste === 0 && <> Le produit est déjà affiché « épuisé ».</>}
+                <div className="vp-sub" style={{ marginTop: 4 }}>
+                  Le nombre saisi ci-dessus est la quantité disponible <b>par journée
+                  de vente</b> : il ne descend pas, il repart de {num(nombre(form.stock))}
+                  {' '}à chaque nouvelle journée.
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="vp-srow" style={{ marginTop: 14 }}>
@@ -8457,14 +8468,18 @@ function AdminProduits({ produits, settings, commandees, reload, showToast, pinA
                 {m.label} · Patrice {eur(p.prix_patrice)} → toi {eur(p.prix_william)}{m.suffixe}
                 {p.prix_patrice > 0 && <span className="vp-marge"> · +{mg}%</span>}
               </div>
-              {(dlc || p.rupture || p.promo || dlcDepassee(p) || rangCarrousel(p) > 0) && (
+              {(dlc || p.rupture || p.promo || dlcDepassee(p) || rangCarrousel(p) > 0
+                || (p.stock != null && p.stock !== '')) && (
                 <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {p.promo && <span className="vp-badge-promo"><span className="vp-eclair">⚡</span>PROMO</span>}
                   {p.stock != null && p.stock !== '' && (() => {
                     const r = stockRestant(p, commandees);
+                    const pris = Math.max(0, cts(Number(p.stock) - (r === null ? Number(p.stock) : r)));
                     return (
-                      <span className={`vp-badge-dbl ${r === 0 ? '' : ''}`}>
-                        STOCK {num(r)}/{num(p.stock)}
+                      <span className={r === 0 ? 'vp-badge-epuise' : 'vp-badge-dbl'}>
+                        {r === 0
+                          ? `ÉPUISÉ · ${num(p.stock)} VENDUS`
+                          : `RESTE ${num(r)} / ${num(p.stock)}${pris > 0 ? ` · ${num(pris)} PRIS` : ''}`}
                       </span>
                     );
                   })()}
